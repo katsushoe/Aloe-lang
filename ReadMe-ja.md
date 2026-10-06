@@ -90,7 +90,7 @@ let name: string = "Aloe";
 
 
 ```aloe
-main(args: string[]) {
+function main(args: string[]): int {
     let lines: pipe<string> = pipe<string>.create();
 
 
@@ -106,7 +106,7 @@ main(args: string[]) {
     }
 
 
-    _ = 0; // 終了コード
+    return 0; // 終了コード
 }
 ```
 
@@ -172,7 +172,7 @@ class User {
 }
 
 
-main(args: string[]) {
+function main(args: string[]): int {
     var u = new User("alice");
 
 
@@ -180,7 +180,7 @@ main(args: string[]) {
     p.printSelf();   // "User(alice)"
 
 
-    _ = 0;
+    return 0;
 }
 ```
 
@@ -333,7 +333,7 @@ struct UserInfo {
 }
 
 
-main(args: string[]) {
+function main(args: string[]): int {
     let request:  pipe<byte>    = pipe<byte>.create();
     let response: pipe<byte>    = pipe<byte>.create();
     let users:    pipe<UserInfo> = pipe<UserInfo>.create();
@@ -358,7 +358,7 @@ main(args: string[]) {
     }
 
 
-    _ = 0;
+    return 0;
 }
 ```
 

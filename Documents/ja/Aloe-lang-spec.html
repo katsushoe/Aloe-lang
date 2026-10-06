@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="58">
-  <meta name="edit-date" content="2026-10-06T08:33:38+09:00">
+  <meta name="edit-version" content="59">
+  <meta name="edit-date" content="2026-10-06T09:21:26+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -90,7 +90,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 58)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 59)</div>
 
 
     <h2>Chapters</h2>
@@ -109,7 +109,7 @@
         <li><a href="#ch10"><span class="chapter-index">10.</span>コレクション (Collections)</a></li>
         <li><a href="#ch11"><span class="chapter-index">11.</span>enum / bitfield enum</a></li>
         <li><a href="#ch12"><span class="chapter-index">12.</span>main ブロック (main Block)</a></li>
-        <li><a href="#ch13"><span class="chapter-index">13.</span>識別子 <code>_</code> (Underscore)</a></li>
+        <li><a href="#ch13"><span class="chapter-index">13.</span>単独 <code>_</code> は使用不可</a></li>
         <li><a href="#ch14"><span class="chapter-index">14.</span>swap キーワード</a></li>
         <li><a href="#ch15"><span class="chapter-index">15.</span>演算子 (Operators)</a></li>
         <li><a href="#ch16"><span class="chapter-index">16.</span>例外 (Exceptions)</a></li>
@@ -141,8 +141,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 58<br>
-      edit-date: 2026-10-06T08:33:38+09:00</p>
+      edit-version: 59<br>
+      edit-date: 2026-10-06T09:21:26+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -234,7 +234,7 @@
       <li>先頭文字は英字または <code>_</code> でなければならない。</li>
       <li>大文字小文字は区別される。</li>
       <li>キーワードと同じ綴りは使用できない。</li>
-      <li><code>_</code> は通常の識別子として使用できる（特別扱いしない）。</li>
+      <li><code>_</code> 単独は識別子として使用できない。<code>_name</code> や <code>foo_bar</code> のように他の文字と組み合わせた識別子内のアンダースコアは使用できる。</li>
       <li>ユニコード文字も使用できる（空白や区切り記号などは除外）。</li>
     </ul>
 
@@ -1307,10 +1307,11 @@ var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()
       <li>main が return するとプログラムを終了し、残存 Object Graph / Reference Group / CallBuffer は破棄可能とする。</li>
       <li>main の引数・戻り値形式は既存エントリポイント規則に従う。本節は実行コンテキストと Tick 駆動の意味論を追加する。</li>
     </ul>
-    <hr><h2 id="ch13">13. Identifier <code>_</code>（アンダースコア）</h2>
+    <hr><h2 id="ch13">13. Standalone <code>_</code>（廃止）</h2>
     <p>
-      Aloe では <code>_</code> は通常の識別子であり、特別な一時変数としての仕様は持たない。<br>
-      with ブロックでも、<code>_</code> は特別扱いしない（4.2 参照）。
+      <code>_</code> 単独を識別子として使う構文は廃止され、使用不可とする。<br>
+      終了コードや値の破棄を表す特別な意味も持たない。特に <code>_ = 0;</code> のような書き方はコンパイルエラーとする。<br>
+      <code>main</code> は <code>int</code> を返し、終了コードは <code>return</code> で返す。
     </p>
 
 

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Language Spec (Draft, English)</title>
-  <meta name="edit-version" content="58">
-  <meta name="edit-date" content="2026-10-06T08:33:38+09:00">
+  <meta name="edit-version" content="59">
+  <meta name="edit-date" content="2026-10-06T09:21:26+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -90,7 +90,7 @@
   <!-- Left menu -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - English + validity model (edit-version 58)</div>
+    <div class="subtitle">Draft - English + validity model (edit-version 59)</div>
 
 
     <h2>Chapters</h2>
@@ -109,7 +109,7 @@
         <li><a href="#ch10"><span class="chapter-index">10.</span>Collections</a></li>
         <li><a href="#ch11"><span class="chapter-index">11.</span>enum / bitfield enum</a></li>
         <li><a href="#ch12"><span class="chapter-index">12.</span>main Block</a></li>
-        <li><a href="#ch13"><span class="chapter-index">13.</span>Identifier <code>_</code> (Underscore)</a></li>
+        <li><a href="#ch13"><span class="chapter-index">13.</span>Standalone <code>_</code> is prohibited</a></li>
         <li><a href="#ch14"><span class="chapter-index">14.</span>swap Keyword</a></li>
         <li><a href="#ch15"><span class="chapter-index">15.</span>Operators</a></li>
         <li><a href="#ch16"><span class="chapter-index">16.</span>Exceptions</a></li>
@@ -138,8 +138,8 @@
   <main class="content">
     <h1 id="top">Aloe Language Spec (Draft, English)</h1>
     <p class="note">
-      edit-version: 58<br>
-      edit-date: 2026-10-06T08:33:38+09:00</p>
+      edit-version: 59<br>
+      edit-date: 2026-10-06T09:21:26+09:00</p>
     <p class="note">
       This document is an English draft based on the upstream specification.<br>
       In addition, it introduces a reference validity model using <strong>valid / invalid</strong> and
@@ -220,7 +220,7 @@
       <li>The first character must be a letter or <code>_</code>.</li>
       <li>Identifiers are case-sensitive.</li>
       <li>Keywords cannot be used as identifiers.</li>
-      <li><code>_</code> can be used as a normal identifier (no special meaning).</li>
+      <li>A standalone <code>_</code> is not a valid identifier. Underscores remain allowed inside identifiers such as <code>_name</code> and <code>foo_bar</code>.</li>
       <li>Unicode characters may be used (excluding whitespace and separators).</li>
     </ul>
 
@@ -1091,10 +1091,11 @@ var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()
       <li>When main returns, the program terminates and remaining Object Graph / Reference Group / CallBuffer state may be destroyed.</li>
       <li>The existing entry-point rules define main's argument and return-value form; this section adds execution-context and Tick-driving semantics.</li>
     </ul>
-    <hr><h2 id="ch13">13. Identifier <code>_</code> (Underscore)</h2>
+    <hr><h2 id="ch13">13. Standalone <code>_</code> (Removed)</h2>
     <p>
-      In Aloe, <code>_</code> is a normal identifier and has no special “temporary variable” meaning.<br>
-      In <code>with</code> blocks as well, <code>_</code> is not special (see 4.2).
+      Using a standalone <code>_</code> as an identifier has been removed and is prohibited.<br>
+      It has no special meaning for exit codes or discarded values; forms such as <code>_ = 0;</code> are compile errors.<br>
+      <code>main</code> returns <code>int</code>, and its exit code is returned with <code>return</code>.
     </p>
 
 
