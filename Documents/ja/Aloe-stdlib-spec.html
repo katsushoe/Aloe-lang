@@ -1,0 +1,753 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Aloe 標準ライブラリ仕様書（ドラフト、日本語版）</title>
+  <meta name="edit-version" content="5">
+  <meta name="edit-date" content="2026-10-06T08:33:38+09:00">
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "Hiragino Sans", "Yu Gothic", sans-serif;
+      line-height: 1.7;
+      background: #f5f5f7;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 1.5rem 1.25rem;
+      box-sizing: border-box;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1.1rem;
+      margin: 0 0 0.4rem;
+    }
+    .sidebar .subtitle {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-bottom: 1.4rem;
+    }
+    .sidebar h2 {
+      font-size: 0.85rem;
+      margin: 1.2rem 0 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #9ca3af;
+    }
+    .sidebar nav ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 0.9rem;
+    }
+    .sidebar nav li {
+      margin: 0.15rem 0;
+    }
+    .sidebar a {
+      color: inherit;
+      text-decoration: none;
+      display: block;
+      padding: 0.25rem 0.4rem;
+      border-radius: 0.35rem;
+    }
+    .sidebar a:hover {
+      background: #1f2937;
+    }
+    .sidebar .chapter-index {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-right: 0.35rem;
+    }
+
+
+    .content {
+      flex: 1;
+      max-width: 1100px;
+      padding: 2rem 3rem;
+      box-sizing: border-box;
+      margin: 0 auto;
+      background: #f9fafb;
+    }
+    h1, h2, h3, h4, h5 {
+      margin-top: 1.6em;
+      color: #111827;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    pre, code {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas,
+                   "Ricty Diminished", monospace;
+      font-size: 0.9rem;
+    }
+    pre {
+      background: #1118270d;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      border: 1px solid #e5e7eb;
+    }
+    ul, ol {
+      padding-left: 1.4em;
+    }
+    hr {
+      margin: 2.2rem 0;
+      border: none;
+      border-top: 1px solid #e5e7eb;
+    }
+    .note {
+      font-size: 0.9rem;
+      color: #4b5563;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 999px;
+      border: 1px solid #d1d5db;
+      background: #f3f4f6;
+      color: #4b5563;
+      margin-left: 0.4rem;
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+
+  <!-- 左側メニュー -->
+  <aside class="sidebar">
+    <h1>Aloe StdLib Spec</h1>
+    <div class="subtitle">Draft • Japanese • Core System / Log / Globals</div>
+
+
+    <h2>Chapters</h2>
+    <nav>
+      <ul>
+        <li><a href="#ch0"><span class="chapter-index">0.</span>概要</a></li>
+        <li><a href="#ch1"><span class="chapter-index">1.</span>名前空間と import ルール</a></li>
+        <li><a href="#ch2"><span class="chapter-index">2.</span>命名規則（関数 / 定数）</a></li>
+        <li><a href="#ch3"><span class="chapter-index">3.</span>グローバル定数（aloe）</a></li>
+        <li><a href="#ch4"><span class="chapter-index">4.</span>aloe.system（システム関数）</a></li>
+        <li><a href="#ch5"><span class="chapter-index">5.</span>aloe.log（ログレベル / ログ関数）</a></li>
+        <li><a href="#ch6"><span class="chapter-index">6.</span>エラーハンドラと LogLevel の扱い</a></li>
+        <li><a href="#ch7"><span class="chapter-index">7.</span>Aloe Runtime Object / Tick Integration</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+
+  <!-- 本文 -->
+  <main class="content">
+    <h1 id="top">Aloe 標準ライブラリ仕様書（ドラフト、日本語版）</h1>
+    <p class="note">
+      この文書は Aloe 言語仕様書の上に構築される
+      <strong>標準ライブラリ（StdLib）のコア部分</strong> のドラフトである。<br>
+      現時点では次の 3 つのコンポーネントにフォーカスする：
+    </p>
+    <ul>
+      <li><code>aloe</code> 名前空間に属する <strong>グローバル定数</strong></li>
+      <li><code>aloe.system</code> 名前空間に属する <strong>システム関数群</strong>（print / exit / エラーハンドラなど）</li>
+      <li><code>aloe.log</code> 名前空間に属する <strong>ログレベル定数とログ関数</strong></li>
+    </ul>
+    <p class="note">
+      今後、ファイル I/O やコレクション操作などのライブラリを別章として追加する予定だが、
+      本稿では扱わない。
+    </p>
+
+
+    <hr>
+
+
+    <h2 id="ch0">0. 概要</h2>
+    <p>
+      Aloe 標準ライブラリは、言語仕様書に定義された構文・型システム・例外体系の上に、
+      実用的なアプリケーションを構築するための共通機能を提供する。<br>
+      本仕様書では、Aloe の実行環境に強く依存する次の要素を定義する：
+    </p>
+    <ul>
+      <li>コンパイル時・実行時の環境情報にアクセスするための <strong>グローバル定数</strong></li>
+      <li>標準出力・標準エラー・プロセス終了などを扱う <strong>システム関数</strong></li>
+      <li>ログレベル定数およびログ出力 API と、それに紐づく <strong>グローバルエラーハンドラ</strong></li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch1">1. 名前空間と import ルール</h2>
+
+
+    <h3>1.1 コア名前空間</h3>
+    <ul>
+      <li><code>aloe</code>
+        <ul>
+          <li>バージョンやターゲット情報など、Aloe 全体に関わる <strong>グローバル定数</strong> を定義する。</li>
+          <li>特別扱いされる名前空間であり、<strong>import なし</strong> で全ての定数を参照できる。</li>
+        </ul>
+      </li>
+      <li><code>aloe.system</code>
+        <ul>
+          <li>標準出力・標準エラー・プロセス終了・エラーハンドラ等の
+              <strong>システム関数</strong>を定義する。</li>
+          <li>この名前空間も <strong>import なし</strong> で利用できる。</li>
+        </ul>
+      </li>
+      <li><code>aloe.log</code>
+        <ul>
+          <li>ログレベルを表す <code>bitfield enum LogLevel</code> と、ログ出力関数群を提供する。</li>
+          <li><code>aloe</code>, <code>aloe.system</code> と異なり、<strong>明示的な import が必要</strong> である。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>1.2 import の例</h3>
+<pre><code>import aloe.log.LogLevel;
+import aloe.log.log;
+import aloe.log.log_ex;
+
+
+function main(args: string[]): int {
+    log(LogLevel.Info, "Application started");
+    return 0;
+}
+</code></pre>
+
+
+    <hr>
+
+
+    <h2 id="ch2">2. 命名規則（関数 / 定数）</h2>
+
+
+    <h3>2.1 システム関数 / ライブラリ関数</h3>
+    <p>
+      標準ライブラリが提供する <strong>関数</strong> の名前は、次の規則に従う：
+    </p>
+    <ul>
+      <li>形式：<strong>ローワースネークケース（<code>lower_snake_case</code>）</strong></li>
+      <li>例：
+        <ul>
+          <li><code>print</code></li>
+          <li><code>println</code></li>
+          <li><code>echo</code></li>
+          <li><code>exit</code></li>
+          <li><code>set_error_handler</code></li>
+          <li><code>clear_error_handler</code></li>
+          <li><code>log</code></li>
+          <li><code>log_ex</code></li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>2.2 グローバル定数 / マジック定数</h3>
+    <p>
+      Aloe 標準ライブラリが提供する <strong>グローバル定数</strong> および <strong>マジック定数</strong> は、
+      すべて次の規則に従う：
+    </p>
+    <ul>
+      <li>形式：<strong>アッパースネークケース（<code>UPPER_SNAKE_CASE</code>）</strong></li>
+      <li>例：
+        <ul>
+          <li><code>ALOE_VERSION</code>, <code>ALOE_MAJOR_VERSION</code></li>
+          <li><code>ALOE_TARGET</code>, <code>ALOE_OS</code>, <code>ALOE_DEBUG</code></li>
+          <li><code>ALOE_INT_MIN</code>, <code>ALOE_INT_MAX</code></li>
+          <li><code>ALOE_BINDIR</code>, <code>ALOE_PLUGINDIR</code></li>
+          <li><code>__FILE__</code>, <code>__LINE__</code>, <code>__FUNCTION__</code></li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch3">3. グローバル定数（<code>aloe</code> 名前空間）</h2>
+
+
+    <p>
+      ここで定義する定数はすべて <code>aloe</code> 名前空間に属するが、
+      特別に <strong>import なしで参照可能</strong> とする。
+    </p>
+
+
+    <h3>3.1 バージョン / ビルド情報</h3>
+<pre><code>namespace aloe {
+    const ALOE_VERSION:         string;
+    const ALOE_MAJOR_VERSION:   int;
+    const ALOE_MINOR_VERSION:   int;
+    const ALOE_RELEASE_VERSION: int;
+
+
+    const ALOE_TARGET: string;
+    const ALOE_OS:     string;
+
+
+    const ALOE_DEBUG: bool;
+}
+</code></pre>
+    <ul>
+      <li><code>ALOE_VERSION</code>
+        <ul>
+          <li>Aloe のフルバージョン文字列（例：<code>"5.2.7-extra"</code>）。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_MAJOR_VERSION</code>
+        <ul>
+          <li>メジャーバージョン（例：<code>"5.2.7-extra"</code> → <code>5</code>）。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_MINOR_VERSION</code>
+        <ul>
+          <li>マイナーバージョン（例：<code>"5.2.7-extra"</code> → <code>2</code>）。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_RELEASE_VERSION</code>
+        <ul>
+          <li>リリース（パッチ）番号（例：<code>"5.2.7-extra"</code> → <code>7</code>）。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_TARGET</code>
+        <ul>
+          <li>ビルド時ターゲット（例：<code>"x86"</code>, <code>"x64"</code>, <code>"arm"</code>, <code>"wasm"</code>）。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_OS</code>
+        <ul>
+          <li>ビルド時 OS ファミリー。</li>
+          <li>値は次のいずれか：
+            <ul>
+              <li><code>"Windows"</code>, <code>"BSD"</code>, <code>"Darwin"</code>, <code>"Solaris"</code>, <code>"Linux"</code>, <code>"Unknown"</code></li>
+            </ul>
+          </li>
+        </ul>
+      </li>
+      <li><code>ALOE_DEBUG</code>
+        <ul>
+          <li>デバッグビルド時のみ <code>true</code>、それ以外（リリースビルド等）は <code>false</code>。</li>
+          <li>値はコンパイル時に確定し、実行時には変化しない。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>3.2 数値レンジ</h3>
+<pre><code>namespace aloe {
+    const ALOE_INT_MIN:   int;
+    const ALOE_INT_MAX:   int;
+    const ALOE_FLOAT_MIN: float;
+    const ALOE_FLOAT_MAX: float;
+}
+</code></pre>
+    <ul>
+      <li><code>ALOE_INT_MIN</code> / <code>ALOE_INT_MAX</code>
+        <ul>
+          <li>Aloe における <code>int</code> 型が取りうる最小値 / 最大値。</li>
+          <li>ビット幅は VM 実装依存だが、常にその実装の「安全な範囲」を表す。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_FLOAT_MIN</code>
+        <ul>
+          <li><code>float</code> 型の <strong>最小正の正規化値</strong>（0 より大きい最小の有限値）。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_FLOAT_MAX</code>
+        <ul>
+          <li><code>float</code> 型の <strong>最大有限値</strong>（Infinity は含まない）。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>3.3 パス・ディレクトリ・改行</h3>
+<pre><code>namespace aloe {
+    const ALOE_BINDIR:        string;
+    const ALOE_PLUGINDIR:     string;
+    const ALOE_MAX_PATHLEN:   int;
+    const ALOE_DIR_SEPARATOR: string;
+    const ALOE_EOL:           string;
+}
+</code></pre>
+    <ul>
+      <li><code>ALOE_BINDIR</code>
+        <ul>
+          <li>Aloe バイナリ（実行ファイル／ホストランタイム）が存在するディレクトリのパス。</li>
+          <li>実装上は絶対パスであることが推奨される。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_PLUGINDIR</code>
+        <ul>
+          <li>拡張プラグイン（フィルタ／アノテーションなど）がインストールされているディレクトリのパス。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_MAX_PATHLEN</code>
+        <ul>
+          <li>Aloe 標準ライブラリがサポートするパス文字列の最大文字数。</li>
+          <li>この値を超えるパスをファイル API に渡した場合の扱いは標準ライブラリ仕様で定義される。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_DIR_SEPARATOR</code>
+        <ul>
+          <li>OS 依存のパス区切り文字を表す 1 文字の文字列。</li>
+          <li>Windows 系では <code>"\"</code>、Unix 系（Linux / BSD / Darwin 等）では <code>"/"</code> を想定。</li>
+        </ul>
+      </li>
+      <li><code>ALOE_EOL</code>
+        <ul>
+          <li>論理的な改行文字列。</li>
+          <li>デフォルト実装では <code>"\n"</code> を用いる。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>3.4 マジック定数（位置・コンテキスト）</h3>
+<pre><code>namespace aloe {
+    const __FILE__:     string;
+    const __DIR__:      string;
+    const __LINE__:     int;
+    const __FUNCTION__: string;
+    const __METHOD__:   string;
+    const __CLASS__:    string;
+    const __TRAIT__:    string;
+}
+</code></pre>
+    <ul>
+      <li><code>__FILE__</code>
+        <ul>
+          <li>現在のソースファイルの論理パス。</li>
+        </ul>
+      </li>
+      <li><code>__DIR__</code>
+        <ul>
+          <li><code>__FILE__</code> のディレクトリ部分。</li>
+          <li>親ディレクトリを持たない場合は <code>"."</code> を用いる。</li>
+        </ul>
+      </li>
+      <li><code>__LINE__</code>
+        <ul>
+          <li>現在の行番号（1 始まり）。</li>
+        </ul>
+      </li>
+      <li><code>__FUNCTION__</code>
+        <ul>
+          <li>現在の関数／メソッドの単純名。</li>
+        </ul>
+      </li>
+      <li><code>__METHOD__</code>
+        <ul>
+          <li>現在のメソッドの完全名（例：<code>"Aloe.Sample.App.Run"</code>）。</li>
+        </ul>
+      </li>
+      <li><code>__CLASS__</code>
+        <ul>
+          <li>現在の class / struct / enum の完全名。</li>
+          <li>該当する宣言の内部でのみ定義される。</li>
+        </ul>
+      </li>
+      <li><code>__TRAIT__</code>
+        <ul>
+          <li>現在の trait の完全名。</li>
+          <li>trait 宣言の内部でのみ定義される。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch4">4. <code>aloe.system</code>（システム関数）</h2>
+
+
+    <p>
+      <code>aloe.system</code> は、標準出力・プロセス終了・エラーハンドラなど、実行環境に密接に関係するシステム関数を提供する。<br>
+      他の名前空間と異なり、<strong>import なしで全ての関数にアクセスできる。</strong>
+    </p>
+
+
+    <h3>4.1 標準出力</h3>
+<pre><code>namespace aloe.system {
+    function print(message: string): void;
+    function println(message: string): void;
+    function echo(message: string): void;
+}
+</code></pre>
+    <ul>
+      <li><code>print(message: string)</code>
+        <ul>
+          <li><code>message</code> を標準出力に出力する。</li>
+          <li>出力の最後に改行は付加しない。</li>
+        </ul>
+      </li>
+      <li><code>println(message: string)</code>
+        <ul>
+          <li><code>message</code> を標準出力に出力し、その後に <code>ALOE_EOL</code> を出力する。</li>
+        </ul>
+      </li>
+      <li><code>echo(message: string)</code>
+        <ul>
+          <li><code>print</code> と等価であり、改行なしで文字列を出力する。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>4.2 プロセス終了</h3>
+<pre><code>namespace aloe.system {
+    function exit(): void;
+    function exit(code: int): void;
+}
+</code></pre>
+    <ul>
+      <li><code>exit()</code>
+        <ul>
+          <li>プロセスを終了する。</li>
+          <li>戻り値（終了コード）は <code>0</code> とみなされる。</li>
+        </ul>
+      </li>
+      <li><code>exit(code: int)</code>
+        <ul>
+          <li>プロセスを終了し、指定された <code>code</code> を終了コードとして返す。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch5">5. <code>aloe.log</code>（ログレベル / ログ関数）</h2>
+
+
+    <p>
+      <code>aloe.log</code> は、ログレベルを表す bitfield enum と、ログ出力用の基本関数を提供する。<br>
+      <strong>この名前空間は明示的な import が必要</strong> である。
+    </p>
+
+
+    <h3>5.1 LogLevel（ログレベル定数）</h3>
+<pre><code>namespace aloe.log {
+    bitfield enum LogLevel {
+        None  : b(0),
+
+
+        Fatal : b(1),
+        Error : b(2),
+        Warn  : b(3),
+        Info  : b(4),
+        Debug : b(5),
+        Trace : b(6),
+
+
+        All   = Fatal | Error | Warn | Info | Debug | Trace
+    }
+}
+</code></pre>
+    <ul>
+      <li><code>LogLevel</code> は <code>bitfield enum</code> であり、ビット OR による組み合わせ指定が可能。</li>
+      <li>典型的な用途：
+        <ul>
+          <li>ロガー側で「どのレベルまで出力するか」を設定する。</li>
+          <li>エラーハンドラ登録時に「どのレベルのエラーを対象とするか」を指定する。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>5.2 ログ出力関数</h3>
+<pre><code>namespace aloe.log {
+    function log(level: LogLevel, message: string): void;
+    function log_ex(level: LogLevel, message: string, ex: Exception): void;
+}
+</code></pre>
+    <ul>
+      <li><code>log(level, message)</code>
+        <ul>
+          <li>指定された <code>level</code> と <code>message</code> をログとして出力する。</li>
+          <li>出力先（標準エラー／ファイル／外部システムなど）は VM / ランタイム実装に依存する。</li>
+        </ul>
+      </li>
+      <li><code>log_ex(level, message, ex)</code>
+        <ul>
+          <li><code>log</code> と同様だが、例外オブジェクト <code>ex</code> の情報（型名・メッセージ・スタックトレース等）も併せて記録する。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch6">6. エラーハンドラと LogLevel の扱い</h2>
+
+
+    <p>
+      Aloe では、未処理例外や致命的エラーの発生時に、ユーザー定義の
+      <strong>グローバルエラーハンドラ</strong> を呼び出すことができる。
+      この仕組みは <code>aloe.system</code> と <code>aloe.log</code> の連携によって実現される。
+    </p>
+
+
+    <h3>6.1 エラーハンドラ登録 API</h3>
+<pre><code>namespace aloe.system {
+    function set_error_handler(
+        handler: function(aloe.log.LogLevel, string, Exception?): void,
+        levels:  aloe.log.LogLevel = aloe.log.LogLevel.All
+    ): void;
+
+
+    function clear_error_handler(): void;
+}
+</code></pre>
+    <ul>
+      <li><code>set_error_handler(handler, levels)</code>
+        <ul>
+          <li>グローバルエラーハンドラを登録する。</li>
+          <li><code>handler</code> 引数は次のシグネチャを持つ関数である：
+<pre><code>function handler(level: aloe.log.LogLevel,
+                  message: string,
+                  ex: Exception?): void
+</code></pre>
+          </li>
+          <li><code>levels</code> には、このハンドラを呼び出す対象とするログレベルを <code>LogLevel</code> のビット OR で指定する。
+            <ul>
+              <li>省略時は <code>LogLevel.All</code>（全レベル対象）。</li>
+            </ul>
+          </li>
+          <li><code>set_error_handler</code> を複数回呼び出した場合、最後に登録したハンドラが有効になる。</li>
+        </ul>
+      </li>
+      <li><code>clear_error_handler()</code>
+        <ul>
+          <li>ユーザー定義のエラーハンドラを解除し、VM が持つデフォルトの処理（標準エラー出力、プロセス終了など）に戻す。</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>6.2 呼び出しタイミングの概略</h3>
+    <p>
+      正確なマッピング（どの例外がどの <code>LogLevel</code> に対応するか）は VM / ランタイム仕様で決定されるが、
+      概略として次のようなルールが想定される：
+    </p>
+    <ul>
+      <li>未処理例外によりスレッド／プロセスが終了する場合：
+        <ul>
+          <li><code>level = LogLevel.Fatal</code> または <code>LogLevel.Error</code></li>
+        </ul>
+      </li>
+      <li>リカバリ可能なランタイムエラー（例：非致命的な I/O エラー）の場合：
+        <ul>
+          <li><code>level = LogLevel.Error</code> または <code>LogLevel.Warn</code></li>
+        </ul>
+      </li>
+      <li>診断用の通知など：
+        <ul>
+          <li><code>level = LogLevel.Info</code>, <code>Debug</code>, <code>Trace</code> 等</li>
+        </ul>
+      </li>
+    </ul>
+    <p>
+      エラーハンドラの中からさらに例外を送出した場合の扱い（ハンドラ内エラー）は、VM 実装仕様で定義される。
+      多くの実装では、「ハンドラ内エラーは最終的に Fatal として扱い、プロセスを終了する」ことが推奨される。
+    </p>
+    <hr>
+
+
+    <h2 id="ch7">7. Aloe Runtime Object / Tick Integration</h2>
+    <p>
+      本章は、標準ライブラリと Aloe Runtime の Object / Tick / CallBuffer 実行モデルの境界を定義する。
+      Object ownership、CallBuffer、Volatile / Committed State、Reference Group の意味論そのものは言語仕様・VM仕様で定義する。
+    </p>
+
+
+    <h3>7.1 Object state access</h3>
+    <ul>
+      <li>標準ライブラリ / Host API が class Object の状態を公開する場合、外部からの同期取得は public property を使用する。</li>
+      <li>外部からの状態変更要求は public async method を使用し、対象 Object / type の CallBuffer に enqueue される。</li>
+      <li>public property setter や class member variable の外部直接 Write を標準 API の設計パターンとして使用しない。</li>
+    </ul>
+
+
+    <h3>7.2 tick() の位置付け</h3>
+    <ul>
+      <li><code>tick()</code> は main から VM Tick を同期実行する Runtime intrinsic または専用 statement とする。</li>
+      <li><code>tick()</code> は <code>aloe.system</code> の通常ライブラリ関数として固定しない。</li>
+      <li>return 時には現在 Tick の async Call、Volatile Commit、参照処理、GC が完了している。</li>
+    </ul>
+
+
+    <h3>7.3 Host synchronous Query</h3>
+    <p>
+      Keyboard.isDown / isPressed 等、Host 状態を同期的に問い合わせる static method を提供できる。
+      これらは呼び出した VMThread 上でその場で値を返す。
+    </p>
+    <ul>
+      <li>複数 VMThread から同時に呼ばれる可能性があるため、Host 実装の Thread Safety 要件を API ごとまたは共通規則として正式化する必要がある。</li>
+      <li>Thread Safety の具体規則は現時点では未決事項とする。</li>
+    </ul>
+
+
+    <h3>7.4 Host async command</h3>
+    <ul>
+      <li>Audio.play、Network.send、Renderer command 等を public static async method として表現できる。</li>
+      <li>instance を持たない async command は type ごとの Static CallBuffer を使用する。</li>
+      <li>同一 type の Static CallBuffer の逐次実行規則・実行 VMThread は未決事項とする。</li>
+    </ul>
+
+
+    <h3>7.5 Host side effect と Tick Atomicity</h3>
+    <p>
+      VM 内部 State は Volatile → Committed により Tick 単位の失敗処理を設計できるが、
+      Audio / Network / File / Renderer 等の Host 副作用は不可逆の場合がある。
+      async 未処理例外を Tick Failure とする場合、Host 副作用を即時実行するか Tick Commit 後まで遅延するかは未決事項とする。
+    </p>
+
+
+    <h3>7.6 Standard Library の責務外</h3>
+    <ul>
+      <li>CallBuffer の lock / scheduling / Tick Quiescence 判定は AloeVM / Runtime の責務である。</li>
+      <li>Reference Counting、Reference Group、Destruction Candidate、Runtime Temporary Reference は VM の寿命管理仕様である。</li>
+      <li>標準ライブラリはこれらの内部構造を public API として露出させない。</li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="editor-notes">Appendix: 編集ポリシー（仕様書本文ではない）</h2>
+    <p class="note">
+      <strong>生成 AI 向け編集ポリシー（Aloe 標準ライブラリ仕様書）：</strong><br>
+      ・この文書は Aloe 言語仕様書 / AloeVM 仕様書と同じ編集ポリシーで運用する。<br>
+      ・日本語版・英語版の内容（章構成・見出し・本文の意味）は常に一致させる。片方だけを勝手に簡略化 / 拡張しない。<br>
+      ・<code>edit-version</code> は標準ライブラリ仕様書内で単調増加とし、仕様本文（サンプルを含む）を変更したときだけ +1 する。減らしたり巻き戻したりしない。<br>
+      ・<code>edit-date</code> には、編集を反映した「その瞬間の Asia/Tokyo の現在時刻」を ISO 8601 形式で必ず書く。推測や他タイムゾーンの時刻を書いてはいけない。<br>
+      ・関係ない箇所については原則変更禁止。意味が同じでも、変数名やメソッド名、文言を「良かれと思って」書き換えない。<br>
+      ・新しい仕様追加や既存仕様の意味が変わる修正をしたくなった場合は、必ず一度ユーザーに相談し、合意を取ってから反映する。<br>
+      ・直前にユーザーが「正」として提示した全文 HTML を常に正本とみなし、その版に対する最小限の差分だけを適用する。<br>
+      ・もし直前の HTML が手元で再現できなくなった場合や、どこまでが最新かわからなくなった場合は、編集を続けず、必ずユーザーに確認する。<br>
+    </p>
+
+
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,1423 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="edit-version" content="12" />
+  <meta name="edit-date" content="2026-10-06T08:33:38+09:00" />
+  <title>AloeVM Specification (Draft)</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.7;
+      color: #222;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background: #111827;
+      color: #f9fafb;
+      padding: 1rem 0.75rem 2rem;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1.1rem;
+      margin: 0 0 0.5rem;
+      padding: 0 0.25rem;
+    }
+    .sidebar small {
+      display: block;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-bottom: 0.75rem;
+      padding: 0 0.25rem;
+    }
+    .nav-section-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+      margin: 0.75rem 0 0.25rem;
+      padding: 0 0.25rem;
+    }
+    .nav-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .nav-list li {
+      margin: 0;
+    }
+    .nav-link {
+      display: block;
+      padding: 0.25rem 0.5rem;
+      margin: 0 0.1rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      color: #e5e7eb;
+      text-decoration: none;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .nav-link:hover {
+      background: #374151;
+    }
+    .nav-link.active {
+      background: #4b5563;
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .content {
+      flex: 1;
+      padding: 1.5rem 2rem 3rem;
+      max-width: 980px;
+      margin: 0 auto;
+    }
+    .chapter {
+      display: none;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid #e5e7eb;
+      margin-bottom: 2rem;
+    }
+    .chapter.active {
+      display: block;
+    }
+    h2, h3, h4 {
+      line-height: 1.3;
+    }
+    h2 {
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 0.25rem;
+      margin-top: 0;
+    }
+    pre {
+      background: #f5f5f5;
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+    }
+    hr {
+      margin: 2rem 0;
+      border: none;
+      border-top: 1px solid #e5e7eb;
+    }
+    .note {
+      padding: 0.5rem 0.75rem;
+      border-left: 4px solid #888;
+      background: #fafafa;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 0.5rem 0 1rem;
+      min-width: 60%;
+    }
+    th, td {
+      border: 1px solid #d1d5db;
+      padding: 0.35rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f3f4f6;
+      font-weight: 600;
+    }
+    ul, ol { padding-left: 1.3rem; }
+    @media (max-width: 800px) {
+      .layout { flex-direction: column; }
+      .sidebar {
+        width: 100%;
+        position: static;
+        max-height: none;
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .sidebar h1, .sidebar small, .nav-section-title {
+        width: 100%;
+      }
+      .nav-list {
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .nav-list li {
+        flex: 0 0 50%;
+      }
+      .content {
+        padding: 1rem 1rem 3rem;
+      }
+    }
+  </style>
+  <script>
+    function showChapter(id) {
+      const chapters = document.querySelectorAll('.chapter');
+      chapters.forEach(ch => ch.classList.remove('active'));
+      const target = document.getElementById(id);
+      if (target) target.classList.add('active');
+
+
+      const links = document.querySelectorAll('.nav-link');
+      links.forEach(a => a.classList.remove('active'));
+      const activeLink = document.querySelector('.nav-link[data-target="' + id + '"]');
+      if (activeLink) activeLink.classList.add('active');
+
+
+      if (window.innerWidth <= 800) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+    window.addEventListener('DOMContentLoaded', () => {
+      const first = document.querySelector('.chapter');
+      if (first) first.classList.add('active');
+      const firstLink = document.querySelector('.nav-link');
+      if (firstLink) firstLink.classList.add('active');
+
+
+      document.querySelectorAll('.nav-link').forEach(a => {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          showChapter(a.dataset.target);
+        });
+      });
+    });
+  </script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>AloeVM Specification</h1>
+    <small>(Draft as of now. The contents may change or be extended in the future.)</small>
+
+
+    <div class="nav-section">
+      <div class="nav-section-title">Chapters</div>
+      <ul class="nav-list">
+        <li><a class="nav-link" data-target="vm-ch0">0. Overview</a></li>
+        <li><a class="nav-link" data-target="vm-ch1">1. Execution model</a></li>
+        <li><a class="nav-link" data-target="vm-ch2">2. VM value model</a></li>
+        <li><a class="nav-link" data-target="vm-ch3">3. Call stack and frames</a></li>
+        <li><a class="nav-link" data-target="vm-ch4">4. Heap and memory management</a></li>
+        <li><a class="nav-link" data-target="vm-ch5">5. Pipes / filters</a></li>
+        <li><a class="nav-link" data-target="vm-ch6">6. AloeBC binary format</a></li>
+        <li><a class="nav-link" data-target="vm-ch7">7. Instruction set &amp; WASM</a></li>
+        <li><a class="nav-link" data-target="vm-ch8">8. Object / Tick / CallBuffer execution model</a></li>
+        <li><a class="nav-link" data-target="vm-ch9">9. Open issues / TODO</a></li>
+      </ul>
+    </div>
+  </aside>
+
+
+  <main class="content">
+
+
+    <!-- 0. Overview -->
+    <section id="vm-ch0" class="chapter">
+      <h2>0. Overview</h2>
+      <p>
+        AloeVM is a <strong>stack-based virtual machine</strong> designed for executing the Aloe language.<br />
+        This document defines:
+      </p>
+      <ul>
+        <li>Execution model (stack machine / frame structure)</li>
+        <li>VM-level value model (primitives, structs, classes, enums, pipe/filter, etc.)</li>
+        <li>Heap and memory management policy</li>
+        <li>Representation of pipes / filters on the VM</li>
+        <li>AloeBC (Aloe bytecode) binary format</li>
+        <li>Policy for mapping to WebAssembly (WASM)</li>
+      </ul>
+      <div class="note">
+        AloeVM assumes two runtime implementations:
+        <ul>
+          <li>C# implementation (VM running on .NET)</li>
+          <li>WASM-native implementation (code compiled directly to WASM by <code>aloe2wasm</code>)</li>
+        </ul>
+        This specification primarily defines the behavior of “C# VM implementation + AloeBC”.<br />
+        For WASM, the policy is to “map the instruction set almost 1:1” and “delegate GC to the WASM runtime”.
+      </div>
+    </section>
+
+
+    <!-- 1. Execution model -->
+    <section id="vm-ch1" class="chapter">
+      <h2>1. Execution model</h2>
+
+
+      <h3>1.1 Stack machine model</h3>
+      <ul>
+        <li>The VM is a stack machine centered around an <strong>operand stack</strong>.</li>
+        <li>Arithmetic and comparison instructions take values from the top of the stack and push the result back.</li>
+        <li>Local variables and arguments are stored in a <strong>per-frame local area</strong>.</li>
+      </ul>
+
+
+      <h3>1.2 Execution unit</h3>
+      <ul>
+        <li>The execution unit is a function / method invocation. Synchronous calls execute immediately on the current VMThread.</li>
+        <li>A <code>public async method</code> invocation from another Object is enqueued in the target Object's CallBuffer and executed by the Scheduler on the VMThread Pool.</li>
+        <li>A self call executes synchronously when runtime identity satisfies <code>targetObject == currentObject</code>.</li>
+        <li><code>main()</code> is a special Root / Tick Driver rather than an ordinary method and is not executed through CallBuffer.</li>
+        <li>Each function is registered in the AloeBC function table with code offset, local count, argument count, exception-handler references, and related metadata.</li>
+      </ul><h3>1.3 Exception handling model</h3>
+      <ul>
+        <li>Aloe’s <code>try / catch / finally</code> is lowered to an exception handler table at the VM level.</li>
+        <li>Exceptions are treated as <strong>object references</strong> in the VM, and the stack is unwound when an exception is thrown.</li>
+        <li>
+          In the WASM implementation, exceptions are mapped to the host’s exception model or to a combination of multi-value returns and error codes.<br />
+          The format of the exception handler table is defined in section 6.6.
+        </li>
+      </ul>
+
+
+      <h3>1.4 Execution modes</h3>
+      <ul>
+        <li>
+          <strong>VM execution mode</strong>:
+          <ul>
+            <li>The C# VM implementation directly loads AloeBC and interprets or JIT-compiles the instructions.</li>
+          </ul>
+        </li>
+        <li>
+          <strong>WASM-native mode</strong>:
+          <ul>
+            <li><code>aloe2wasm</code> converts AloeVM instruction sequences almost 1:1 into WASM instructions and AloeVM itself does not exist.</li>
+            <li>GC and low-level memory management are delegated to the WASM runtime.</li>
+          </ul>
+        </li>
+      </ul>
+    </section>
+
+
+    <!-- 2. VM value model -->
+    <section id="vm-ch2" class="chapter">
+      <h2>2. VM value model</h2>
+
+
+      <h3>2.1 Categories of VM values</h3>
+      <p>Conceptually, values handled on the VM are divided into the following categories.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Examples</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Integer (int32)</td>
+              <td><code>int</code>, <code>enum</code>, <code>bitfield enum</code></td>
+              <td>32-bit signed integer. Enums are always int-based.</td>
+            </tr>
+            <tr>
+              <td>Other integers</td>
+              <td><code>byte</code></td>
+              <td>May be packed and treated internally as int32.</td>
+            </tr>
+            <tr>
+              <td>Floating-point</td>
+              <td><code>float</code></td>
+              <td>32-bit IEEE754.</td>
+            </tr>
+            <tr>
+              <td>decimal</td>
+              <td><code>decimal</code></td>
+              <td>128-bit approximate representation with precision comparable to C# <code>decimal</code> (implementation-dependent).</td>
+            </tr>
+            <tr>
+              <td>bool</td>
+              <td><code>bool</code></td>
+              <td>Internally 1 byte or int32. Comparison instructions may reuse those for int.</td>
+            </tr>
+            <tr>
+              <td>char</td>
+              <td><code>char</code></td>
+              <td>Unicode code point (implementation can use UTF-16 or UTF-32).</td>
+            </tr>
+            <tr>
+              <td>Object reference</td>
+              <td><code>class</code> instances, <code>string</code></td>
+              <td>Handle to a heap object (e.g., 64-bit ID).</td>
+            </tr>
+            <tr>
+              <td>Struct</td>
+              <td><code>struct</code></td>
+              <td>On the VM it is treated as a “blob of value” and always handled as an inline value (no common boxed heap object).</td>
+            </tr>
+            <tr>
+              <td>pipe</td>
+              <td><code>pipe&lt;T&gt;</code></td>
+              <td>Has a dedicated VM tag. Implementation may use OS pipes / sockets, etc.</td>
+            </tr>
+            <tr>
+              <td>filter</td>
+              <td><code>filter Foo</code></td>
+              <td>Has a dedicated VM tag. Wrapper of function and connection information.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+
+      <div class="note">
+        <strong>enum / bitfield enum</strong> are represented as <strong>int32</strong> on the VM.<br />
+        bitfield enums are limited to 0–31 bits (maximum 32 bits).
+      </div>
+
+
+      <h3>2.2 AloeObject and heap objects</h3>
+      <p>
+        In the C# VM implementation, heap objects are identified by an <strong>object ID</strong> (e.g., a 64-bit integer).
+      </p>
+      <ul>
+        <li>
+          Objects as values in the VM:
+          <ul>
+            <li>On the stack or in locals, only an <code>objectId: long</code> (an <strong>AloeObject</strong>) is stored.</li>
+          </ul>
+        </li>
+        <li>
+          The memory manager maintains the mapping from object ID to metadata, including:
+          <ul>
+            <li>Field list (reference slot definitions) for classes/structs</li>
+            <li>Value slots per field (primitive values or other object IDs)</li>
+            <li>Final field layout after trait composition</li>
+          </ul>
+        </li>
+        <li>
+          Structs can be handled under the same framework:
+          <ul>
+            <li>A struct instance is always placed inline as part of a parent object / array / stack frame.</li>
+            <li>From the VM’s perspective, a struct itself is never managed as an AloeObject on the heap and <strong>boxing is not performed</strong>.</li>
+            <li>Classes/arrays that contain structs are AloeObjects placed on slots as usual.</li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <h3>2.3 VM tags for pipe / filter</h3>
+      <ul>
+        <li><code>pipe&lt;T&gt;</code> and <code>filter</code> use <strong>dedicated VM value tags</strong> distinct from class instances.</li>
+        <li>
+          For easier WASM mapping, the internal representation should be structured so that it can be mapped to WASM “ref types”
+          (e.g., <code>externref</code> / <code>funcref</code> / <code>anyref</code>).
+        </li>
+        <li>
+          A pipe holds information such as “tail buffer + reference to synchronization objects”, and a filter holds
+          “bound handler function + in/out metadata”, etc.
+        </li>
+      </ul>
+
+
+      <h3>2.4 Struct layout and alignment</h3>
+      <p>Structs are always treated as inline values on the VM, and their memory layout follows the rules below.</p>
+      <ul>
+        <li>
+          Default layout (no <code>@StructLayout</code> or <code>@StructLayout(Sequential)</code>):
+          <ul>
+            <li>Fields are laid out in the <strong>same order as declared in source</strong>.</li>
+            <li>
+              The starting offset of each field is aligned to an <strong>8-byte boundary</strong> from the beginning of the struct.
+              Padding bytes are inserted as needed after the previous field.
+            </li>
+            <li>The total struct size may also be padded to a multiple of 8 bytes.</li>
+          </ul>
+        </li>
+        <li>
+          Explicit layout (<code>@StructLayout(Explicit)</code> + <code>@FieldOffset</code> annotations):
+          <ul>
+            <li>
+              Each field is given a <code>@FieldOffset(n)</code> annotation specifying the offset (in bytes) from
+              the beginning of the struct.
+            </li>
+            <li>
+              The VM places fields at the specified offsets. Overlapping fields (union-like usage) are allowed, but
+              whether unintended overlaps are an error or undefined behavior is defined by the language specification.
+            </li>
+          </ul>
+        </li>
+        <li>
+          Auto layout (<code>@StructLayout(Auto)</code>):
+          <ul>
+            <li>The VM is free to reorder fields and insert padding for optimization.</li>
+            <li>
+              In this case, byte offsets are not considered a stable ABI; user code must not rely on them via
+              <code>sizeof</code> or pointer arithmetic.
+            </li>
+          </ul>
+        </li>
+        <li>
+          Arrays of structs:
+          <ul>
+            <li>
+              Array elements are placed <strong>contiguously with struct-size stride</strong>.
+              An array with <code>N</code> elements occupies <code>N × sizeof(Struct)</code> bytes of continuous memory.
+            </li>
+            <li>This layout allows bulk operations (e.g., <code>memcpy</code>) on large numbers of structs such as 3D vectors.</li>
+          </ul>
+        </li>
+      </ul>
+      <div class="note">
+        Structs do not implement interfaces and are treated as simple value types that are not subject to virtual dispatch from the VM’s point of view.<br />
+        Method calls are represented as “normal functions taking the struct as an argument”, so there is no calling convention that relies on boxing.
+      </div>
+    </section>
+
+
+    <!-- 3. Call stack and frames -->
+    <section id="vm-ch3" class="chapter">
+      <h2>3. Call stack and frames</h2>
+
+
+      <h3>3.1 Frame structure</h3>
+      <p>Each function call creates a frame, which contains at least the following:</p>
+      <ul>
+        <li>Return address (PC of the next instruction to execute)</li>
+        <li>Link to the previous frame</li>
+        <li>Local variable area</li>
+        <li>Arguments area</li>
+        <li>Temporary value slots (if needed)</li>
+      </ul>
+
+
+      <h3>3.2 Calling convention (overview)</h3>
+      <ul>
+        <li>Call instructions (e.g., <code>CALL</code>) are executed with arguments already pushed on the stack.</li>
+        <li>After frame creation, arguments are moved to the local area (or left on the stack and accessed by index).</li>
+        <li>The return value is pushed as a single value on top of the stack.</li>
+        <li>Void functions do not push a return value.</li>
+      </ul>
+
+
+      <h3>3.3 Exception frames</h3>
+      <ul>
+        <li>Based on the exception handler table, the VM decides how far to unwind the stack.</li>
+        <li>After unwinding, control jumps to the beginning of the catch block and passes the exception object to a local or the stack.</li>
+      </ul>
+    </section>
+
+
+    <!-- 4. Heap and memory management -->
+    <section id="vm-ch4" class="chapter">
+      <h2>4. Heap, references, and lifetime management (C# VM implementation)</h2>
+
+
+      <h3>4.1 Slot-based heap layout</h3>
+      <ul>
+        <li>The C# VM may manage the heap using size-class arenas such as 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024 bytes.</li>
+        <li>Heap Objects are identified by ObjectId / Handle and occupy contiguous slots in an arena.</li>
+        <li>Exact arena chunk sizes, free-list structures, and compaction strategies are implementation details.</li>
+      </ul>
+
+
+      <h3>4.2 Object table and Runtime metadata</h3>
+      <p>An Object table maps ObjectId to physical location and Runtime metadata.</p>
+      <ul>
+        <li>Arena / slot position / object size / type metadata.</li>
+        <li>Committed State plus Dirty Member / Volatile Value metadata required by the current Tick.</li>
+        <li>Lifetime metadata including Reference Count, Reference Group Handle, Reference Dirty, and Destruction Candidate state.</li>
+        <li>A reference to or management metadata for the Instance CallBuffer.</li>
+      </ul>
+
+
+      <h3>4.3 Reference Counting and Reference Groups</h3>
+      <ul>
+        <li><strong>Reference Counting</strong> is the basic lifetime mechanism for Object References.</li>
+        <li>A Strongly Connected Component in the Object Reference Graph is a <strong>Reference Group</strong> with a unique Group Handle.</li>
+        <li>References between Objects inside the same Reference Group do not count as External References keeping the Group alive.</li>
+        <li>References entering a Group member from outside the Group are counted as Group External References.</li>
+        <li>A Group whose External Reference Count reaches 0 becomes a Destruction Candidate.</li>
+        <li>Per-Object Reference Count data may also be retained for Group split / dissolve, debugging, and reference recalculation.</li>
+      </ul>
+
+
+      <h3>4.4 Committed / Volatile lifetime of Reference members</h3>
+      <ul>
+        <li>Object Reference members follow the same Committed / Volatile rules as other members.</li>
+        <li>If a Reference member changes during a Tick, the owner Object sees the Volatile Reference while external Properties continue to observe the Committed Reference until Tick end.</li>
+        <li>When Committed Reference and Volatile Reference differ, both referenced Objects remain alive until Tick end.</li>
+        <li>After Tick Commit, the Volatile Reference becomes the new Committed Reference and the old Committed Reference is released.</li>
+      </ul>
+
+
+      <h3>4.5 Reference Graph / Group updates</h3>
+      <ul>
+        <li>Reference Graph and Reference Group maintenance is normally performed at Tick boundaries.</li>
+        <li>An Object / Group whose reference-typed members changed may be marked <strong>Reference Dirty</strong>.</li>
+        <li>Tick-end processing may prioritize Dirty regions; a full SCC analysis of the entire Object Graph on every Tick is not required.</li>
+        <li>A new edge may merge SCCs into one Group, while removing an edge may split a Group.</li>
+        <li>Detailed treatment of Object References stored indirectly through Array / List / Map / struct remains an open issue.</li>
+      </ul>
+
+
+      <h3>4.6 Destruction Candidates and Runtime Temporary References</h3>
+      <ul>
+        <li>An Object / Reference Group whose Reference Count reaches 0 is not freed immediately; it is first marked as a Destruction Candidate.</li>
+        <li>Destruction occurs after safety checks during Tick-end processing, including Runtime Temporary References and CallBuffer state.</li>
+        <li>A CallBuffer target Object and Object Reference arguments are Strong References until Call completion.</li>
+        <li>Object References on the VM stack, running method arguments, CallBuffer entries, and Volatile References are Runtime Temporary References considered by lifetime calculation.</li>
+        <li>Weak References are not part of the initial specification.</li>
+      </ul>
+
+
+      <h3>4.7 Allocation / compaction</h3>
+      <ul>
+        <li>Object allocation may use arena / slot storage selected by size class.</li>
+        <li>As long as ObjectId / Handle indirection is preserved, an implementation may perform moving optimizations such as sliding compaction.</li>
+        <li>Physical-memory optimizations must not change observable Committed / Volatile State or Reference lifetime semantics.</li>
+      </ul>
+
+
+      <h3>4.8 Memory management in the WASM implementation</h3>
+      <div class="note">
+        A WASM-native implementation may delegate physical GC / allocation to the WASM execution environment.<br>
+        It must still preserve Aloe's observable Object ownership, Committed / Volatile State, Strong References held by CallBuffers,
+        and Tick-boundary reference/lifetime semantics.
+      </div>
+    </section><section id="vm-ch5" class="chapter">
+      <h2>5. VM representation of pipes / filters</h2>
+
+
+      <h3>5.1 <code>pipe&lt;T&gt;</code></h3>
+      <ul>
+        <li>Represented as a value with a dedicated <strong>PIPE</strong> tag at the VM level.</li>
+        <li>
+          Internally, it is assumed to hold:
+          <ul>
+            <li>A buffer (ring buffer / queue)</li>
+            <li>Synchronization primitives (locks / condition variables, etc.)</li>
+            <li>Type information for the elements (reference to runtime type info)</li>
+          </ul>
+        </li>
+        <li>The implementation must be thread-safe so that multiple threads can access it without corruption.</li>
+        <li>
+          Possible implementations:
+          <ul>
+            <li>OS pipes / sockets</li>
+            <li>Ring buffers on memory-mapped files</li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <h3>5.2 <code>filter</code></h3>
+      <ul>
+        <li>A filter is represented as a value with a dedicated FILTER tag.</li>
+        <li>
+          Conceptually, a filter value is a struct containing:
+          <ul>
+            <li>A pointer to a bound function</li>
+            <li>Metadata of in/out types</li>
+          </ul>
+        </li>
+        <li>User-defined filters can be represented using the same mechanism.</li>
+      </ul>
+
+
+      <h3>5.3 Execution model of pipeline statements</h3>
+      <pre><code class="language-aloe">
+A | filter(F) | B;
+      </code></pre>
+      <ul>
+        <li>The VM expands this statement into a sequence of “connection construction instructions”.</li>
+        <li>
+          A typical flow:
+          <ul>
+            <li>Resolve the output pipe of <code>A</code>.</li>
+            <li>
+              Create an instance of <code>filter(F)</code> and start
+              <code>bound(input, output)</code> as a separate task/thread.
+            </li>
+            <li>Connect the output pipe to <code>B</code>.</li>
+          </ul>
+        </li>
+        <li>Implementations may optimize by executing multiple filters sequentially on a single thread.</li>
+      </ul>
+
+
+      <h3>5.4 Pipe lifecycle and VM instructions</h3>
+      <p>
+        Pipes are treated at the VM level as having roughly four lifecycle phases:
+        <strong>creation</strong> → <strong>connection</strong> → <strong>disconnection</strong> → <strong>deletion</strong>.
+        Each phase is manipulated by instructions in the “pipe / filter / connection category (category ID = 0x0A)”.
+      </p>
+      <ul>
+        <li>
+          <strong>Creation phase</strong>
+          <ul>
+            <li>Allocate a new pipe instance and initialize its buffer and synchronization objects.</li>
+            <li>
+              Representative instruction (example):
+              <ul>
+                <li>
+                  <code>PIPE_NEW</code>:
+                  <ul>
+                    <li>Takes element-type ID, buffer size, option flags, etc. as operands.</li>
+                    <li>Pushes a pipe handle (PIPE-tagged VM value) on the stack as the result.</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li>
+          <strong>Connection phase</strong>
+          <ul>
+            <li>Connect producers / consumers / filters to an existing pipe.</li>
+            <li>
+              Representative instructions (examples):
+              <ul>
+                <li>
+                  <code>PIPE_BIND_PRODUCER</code>:
+                  <ul>
+                    <li>Binds a producer-side endpoint (method/task) to a pipe handle.</li>
+                  </ul>
+                </li>
+                <li>
+                  <code>PIPE_BIND_CONSUMER</code>:
+                  <ul>
+                    <li>Binds a consumer-side endpoint to a pipe handle.</li>
+                  </ul>
+                </li>
+                <li>
+                  <code>PIPE_CONNECT</code>:
+                  <ul>
+                    <li>May be defined as a high-level instruction that connects multiple pipes and filters together as a pipeline.</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li>
+          <strong>Disconnection phase</strong>
+          <ul>
+            <li>Detach producers / consumers / filters from a pipe and stop new data from flowing in or out.</li>
+            <li>
+              Representative instruction (example):
+              <ul>
+                <li>
+                  <code>PIPE_DISCONNECT</code>:
+                  <ul>
+                    <li>Detaches a specified endpoint from a pipe.</li>
+                    <li>
+                      How to handle data still present in the buffer (discard or drain) is an implementation policy.
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li>
+          <strong>Deletion phase (Delete / Close)</strong>
+          <ul>
+            <li>Close the pipe and release related buffers and synchronization objects.</li>
+            <li>
+              Representative instruction (example):
+              <ul>
+                <li>
+                  <code>PIPE_CLOSE</code>:
+                  <ul>
+                    <li>
+                      Closes a pipe handle; once it becomes unreachable from the GC’s point of view,
+                      the heap object for the pipe becomes a candidate for reclamation.
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+            <li>
+              Language-level <code>delete</code> and implicit closes at the end of <code>with</code> blocks are compiled
+              to these instructions.
+            </li>
+          </ul>
+        </li>
+      </ul>
+      <div class="note">
+        Code acting as producer / consumer is typically expressed as a combination of
+        “normal function/method + thread (or task)”.<br />
+        If needed, control-only instructions like <code>PRODUCER_START</code>, <code>PRODUCER_STOP</code>,
+        <code>CONSUMER_START</code>, <code>CONSUMER_STOP</code> may be added in category 0x0A.
+      </div>
+    </section>
+
+
+    <!-- 6. AloeBC binary format -->
+    <section id="vm-ch6" class="chapter">
+      <h2>6. AloeBC binary format</h2>
+
+
+      <h3>6.1 Overall structure</h3>
+      <p>AloeBC (Aloe Byte Code) is a binary format that stores compile results for AloeVM.</p>
+
+
+      <h3>6.2 Header</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Offset</th>
+              <th>Size</th>
+              <th>Field</th>
+              <th>Contents</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0</td>
+              <td>6 bytes</td>
+              <td>Magic</td>
+              <td>ASCII string <code>"ALOEBC"</code></td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td>1 byte</td>
+              <td>VersionMajor</td>
+              <td>Major version</td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td>1 byte</td>
+              <td>VersionMinor</td>
+              <td>Minor version</td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td>1 byte</td>
+              <td>VersionBuild</td>
+              <td>Build number</td>
+            </tr>
+            <tr>
+              <td>9</td>
+              <td>1 byte</td>
+              <td>Reserved</td>
+              <td>Reserved (fixed 0)</td>
+            </tr>
+            <tr>
+              <td>10</td>
+              <td>4 bytes</td>
+              <td>HeaderSize</td>
+              <td>Total size of the header (little-endian)</td>
+            </tr>
+            <tr>
+              <td>14</td>
+              <td>4 bytes</td>
+              <td>ConstPoolOffset</td>
+              <td>Offset to the constant pool</td>
+            </tr>
+            <tr>
+              <td>18</td>
+              <td>4 bytes</td>
+              <td>TypeTableOffset</td>
+              <td>Offset to the type table</td>
+            </tr>
+            <tr>
+              <td>22</td>
+              <td>4 bytes</td>
+              <td>FuncTableOffset</td>
+              <td>Offset to the function table</td>
+            </tr>
+            <tr>
+              <td>26</td>
+              <td>4 bytes</td>
+              <td>CodeSectionOffset</td>
+              <td>Offset to the code section</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>The assumed endianness is <strong>little-endian</strong>.</p>
+
+
+      <h3>6.3 Constant pool (overview)</h3>
+      <ul>
+        <li>Manages string literals, numeric literals, type information, etc. in a centralized pool.</li>
+        <li>Each entry is a variable-length record composed of “tag + length + body”.</li>
+        <li>
+          Example tags:
+          <ul>
+            <li>0x01: UTF-8 string</li>
+            <li>0x02: int32</li>
+            <li>0x03: float32</li>
+            <li>0x04: decimal</li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <h3>6.4 Type table (overview)</h3>
+      <ul>
+        <li>Assigns IDs to each Aloe type (class / struct / enum / bitfield enum / <code>pipe&lt;T&gt;</code>, etc.).</li>
+        <li>Enums / bitfield enums are flagged as <strong>int32 value types</strong> on the VM.</li>
+        <li>
+          The number of valid bits for a bitfield enum (0–31) may be stored as metadata
+          (e.g., for emitting warnings).
+        </li>
+      </ul>
+
+
+      <h3>6.5 Function table and code section</h3>
+      <ul>
+        <li>
+          Function table:
+          <ul>
+            <li>Function signatures (argument types, return type)</li>
+            <li>Number of local variables</li>
+            <li>Offset and length in the code section</li>
+            <li>Number of exception handler entries and offset to the first entry</li>
+          </ul>
+        </li>
+        <li>
+          Code section:
+          <ul>
+            <li>Stores VM instruction sequences as a byte array.</li>
+            <li>See chapter 7 for details on the instruction set.</li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <h3>6.6 Exception handler table</h3>
+      <p>
+        Each function has an associated table of zero or more exception handler entries.
+        Using the information in the function table, one can obtain the relative offset and number of entries
+        from the beginning of that function’s code.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Field name</th>
+              <th>Type</th>
+              <th>Contents</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>TryStartOffset</td>
+              <td>uint32</td>
+              <td>Offset (in bytes) from the beginning of the function’s code. Start position (inclusive) of the <code>try</code> block.</td>
+            </tr>
+            <tr>
+              <td>TryEndOffset</td>
+              <td>uint32</td>
+              <td>End position (exclusive) of the <code>try</code> block. The range is interpreted as <code>[TryStartOffset, TryEndOffset)</code>.</td>
+            </tr>
+            <tr>
+              <td>HandlerStartOffset</td>
+              <td>uint32</td>
+              <td>Start offset of the handler block (<code>catch</code> / <code>finally</code> / <code>filter</code>).</td>
+            </tr>
+            <tr>
+              <td>HandlerEndOffset</td>
+              <td>uint32</td>
+              <td>End offset (exclusive) of the handler block.</td>
+            </tr>
+            <tr>
+              <td>HandlerKind</td>
+              <td>uint8</td>
+              <td>Kind of handler. Example: 0 = catch, 1 = finally, 2 = filter (3+ reserved).</td>
+            </tr>
+            <tr>
+              <td>Reserved</td>
+              <td>uint8[3]</td>
+              <td>Padding and reserved for future use. Fixed to 0 in this version of the spec.</td>
+            </tr>
+            <tr>
+              <td>ExceptionTypeId</td>
+              <td>uint32</td>
+              <td>
+                Exception type ID (index into the type table) to be handled when <code>HandlerKind == catch</code>.<br />
+                0 means “catch-all for any exception”.<br />
+                For <code>finally</code> this is fixed to 0; for <code>filter</code> its behavior is reserved for future extension.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li>
+          If there are multiple <code>catch</code> blocks for a single <code>try</code> region, multiple entries with the same
+          <code>TryStartOffset</code> / <code>TryEndOffset</code> and <code>HandlerKind = catch</code> are listed.
+        </li>
+        <li>The order of evaluation of <code>catch</code> blocks follows the order in the table.</li>
+        <li>A <code>finally</code> block may have 0 or 1 entry for each <code>try</code> region.</li>
+      </ul>
+    </section>
+
+
+    <!-- 7. Instruction set and WASM mapping -->
+    <section id="vm-ch7" class="chapter">
+      <h2>7. Instruction set and WASM mapping (overview)</h2>
+
+
+      <h3>7.1 Instruction categories</h3>
+      <p>The instruction set is roughly divided into the following categories, with each category assigned a 1-byte category ID.</p>
+      <ul>
+        <li>
+          Stack operations
+          <ul>
+            <li>PUSH, POP, DUP, SWAP, etc.</li>
+          </ul>
+        </li>
+        <li>
+          Arithmetic / logical operations
+          <ul>
+            <li>ADD, SUB, MUL, DIV, MOD</li>
+            <li>AND, OR, XOR, SHL, SHR</li>
+          </ul>
+        </li>
+        <li>
+          Comparison operations
+          <ul>
+            <li>CMPEQ, CMPNE, CMPLT, CMPLE, CMPGT, CMPGE</li>
+          </ul>
+        </li>
+        <li>
+          Control flow
+          <ul>
+            <li>JMP, JMP_IF_TRUE, JMP_IF_FALSE</li>
+          </ul>
+        </li>
+        <li>
+          Function calls
+          <ul>
+            <li>CALL, RET</li>
+          </ul>
+        </li>
+        <li>
+          Object operations
+          <ul>
+            <li>NEWOBJ, GETFIELD, SETFIELD, etc.</li>
+          </ul>
+        </li>
+        <li>Array / collection operations (future)</li>
+        <li>pipe / filter / producer / consumer / connection / disconnection</li>
+        <li>Exception handling / VM management / debugging instructions</li>
+      </ul>
+
+
+      <div class="note">
+        This specification defines only the policies for instruction categories and ID composition.<br />
+        Concrete opcode values and bit layouts for each instruction are defined in a separate document,
+        “AloeVM Instruction Set Reference”.
+      </div>
+
+
+      <h3>7.2 Instruction ID structure (category + index)</h3>
+      <p>
+        Each AloeVM instruction is assigned a <strong>16-bit (2-byte) instruction ID</strong>.<br />
+        The ID is composed of the upper 1 byte as the <strong>category ID</strong> and the lower 1 byte
+        as the <strong>index within the category</strong>.
+      </p>
+      <ul>
+        <li>
+          16-bit instruction ID structure:
+          <ul>
+            <li>Upper 8 bits: category ID (e.g., stack operations = 0x01, arithmetic = 0x02)</li>
+            <li>Lower 8 bits: index within that category (order in that category’s opcode table)</li>
+          </ul>
+        </li>
+        <li>
+          In formula form, the instruction ID is computed as:
+          <pre><code>OpcodeID = (Category &lt;&lt; 8) | IndexInCategory</code></pre>
+        </li>
+        <li>
+          Examples:
+          <ul>
+            <li>1st instruction in the stack operation category (category ID <code>0x01</code>) → <code>0x0101</code></li>
+            <li>2nd instruction in the same category → <code>0x0102</code></li>
+            <li>3rd instruction in the arithmetic category (category ID <code>0x02</code>) → <code>0x0203</code></li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Category ID (upper 1 byte)</th>
+              <th>Category name (example)</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x01</td>
+              <td>Stack operations</td>
+              <td><code>PUSH</code>, <code>POP</code>, <code>DUP</code>, <code>SWAP</code>, etc.</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>Arithmetic operations</td>
+              <td><code>ADD</code>, <code>SUB</code>, <code>MUL</code>, <code>DIV</code>, <code>MOD</code>, etc.</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>Logical / bitwise operations</td>
+              <td><code>AND</code>, <code>OR</code>, <code>XOR</code>, <code>SHL</code>, <code>SHR</code>, etc.</td>
+            </tr>
+            <tr>
+              <td>0x04</td>
+              <td>Comparison operations</td>
+              <td><code>CMPEQ</code>, <code>CMPNE</code>, <code>CMPLT</code>, <code>CMPLE</code>, <code>CMPGT</code>, <code>CMPGE</code></td>
+            </tr>
+            <tr>
+              <td>0x05</td>
+              <td>Control flow</td>
+              <td><code>JMP</code>, <code>JMP_IF_TRUE</code>, <code>JMP_IF_FALSE</code>, etc.</td>
+            </tr>
+            <tr>
+              <td>0x06</td>
+              <td>Call / return</td>
+              <td><code>CALL</code>, <code>RET</code>, etc.</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>Memory access</td>
+              <td>load/store for locals / arguments / globals / fields, etc.</td>
+            </tr>
+            <tr>
+              <td>0x08</td>
+              <td>Object / array operations</td>
+              <td><code>NEWOBJ</code>, <code>NEWARR</code>, <code>GETFIELD</code>, <code>SETFIELD</code>, etc.</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>Exception / error</td>
+              <td><code>THROW</code>, <code>RETHROW</code>, <code>LEAVE</code>, etc.</td>
+            </tr>
+            <tr>
+              <td>0x0A</td>
+              <td>pipe / filter / connection</td>
+              <td>Pipe creation / connection / disconnection / producer/consumer control, etc.</td>
+            </tr>
+            <tr>
+              <td>0x0B</td>
+              <td>VM management / debugging</td>
+              <td><code>NOP</code>, <code>HALT</code>, <code>BREAKPOINT</code>, etc.</td>
+            </tr>
+            <tr>
+              <td>0xF0–0xFF</td>
+              <td>Implementation-specific / experimental</td>
+              <td>Reserved for extension instructions used only by specific implementations</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+
+      <h3>7.3 Location of detailed instruction set</h3>
+      <p>
+        Concrete opcode IDs, operand formats, and binary encodings for individual instructions are not defined in this document,
+        but in a separate document: <strong>“AloeVM Instruction Set Reference”</strong>.<br />
+        Implementers should rely on the policies and category design described here, and consult the Instruction Set Reference
+        for detailed definitions of the instruction set.
+      </p>
+
+
+      <h3>7.4 1:1 mapping policy to WASM</h3>
+      <ul>
+        <li>
+          Basic arithmetic and comparison instructions should be mapped 1:1 to WASM instructions such as
+          <code>i32.add</code>, <code>i32.lt_s</code>, etc. whenever possible.
+        </li>
+        <li>Stack operations can be transformed straightforwardly as WASM is also a stack machine conceptually.</li>
+        <li>
+          Exception handling is expressed using either WASM’s exception-handling extension or a combination of error codes
+          and structured blocks.
+        </li>
+        <li>Pipes and filters are typically implemented using WASM <code>ref</code> types and host functions.</li>
+      </ul>
+
+
+      <h3>7.5 Role of aloe2wasm</h3>
+      <ul>
+        <li>
+          In addition to the path “Aloe source → AloeBC → AloeVM execution”, there is a separate
+          <ul>
+            <li>Aloe source → intermediate IR → WASM, providing a <strong>native WASM build</strong> path.</li>
+          </ul>
+        </li>
+        <li>The closer AloeVM’s instruction set is to WASM’s, the simpler the compiler implementation becomes.</li>
+        <li>Ideally, we aim for a level where “serializing AloeVM instruction sequences directly as WASM” is nearly possible.</li>
+      </ul>
+    </section>
+
+
+    <!-- 8. Object / Tick / CallBuffer execution model -->
+    <section id="vm-ch8" class="chapter">
+      <h2>8. Object / Tick / CallBuffer execution model</h2>
+
+
+      <p>
+        AloeVM may execute async Commands on multiple VMThreads, but the ownership unit for Mutable State is an <strong>Object</strong>, not a Task.
+        Another Object obtains state through public properties and requests state changes through public async methods.
+      </p>
+
+
+      <h3>8.1 Object ownership</h3>
+      <ul>
+        <li>A class Object owns its member state, and only that Object modifies it.</li>
+        <li>Another Object does not directly read or write class member variables.</li>
+        <li>Internal Tick changes update Volatile State while Committed State remains unchanged until Tick end.</li>
+      </ul>
+
+
+      <h3>8.2 public property and state visibility</h3>
+      <ul>
+        <li>A public property getter invoked from another Object reads the target Object's Committed State.</li>
+        <li>The owner Object reads its latest Volatile State, falling back to Committed State for members without a Volatile value.</li>
+        <li>There is no public property setter.</li>
+      </ul>
+
+
+      <h3>8.3 Volatile State</h3>
+      <ul>
+        <li>Object-member writes update Volatile State directly during the Tick.</li>
+        <li>An implementation may avoid copying the complete Object State and instead use Dirty Member + Volatile Value with lazy copy.</li>
+        <li>After Tick Commit, Volatile State is discarded or reset.</li>
+        <li><strong>The TaskChangeBuffer / Change Record model for field-change history is removed.</strong></li>
+      </ul>
+
+
+      <h3>8.4 Instance CallBuffer</h3>
+      <ul>
+        <li>Each Object has a CallBuffer.</li>
+        <li>A public async method call from another Object is enqueued instead of being executed immediately.</li>
+        <li>CallBuffer append is mutually exclusive and entries execute in recorded order.</li>
+        <li>A CallBuffer entry holds its target Object and Object Reference arguments as Strong References until Call completion.</li>
+      </ul>
+
+
+      <h3>8.5 CallBuffer ordering and determinism</h3>
+      <ul>
+        <li>CallBuffer locking establishes a call order for one execution and avoids data races.</li>
+        <li>If multiple VMThreads compete for the lock simultaneously, OS scheduling may change lock-acquisition order.</li>
+        <li>The current specification therefore guarantees <strong>Race Freedom</strong>, but not complete Replay Determinism for identical input.</li>
+        <li>Sender Object ID / Sender Sequence / Logical Call Order or similar rules for complete determinism are future work.</li>
+      </ul>
+
+
+      <h3>8.6 self calls and synchronous processing</h3>
+      <ul>
+        <li>A self call where <code>targetObject == currentObject</code> executes synchronously without entering CallBuffer.</li>
+        <li>Private / protected instance methods execute synchronously and may return values.</li>
+        <li>Ordinary functions and ordinary static methods execute synchronously and may return values.</li>
+      </ul>
+
+
+      <h3>8.7 Static CallBuffer</h3>
+      <ul>
+        <li>A public static async method uses a Static CallBuffer owned by its class / type.</li>
+        <li>Static async calls are also processed before the current Tick ends.</li>
+        <li>Which VMThread executes a Static CallBuffer and whether one type is always serialized remain open issues.</li>
+      </ul>
+
+
+      <h3>8.8 async CallGraph</h3>
+      <ul>
+        <li>Public async instance methods and public static async methods participate in CallGraph analysis.</li>
+        <li>An async-to-async call adds an edge, and every cycle including a self cycle is a Compile Error.</li>
+        <li>Dynamic dispatch contributes every statically reachable target; validation may be repeated at final link time.</li>
+        <li>SCC or an equivalent algorithm may be used for cycle detection.</li>
+      </ul>
+
+
+      <h3>8.9 Calls generated during a Tick</h3>
+      <ul>
+        <li>Calls present at Tick start and new async Calls enqueued while processing the Tick are all executed in the same Tick.</li>
+        <li>Ordinary CallBuffer entries are not carried into the next Tick.</li>
+      </ul>
+
+
+      <h3>8.10 Tick Quiescence</h3>
+<pre><code>Running async method count == 0
+AND
+all Instance CallBuffers == empty
+AND
+all Static CallBuffers == empty
+AND
+Scheduler pending work == 0
+</code></pre>
+      <p>The state above is Tick Quiescence. If a new Call is added, Quiescence has not been reached.</p>
+
+
+      <h3>8.11 main() and tick()</h3>
+      <ul>
+        <li><code>main()</code> is the one-time Root Scope / Tick Driver and is outside CallBuffer execution and Quiescence checks.</li>
+        <li>The set of Object References reachable directly or indirectly from main scope is the semantic Root.</li>
+        <li><code>tick()</code> is callable only from main and may be implemented as a Runtime intrinsic or dedicated statement.</li>
+        <li><code>tick()</code> is a synchronous Barrier; when it returns, async work, Volatile Commit, reference processing, and GC have completed.</li>
+        <li>When main returns, the program terminates and remaining Object Graph / Reference Group / CallBuffer state may be destroyed.</li>
+      </ul>
+
+
+      <h3>8.12 VM Tick pipeline</h3>
+<pre><code>tick()
+  ↓
+Instance / Static CallBuffer execution
+  ↓
+newly generated Calls
+  ↓
+Tick Quiescence
+  ↓
+Volatile → Committed
+  ↓
+Reference Graph update
+  ↓
+Reference Group update
+  ↓
+Reference Count update
+  ↓
+Destruction Candidate processing
+  ↓
+GC
+  ↓
+tick() return
+</code></pre>
+
+
+      <h3>8.13 VMThread Pool and scheduling</h3>
+      <ul>
+        <li>The VM may use multiple VMThreads / OS threads to execute async methods on different Objects in parallel.</li>
+        <li>Mutable State of one Object is modified only by methods executing as that Object's owner.</li>
+        <li>The Scheduler assigns pending CallBuffer work to the VMThread Pool and includes pending work in Tick Quiescence.</li>
+      </ul>
+
+
+      <h3>8.14 Separation from Game Frames</h3>
+      <ul>
+        <li>A VM Tick is not the same concept as a Game Render Frame.</li>
+        <li>The VM does not know Renderer / VSYNC / Frame Clear / GPU concepts.</li>
+        <li>A Host Runtime may use a flow such as Input processing → Aloe commands → tick() → Physics → Render.</li>
+      </ul>
+
+
+      <h3>8.15 Host synchronous Queries</h3>
+      <ul>
+        <li>Static methods such as Keyboard.isDown / isPressed may synchronously query Host state.</li>
+        <li>Because they may be called from multiple VMThreads, Host Thread Safety requirements must be specified separately.</li>
+      </ul>
+
+
+      <h3>8.16 async failure and Tick atomicity</h3>
+      <p>
+        A candidate rule is that an unhandled exception in an async method causes Tick Failure, joins running VMThreads,
+        does not Commit Volatile State, discards unprocessed Calls, and throws from <code>tick()</code> to main.
+        This remains open, including treatment of irreversible Host side effects.
+      </p>
+    </section>
+
+
+    <!-- 9. Open issues / TODO -->
+    <section id="vm-ch9" class="chapter">
+      <h2>9. Open issues / TODO</h2>
+
+
+      <h3>9.1 Undecided items</h3>
+      <ol>
+        <li>Whether public property getters are restricted to side-effect-free read-only Queries.</li>
+        <li>Whether mutable global variables / mutable static fields are prohibited so synchronous functions / static methods remain stateless.</li>
+        <li>Thread Safety requirements for Host synchronous functions / Queries.</li>
+        <li>Final constructor execution rules and prohibition of <code>this</code> escaping asynchronously before construction completes.</li>
+        <li>Tick Failure / Volatile rollback / <code>tick()</code> exception propagation for unhandled async-method exceptions.</li>
+        <li>Handling of unprocessed CallBuffer entries and irreversible Host side effects on Tick Failure.</li>
+        <li>VMThread ownership and serialization rules for Static CallBuffer.</li>
+        <li>Logical ordering for complete Replay Determinism.</li>
+        <li>One-Tick latency from same-Tick Property visibility and whether Phase semantics are needed.</li>
+        <li>Graph-edge rules for Object Reference properties and Object References stored in Collections.</li>
+        <li>Reference Group merge / split / Dirty local SCC update algorithms.</li>
+        <li>Visibility and lifetime of Objects created / destroyed during a Tick.</li>
+        <li>Tick Atomicity for Host side effects such as Audio / Network / File / Renderer commands.</li>
+        <li>Intra-Tick visibility of Pipe data.</li>
+      </ol><h3>9.2 Future extension candidates</h3>
+      <ul>
+        <li>JIT compilation layer (native code for hot functions).</li>
+        <li>Debugger hooks (breakpoints, step execution, variable watch).</li>
+        <li>Profiler API (measuring execution time and allocated memory).</li>
+        <li>Distributed execution (pipes across multiple processes/nodes).</li>
+      </ul>
+
+
+      <div class="note">
+        Even with the current contents of this specification, the goal is to make it possible to implement
+        <strong>an Aloe compiler, the C# AloeVM implementation, and an <code>aloe2wasm</code> prototype</strong>.<br />
+        However, details of the instruction set and memory management are expected to be refined through experimentation.
+      </div>
+    </section>
+
+
+    <hr />
+
+
+    <!-- Appendix: Editing policy for generative AI -->
+    <section id="editor-notes">
+      <h2>Appendix: Editing policy for generative AI (not part of the specification body)</h2>
+      <p>
+        This appendix describes the rules for editing the AloeVM specification using a generative AI system (e.g., ChatGPT).
+        It is <strong>not</strong> part of the main specification text, and it must never override the technical content
+        of the specification.
+      </p>
+      <ul>
+        <li>
+          Do not change the technical meaning or behavior of the specification. Fixing typos or unifying obvious notation
+          inconsistencies is allowed, but algorithms or behavioral semantics must not be changed.
+        </li>
+        <li>Do not change chapter structure or heading order unless explicitly instructed by the user.</li>
+        <li>
+          Keep the logic of existing sample code or pseudo code; do not perform cosmetic changes such as arbitrary casing
+          modifications that do not improve clarity.
+        </li>
+        <li>
+          Content explicitly stated to be “defined in another document” (e.g., instruction set details) must not be inlined
+          into this specification. When more detail is needed, add only references such as
+          “See the AloeVM Instruction Set Reference”.
+        </li>
+        <li>When updating metadata, always update <code>edit-version</code> and <code>edit-date</code> in the header.</li>
+        <li>
+          <strong>Handling of timestamps:</strong>
+          <ul>
+            <li><code>edit-date</code> must always use the <strong>current time in the Asia/Tokyo time zone</strong>.</li>
+            <li>
+              The format must be ISO 8601 (e.g., <code>2025-12-03T11:45:54+09:00</code>) and include date, time, and timezone offset.
+            </li>
+            <li>
+              Do not guess or use a different timezone; generative AI must write the exact current time in Asia/Tokyo
+              as provided by the user or by a dedicated tool.
+            </li>
+          </ul>
+        </li>
+        <li>
+          This appendix itself may be extended or corrected when needed, but such changes must not affect the technical contents
+          of the main specification.
+        </li>
+      </ul>
+    </section>
+
+
+  </main>
+</div>
+</body>
+</html>

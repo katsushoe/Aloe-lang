@@ -1,0 +1,211 @@
+@startuml
+set namespaceSeparator .
+
+skinparam classAttributeIconSize 0
+
+'==========================
+' Aloe.CommonLib
+'==========================
+namespace Aloe.CommonLib {
+
+  class AloeValue {
+    - EnumValueKind Kind
+    - int _intValue
+    - bool _boolValue
+    - string _stringValue
+    --
+    + EnumValueKind Kind
+    + static AloeValue FromInt(int)
+    + static AloeValue FromBool(bool)
+    + static AloeValue FromString(string)
+    + int AsInt()
+    + bool AsBool()
+    + string AsString()
+  }
+
+  namespace Constants {
+    enum EnumValueKind {
+      Int
+      Bool
+      String
+      Null
+    }
+  }
+
+  class Module {
+    + byte[] Code
+    + IReadOnlyList<FunctionInfo> Functions
+    + AloeValue[] Constants
+    + int EntryPointIndex
+  }
+
+  class FunctionInfo {
+    + string Name
+    + int CodeOffset
+    + int LocalCount
+    + int ArgCount
+  }
+
+  class BytecodeReader {
+    - byte[] _code
+    + int Position
+    + int Length
+    + byte ReadByte()
+    + int ReadInt32()
+  }
+
+  class OperandStack {
+    - Stack<AloeValue> _stack
+    + int Count
+    + void Push(AloeValue)
+    + AloeValue Pop()
+    + AloeValue Peek()
+    + void Clear()
+  }
+
+  class CallFrame {
+    + Module Module
+    + FunctionInfo Function
+    + int Ip
+    + int ReturnAddress
+    + AloeValue[] Locals
+  }
+
+  class CallStack {
+    - Stack<CallFrame> _frames
+    + int Count
+    + void Push(CallFrame)
+    + CallFrame Pop()
+    + CallFrame Peek()
+    + void Clear()
+  }
+
+  enum Opcode {
+    Nop
+    PushConst
+    Add
+    Sub
+    Mul
+    Div
+    ...
+    CmpLt
+    ...
+    Jump
+    JumpIfFalse
+    Call
+    Ret
+    Print
+  }
+
+  interface ISystemCallHandler {
+    + void Invoke(SyscallId, ReadOnlySpan<AloeValue>)
+  }
+
+  enum SyscallId {
+    WriteStdout
+    ' (将来拡張用の ID など)
+  }
+
+  namespace Exceptions {
+    class VmException extends System.Exception {
+    }
+  }
+}
+
+'==========================
+' Aloe.RuntimeLib
+'==========================
+namespace Aloe.RuntimeLib {
+
+  interface IOpcodeCommand {
+    + void Execute(AloeVm vm, Aloe.CommonLib.BytecodeReader reader)
+  }
+
+  class AloeVm {
+    - Module _module
+    - BytecodeReader _reader
+    - OperandStack _operandStack
+    - CallStack _callStack
+    - Dictionary<Opcode, IOpcodeCommand> _commands
+    --
+    + AloeVm()
+    + int Run(Module module)
+    + OperandStack OperandStack
+    + CallStack CallStack
+    + BytecodeReader Reader
+    + AloeValue[] Constants
+    + AloeValue GetConst(int index)
+    + void Halt(int exitCode)
+  }
+
+  class VmHaltException extends System.Exception {
+    + int ExitCode
+    + VmHaltException(int exitCode)
+  }
+}
+
+'==========================
+' Aloe.RuntimeLib.OpCommand
+'==========================
+namespace Aloe.RuntimeLib.OpCommand {
+
+  class NopCommand implements Aloe.RuntimeLib.IOpcodeCommand
+  class PushConstCommand implements Aloe.RuntimeLib.IOpcodeCommand
+  class LoadLocalCommand implements Aloe.RuntimeLib.IOpcodeCommand
+  class StoreLocalCommand implements Aloe.RuntimeLib.IOpcodeCommand
+
+  class AddCommand implements Aloe.RuntimeLib.IOpcodeCommand
+  class SubCommand implements Aloe.RuntimeLib.IOpcodeCommand
+  class MulCommand implements Aloe.RuntimeLib.IOpcodeCommand
+  class DivCommand implements Aloe.RuntimeLib.IOpcodeCommand
+  class CmpLtCommand implements Aloe.RuntimeLib.IOpcodeCommand
+
+  class JumpCommand implements Aloe.RuntimeLib.IOpcodeCommand
+  class JumpIfFalseCommand implements Aloe.RuntimeLib.IOpcodeCommand
+
+  class CallCommand implements Aloe.RuntimeLib.IOpcodeCommand
+  class RetCommand implements Aloe.RuntimeLib.IOpcodeCommand
+
+  class PrintCommand implements Aloe.RuntimeLib.IOpcodeCommand
+}
+
+'==========================
+' 関連
+'==========================
+Aloe.CommonLib.AloeValue --> Aloe.CommonLib.Constants.EnumValueKind
+
+Aloe.CommonLib.Module --> "1..*" Aloe.CommonLib.FunctionInfo
+Aloe.CommonLib.Module --> "0..*" Aloe.CommonLib.AloeValue : Constants
+
+Aloe.CommonLib.CallStack --> "0..*" Aloe.CommonLib.CallFrame
+Aloe.CommonLib.OperandStack --> "0..*" Aloe.CommonLib.AloeValue
+
+Aloe.RuntimeLib.AloeVm --> Aloe.CommonLib.Module
+Aloe.RuntimeLib.AloeVm --> Aloe.CommonLib.BytecodeReader
+Aloe.RuntimeLib.AloeVm --> Aloe.CommonLib.OperandStack
+Aloe.RuntimeLib.AloeVm --> Aloe.CommonLib.CallStack
+Aloe.RuntimeLib.AloeVm --> Aloe.CommonLib.Opcode
+Aloe.RuntimeLib.AloeVm --> "0..*" Aloe.RuntimeLib.IOpcodeCommand : _commands
+
+Aloe.RuntimeLib.AloeVm --> Aloe.RuntimeLib.VmHaltException
+Aloe.CommonLib.Exceptions.VmException <|-- Aloe.RuntimeLib.VmHaltException
+
+Aloe.CommonLib.ISystemCallHandler --> Aloe.CommonLib.SyscallId
+Aloe.CommonLib.ISystemCallHandler --> Aloe.CommonLib.AloeValue
+
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.NopCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.PushConstCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.LoadLocalCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.StoreLocalCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.AddCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.SubCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.MulCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.DivCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.CmpLtCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.JumpCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.JumpIfFalseCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.CallCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.RetCommand
+Aloe.RuntimeLib.IOpcodeCommand <|.. Aloe.RuntimeLib.OpCommand.PrintCommand
+
+@enduml

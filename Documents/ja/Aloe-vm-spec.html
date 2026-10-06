@@ -1,0 +1,1400 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="edit-version" content="12" />
+  <meta name="edit-date" content="2026-10-06T08:33:38+09:00" />
+  <title>AloeVM 仕様書（ドラフト）</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.7;
+      color: #222;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background: #111827;
+      color: #f9fafb;
+      padding: 1rem 0.75rem 2rem;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1.1rem;
+      margin: 0 0 0.5rem;
+      padding: 0 0.25rem;
+    }
+    .sidebar small {
+      display: block;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-bottom: 0.75rem;
+      padding: 0 0.25rem;
+    }
+    .nav-section-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+      margin: 0.75rem 0 0.25rem;
+      padding: 0 0.25rem;
+    }
+    .nav-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .nav-list li {
+      margin: 0;
+    }
+    .nav-link {
+      display: block;
+      padding: 0.25rem 0.5rem;
+      margin: 0 0.1rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      color: #e5e7eb;
+      text-decoration: none;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .nav-link:hover {
+      background: #374151;
+    }
+    .nav-link.active {
+      background: #4b5563;
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .content {
+      flex: 1;
+      padding: 1.5rem 2rem 3rem;
+      max-width: 980px;
+      margin: 0 auto;
+    }
+    .chapter {
+      display: none;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid #e5e7eb;
+      margin-bottom: 2rem;
+    }
+    .chapter.active {
+      display: block;
+    }
+    h2, h3, h4 {
+      line-height: 1.3;
+    }
+    h2 {
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 0.25rem;
+      margin-top: 0;
+    }
+    pre {
+      background: #f5f5f5;
+      padding: 0.75rem 1rem;
+      overflow-x: auto;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+    }
+    hr {
+      margin: 2rem 0;
+      border: none;
+      border-top: 1px solid #e5e7eb;
+    }
+    .note {
+      padding: 0.5rem 0.75rem;
+      border-left: 4px solid #888;
+      background: #fafafa;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    table {
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 0.5rem 0 1rem;
+      min-width: 60%;
+    }
+    th, td {
+      border: 1px solid #d1d5db;
+      padding: 0.35rem 0.6rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f3f4f6;
+      font-weight: 600;
+    }
+    ul, ol { padding-left: 1.3rem; }
+    @media (max-width: 800px) {
+      .layout { flex-direction: column; }
+      .sidebar {
+        width: 100%;
+        position: static;
+        max-height: none;
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .sidebar h1, .sidebar small, .nav-section-title {
+        width: 100%;
+      }
+      .nav-list {
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .nav-list li {
+        flex: 0 0 50%;
+      }
+      .content {
+        padding: 1rem 1rem 3rem;
+      }
+    }
+  </style>
+  <script>
+    function showChapter(id) {
+      const chapters = document.querySelectorAll('.chapter');
+      chapters.forEach(ch => ch.classList.remove('active'));
+      const target = document.getElementById(id);
+      if (target) target.classList.add('active');
+
+
+      const links = document.querySelectorAll('.nav-link');
+      links.forEach(a => a.classList.remove('active'));
+      const activeLink = document.querySelector('.nav-link[data-target="' + id + '"]');
+      if (activeLink) activeLink.classList.add('active');
+
+
+      if (window.innerWidth <= 800) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+    window.addEventListener('DOMContentLoaded', () => {
+      const first = document.querySelector('.chapter');
+      if (first) first.classList.add('active');
+      const firstLink = document.querySelector('.nav-link');
+      if (firstLink) firstLink.classList.add('active');
+
+
+      document.querySelectorAll('.nav-link').forEach(a => {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          showChapter(a.dataset.target);
+        });
+      });
+    });
+  </script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>AloeVM 仕様書</h1>
+    <small>（現時点のドラフト。今後変更・拡張される可能性があります。）</small>
+
+
+    <div class="nav-section">
+      <div class="nav-section-title">Chapters</div>
+      <ul class="nav-list">
+        <li><a class="nav-link" data-target="vm-ch0">0. 概要</a></li>
+        <li><a class="nav-link" data-target="vm-ch1">1. 実行モデル</a></li>
+        <li><a class="nav-link" data-target="vm-ch2">2. VM 値モデル</a></li>
+        <li><a class="nav-link" data-target="vm-ch3">3. コールスタックとフレーム</a></li>
+        <li><a class="nav-link" data-target="vm-ch4">4. ヒープとメモリ管理方針</a></li>
+        <li><a class="nav-link" data-target="vm-ch5">5. パイプ / フィルタの表現</a></li>
+        <li><a class="nav-link" data-target="vm-ch6">6. AloeBC バイナリ形式</a></li>
+        <li><a class="nav-link" data-target="vm-ch7">7. 命令セットと WASM 対応</a></li>
+        <li><a class="nav-link" data-target="vm-ch8">8. Object / Tick / CallBuffer 実行モデル</a></li>
+        <li><a class="nav-link" data-target="vm-ch9">9. 未決事項・TODO</a></li>
+      </ul>
+    </div>
+  </aside>
+
+
+  <main class="content">
+
+
+    <!-- 0. 概要 -->
+    <section id="vm-ch0" class="chapter">
+      <h2>0. 概要</h2>
+      <p>
+        AloeVM は、Aloe 言語の実行用に設計された <strong>スタックベースの仮想マシン</strong> です。<br>
+        ここでは以下を定義します：
+      </p>
+      <ul>
+        <li>実行モデル（スタックマシン／フレーム構造）</li>
+        <li>VM レベルの値モデル（プリミティブ・構造体・クラス・enum・pipe/filter 等）</li>
+        <li>ヒープとメモリ管理の方針</li>
+        <li>パイプ / フィルタの VM 上での表現</li>
+        <li>AloeBC（Aloe バイトコード）バイナリ形式</li>
+        <li>WebAssembly（WASM）との対応ポリシー</li>
+      </ul>
+      <div class="note">
+        AloeVM には 2 つの想定ランタイムがあります：
+        <ul>
+          <li>C# 実装（.NET 上で動作する VM）</li>
+          <li>WASM ネイティブ実装（aloe2wasm によって直接 WASM にコンパイルされたコード）</li>
+        </ul>
+        本仕様は主に「C# 実装 VM + AloeBC」の振る舞いを定義し、<br>
+        WASM 側は「命令セットをほぼ 1:1 でマッピングする」「GC は WASM 実行系に任せる」という方針を示します。
+      </div>
+    </section>
+
+
+    <!-- 1. 実行モデル -->
+    <section id="vm-ch1" class="chapter">
+      <h2>1. 実行モデル</h2>
+
+
+      <h3>1.1 スタックマシンとしてのモデル</h3>
+      <ul>
+        <li>VM は <strong>オペランドスタック</strong> を中心としたスタックマシンである。</li>
+        <li>算術命令・比較命令などはスタックトップから値を取り出し、結果を再びスタックに積む。</li>
+        <li>ローカル変数・引数は <strong>フレーム内ローカル領域</strong> に保持される。</li>
+      </ul>
+
+
+      <h3>1.2 実行単位</h3>
+      <ul>
+        <li>実行単位は関数 / method invocation であり、同期呼び出しは現在の VMThread 上でその場で実行する。</li>
+        <li>外部 Object からの <code>public async method</code> invocation は対象 Object の CallBuffer に enqueue され、Scheduler が VMThread Pool 上で実行する。</li>
+        <li>self call は実行時の <code>targetObject == currentObject</code> 判定により同期実行する。</li>
+        <li><code>main()</code> は通常 method と異なる Root / Tick Driver であり、CallBuffer では実行しない。</li>
+        <li>各関数は AloeBC 内の関数テーブルに登録され、コードオフセット、ローカル変数数、引数数、例外ハンドラ参照等を保持する。</li>
+      </ul><h3>1.3 例外処理モデル</h3>
+      <ul>
+        <li>Aloe の <code>try / catch / finally</code> は VM レベルでも例外ハンドラテーブルに展開される。</li>
+        <li>例外は VM 内で <strong>オブジェクト参照</strong> として扱い、スロー時にスタックを巻き戻す。</li>
+        <li>WASM 実装では、ホストの例外モデルまたは多値戻り＋エラーコードパターンへマッピングする。
+          例外ハンドラテーブルのフォーマットは 6.6 節で定義する。</li>
+      </ul>
+
+
+      <h3>1.4 実行モード</h3>
+      <ul>
+        <li><strong>VM 実行モード</strong>:
+          <ul>
+            <li>C# 実装 VM が AloeBC を直接読み込み、命令を逐次解釈または JIT コンパイルする。</li>
+          </ul>
+        </li>
+        <li><strong>WASM ネイティブモード</strong>:
+          <ul>
+            <li>aloe2wasm により、AloeVM 命令列をほぼ 1:1 対応で WASM 命令列へ変換し、AloeVM 自体は存在しない。</li>
+            <li>GC・低レベルのメモリ管理は WASM ランタイム（実行系）に委譲する。</li>
+          </ul>
+        </li>
+      </ul>
+    </section>
+
+
+    <!-- 2. VM 値モデル -->
+    <section id="vm-ch2" class="chapter">
+      <h2>2. VM 値モデル</h2>
+
+
+      <h3>2.1 VM 値のカテゴリ</h3>
+      <p>VM 上で扱う値は、概念的に以下のカテゴリに分かれる。</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>例</th>
+              <th>備考</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>整数（int32）</td>
+              <td><code>int</code>, <code>enum</code>, <code>bitfield enum</code></td>
+              <td>32bit 符号付き整数。enum は常に int ベース。</td>
+            </tr>
+            <tr>
+              <td>整数（その他）</td>
+              <td><code>byte</code></td>
+              <td>内部的には int32 にパックして扱ってもよい。</td>
+            </tr>
+            <tr>
+              <td>浮動小数点</td>
+              <td><code>float</code></td>
+              <td>32bit IEEE754。</td>
+            </tr>
+            <tr>
+              <td>decimal</td>
+              <td><code>decimal</code></td>
+              <td>C# decimal と同程度の精度を持つ 128bit 近似表現（実装依存）。</td>
+            </tr>
+            <tr>
+              <td>bool</td>
+              <td><code>bool</code></td>
+              <td>内部表現は 1byte or int32。命令セットでは int と同じ比較命令を再利用可。</td>
+            </tr>
+            <tr>
+              <td>char</td>
+              <td><code>char</code></td>
+              <td>Unicode コードポイント（実装は UTF-16 でも UTF-32 でもよい）。</td>
+            </tr>
+            <tr>
+              <td>オブジェクト参照</td>
+              <td><code>class</code> インスタンス、<code>string</code></td>
+              <td>ヒープオブジェクトへのハンドル（例: 64bit ID）。</td>
+            </tr>
+            <tr>
+              <td>構造体</td>
+              <td><code>struct</code></td>
+              <td>VM 上では「値の塊」であり、常に inline 値として扱われる（共通ヒープオブジェクトとしての boxing は行わない）。</td>
+            </tr>
+            <tr>
+              <td>pipe</td>
+              <td><code>pipe&lt;T&gt;</code></td>
+              <td>VM レベルで専用タグを持つ。実装は OS パイプ／ソケット等。</td>
+            </tr>
+            <tr>
+              <td>filter</td>
+              <td><code>filter Foo</code></td>
+              <td>VM レベルで専用タグ。関数＋接続情報のラッパ。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+
+      <div class="note">
+        <strong>enum / bitfield enum</strong> は VM レベルでは <strong>常に int32</strong> として表現される。<br>
+        bitfield enum の有効ビットは 0～31（最大 32 bit）に制限される。
+      </div>
+
+
+      <h3>2.2 AloeObject とヒープオブジェクト</h3>
+      <p>
+        C# 実装 VM では、ヒープ上のオブジェクトは <strong>オブジェクト ID（例: 64bit 整数）</strong> で識別される。
+      </p>
+      <ul>
+        <li>VM 上でのオブジェクト値:
+          <ul>
+            <li>スタックやローカルには単に <code>objectId: long</code> が積まれる（<strong>AloeObject</strong>）。</li>
+          </ul>
+        </li>
+        <li>メモリマネージャ側で、オブジェクト ID → メタデータを管理する:
+          <ul>
+            <li>クラス／構造体の <strong>フィールドリスト（参照スロット定義）</strong></li>
+            <li>フィールドごとの <strong>値スロット</strong>（プリミティブ値 or 他オブジェクト ID）</li>
+            <li>trait 合成後の最終的なフィールドレイアウト</li>
+          </ul>
+        </li>
+        <li>構造体も同じ枠組みで扱える:
+          <ul>
+            <li>構造体インスタンスは常に「親オブジェクト／配列／スタックフレームの一部」として inline で配置される。</li>
+            <li>VM の観点では、構造体単体を AloeObject としてヒープ管理することはなく、<strong>boxing は行わない</strong>。</li>
+            <li>構造体を含むクラス／配列オブジェクト自体は、通常どおり AloeObject としてスロット上に配置される。</li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <h3>2.3 pipe / filter の VM タグ</h3>
+      <ul>
+        <li><code>pipe&lt;T&gt;</code> と <code>filter</code> は、クラスインスタンスとは別の <strong>専用 VM 値タグ</strong> を持つ。</li>
+        <li>ただし WASM 対応のため、内部表現は「ref 型」（例: <code>externref</code> / <code>funcref</code> / <code>anyref</code> 相当）にマッピングしやすい構造にする。</li>
+        <li>pipe は「末端バッファ＋同期オブジェクトへの参照」、filter は「バインド済みハンドラ関数＋ in/out メタ情報」などを持つ。</li>
+      </ul>
+
+
+      <h3>2.4 構造体のレイアウトとアライメント</h3>
+      <p>構造体は VM 上では常に inline 値として扱われ、そのメモリレイアウトは以下のルールに従う。</p>
+      <ul>
+        <li>デフォルトレイアウト（<code>@StructLayout(Sequential)</code> または指定なし）:
+          <ul>
+            <li>フィールドは <strong>ソースコードで定義された順番</strong> に並べる。</li>
+            <li>各フィールドの先頭オフセットは構造体先頭からの <strong>8 バイト境界</strong> に揃える。
+              必要に応じて前のフィールドの直後にパディングバイトを挿入する。</li>
+            <li>構造体全体のサイズも 8 バイトの倍数になるよう末尾にパディングを入れてよい。</li>
+          </ul>
+        </li>
+        <li>明示レイアウト（<code>@StructLayout(Explicit)</code>）:
+          <ul>
+            <li>各フィールドに <code>@FieldOffset(n)</code> アノテーションを付与し、構造体先頭からのオフセット（バイト単位）を明示的に指定する。</li>
+            <li>VM は指定されたオフセットにフィールドを配置し、重なりが発生した場合の挙動（エラー／未定義動作）は言語仕様側で定義される。</li>
+          </ul>
+        </li>
+        <li>自動レイアウト（<code>@StructLayout(Auto)</code>）:
+          <ul>
+            <li>VM がフィールドの順序とパディングを自由に最適化してよい。</li>
+            <li>この場合、バイトオフセットは安定した ABI とは見なさず、ユーザーコードが <code>sizeof</code> やポインタ演算で前提にしてはならない。</li>
+          </ul>
+        </li>
+        <li>構造体の配列:
+          <ul>
+            <li>配列要素は <strong>構造体サイズ単位で連続</strong> に配置される。つまり <code>N</code> 要素の配列は <code>N × sizeof(Struct)</code> バイトの連続領域を占有する。</li>
+            <li>このレイアウトにより、3D ベクトルなどの大量の構造体を <code>memcpy</code> 等で一括コピーしやすい。</li>
+          </ul>
+        </li>
+      </ul>
+      <div class="note">
+        構造体はインタフェースを実装せず、VM から見ても仮想ディスパッチの対象にならない単純な値型として扱う。<br>
+        メソッド呼び出しは「構造体を引数に取る通常の関数」として表現されるため、boxing を前提とした呼び出しパターンは存在しない。
+      </div>
+
+
+      <h3>2.4.1 @StructLayout アノテーションと VM メタデータ</h3>
+      <p>
+        本節では、言語仕様側で定義された <code>@StructLayout</code> / <code>@FieldOffset</code> アノテーションが、
+        AloeVM のメタデータにどのように反映されるかを定義する。<br>
+        ここで述べる内容は、<strong>レイアウト情報の保持方法と ABI 的な意味付け</strong> に限定される。
+        GC や delete の挙動とは直接関係しない。
+      </p>
+      <ul>
+        <li>コンパイル時の取り扱い:
+          <ul>
+            <li>Aloe のコンパイラは、構造体定義に付与された <code>@StructLayout</code> と各フィールドの <code>@FieldOffset</code> を読み取り、型テーブルの該当エントリに以下のメタデータを埋め込む:
+              <ul>
+                <li><strong>LayoutKind</strong>: Sequential / Explicit / Auto のいずれか</li>
+                <li><strong>Pack</strong>: パディング単位（未指定時はデフォルト 8 バイト）。Auto の場合は「未定義」でもよい。</li>
+                <li><strong>Size</strong>: 構造体全体のサイズ（バイト数）。Sequential の場合は「フィールド＋パディング」から計算、Explicit の場合は最大オフセット＋フィールドサイズから計算。</li>
+                <li><strong>FieldOffsets[]</strong>: 各フィールドのバイトオフセット（LayoutKind が Explicit の場合のみ必須）。</li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li>VM 実行時の利用箇所（例）:
+          <ul>
+            <li>ネイティブ連携（FFI）:
+              <ul>
+                <li>C / C++ / Rust 等のネイティブコードと構造体をやり取りする際、型テーブル内の LayoutKind / Size / FieldOffsets を用いてマーシャリングコードを生成する。</li>
+                <li>Sequential / Explicit の場合のみ「バイトレベルで安定した ABI」として扱う。Auto の場合は ABI 前提を立ててはならない。</li>
+              </ul>
+            </li>
+            <li>低レベルメモリアクセス命令:
+              <ul>
+                <li>将来的に「struct の特定フィールドをオフセット指定で読み書きする」ような命令（例: <code>LD_FIELDBYOFF</code>）を追加する場合、FieldOffsets 情報を参照して実アドレスを計算する。</li>
+              </ul>
+            </li>
+            <li>デバッグ表示:
+              <ul>
+                <li>デバッガやログ出力で構造体の内部レイアウトを可視化する際に、オフセットとサイズ情報を用いる。</li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li>GC との関係:
+          <ul>
+            <li>GC（親ルートチェック・スロットアリーナ・スライディングコンパクションなど）は、基本的に「どのフィールドが参照型か」という情報だけを必要とする。</li>
+            <li><code>@StructLayout</code> や <code>@FieldOffset</code> は、GC の到達可能性判定や解放タイミングには影響しない。<br>
+              （参照スロットの位置は型メタデータから決まるが、その計算にレイアウト情報を使うかどうかは実装依存。）</li>
+          </ul>
+        </li>
+        <li>仕様上の保証範囲:
+          <ul>
+            <li>Sequential / Explicit の構造体は、「同一バージョンの AloeVM / Aloe コンパイラ」間ではバイトレベルで互換なレイアウトになることを目標とする。</li>
+            <li>ただし、ターゲットプラットフォームやコンパイラオプションによっては、Pack や Size の扱いに差が出る可能性がある。</li>
+            <li>Auto レイアウトの構造体については、レイアウト安定性や ABI 互換性は一切保証しない。</li>
+          </ul>
+        </li>
+        <li>クラスとの違い:
+          <ul>
+            <li>クラス（参照型）に <code>@StructLayout</code> を付与した場合の扱いは、言語仕様側で追加定義されるまでは「未使用／予約」とし、本 VM 仕様では具体的な意味付けを行わない。</li>
+            <li>現行の AloeVM 仕様では、<strong>構造体（struct）のみがレイアウト制御の対象</strong> として正式にサポートされる。</li>
+          </ul>
+        </li>
+      </ul>
+    </section>
+
+
+    <!-- 3. コールスタックとフレーム -->
+    <section id="vm-ch3" class="chapter">
+      <h2>3. コールスタックとフレーム</h2>
+
+
+      <h3>3.1 フレーム構造</h3>
+      <p>各関数呼び出しは「フレーム」を生成する。フレームは少なくとも以下を持つ。</p>
+      <ul>
+        <li>戻りアドレス（次に実行する命令の PC）</li>
+        <li>前のフレームへのリンク</li>
+        <li>ローカル変数領域</li>
+        <li>引数領域</li>
+        <li>一時値スロット（必要なら）</li>
+      </ul>
+
+
+      <h3>3.2 呼び出し規約（概要）</h3>
+      <ul>
+        <li>関数呼び出し命令（例: <code>CALL</code>）は、引数をスタック上に積んだ状態で実行される。</li>
+        <li>フレーム作成後、引数はローカル領域に移される（またはスタック上に残したままインデックス指定）。</li>
+        <li>戻り値はスタックトップに 1 つだけ積まれる。</li>
+        <li>void 関数は戻り値を積まない。</li>
+      </ul>
+
+
+      <h3>3.3 例外フレーム</h3>
+      <ul>
+        <li>例外ハンドラテーブルに基づき、スタックのどこまで巻き戻すかを決定する。</li>
+        <li>巻き戻し後、catch ブロック先頭にジャンプし、例外オブジェクトをローカルまたはスタックに渡す。</li>
+      </ul>
+    </section>
+
+
+    <!-- 4. ヒープとメモリ管理方針 -->
+    <section id="vm-ch4" class="chapter">
+      <h2>4. ヒープと参照・寿命管理方針（C# 実装 VM）</h2>
+
+
+      <h3>4.1 スロットベースのヒープレイアウト</h3>
+      <ul>
+        <li>C# 実装 VM のヒープは、8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024 バイト等のサイズクラス別アリーナで管理できる。</li>
+        <li>ヒープ Object は ObjectId / Handle で識別し、アリーナ内の連続スロットを占有する。</li>
+        <li>アリーナの具体的なチャンクサイズ、フリーリスト、コンパクション戦略は実装詳細とする。</li>
+      </ul>
+
+
+      <h3>4.2 Object table と Runtime metadata</h3>
+      <p>ObjectId から物理位置と Runtime metadata を引く Object table を持つ。</p>
+      <ul>
+        <li>Arena / slot position / object size / type metadata。</li>
+        <li>Committed State と、現在 Tick で必要な Dirty Member / Volatile Value metadata。</li>
+        <li>Reference Count、Reference Group Handle、Reference Dirty、Destruction Candidate 等の寿命管理 metadata。</li>
+        <li>Instance CallBuffer への参照または管理情報。</li>
+      </ul>
+
+
+      <h3>4.3 Reference Counting と Reference Group</h3>
+      <ul>
+        <li>Object Reference の基本寿命管理には <strong>Reference Counting</strong> を使用する。</li>
+        <li>Object Reference Graph 上の Strongly Connected Component を <strong>Reference Group</strong> とし、一意の Group Handle を付与する。</li>
+        <li>同一 Reference Group 内の Object 間参照は Group を生存させる External Reference に数えない。</li>
+        <li>Group 外部から Group member へ入る Reference を Group External Reference として数える。</li>
+        <li>Group External Reference Count が 0 の Group は Destruction Candidate となる。</li>
+        <li>Group member の個別 Reference Count 情報も保持してよく、Group split / dissolve / Debug / Reference 再計算等に使用できる。</li>
+      </ul>
+
+
+      <h3>4.4 Reference member の Committed / Volatile lifetime</h3>
+      <ul>
+        <li>Object Reference 型 member も通常 member と同じ Committed / Volatile 規則に従う。</li>
+        <li>Tick 中に Reference member が変更された場合、Object 自身は Volatile Reference を参照するが、外部 Property からは Tick 終了まで Committed Reference が見える。</li>
+        <li>Committed Reference と Volatile Reference が異なる場合、Tick 終了までは両方の参照対象を生存させる。</li>
+        <li>Tick Commit 後、Volatile Reference を新しい Committed Reference とし、旧 Committed Reference を release する。</li>
+      </ul>
+
+
+      <h3>4.5 Reference Graph / Group 更新</h3>
+      <ul>
+        <li>Reference Graph と Reference Group の更新は基本的に Tick 境界で行う。</li>
+        <li>Reference 型 member が変更された Object / Group を <strong>Reference Dirty</strong> として記録できる。</li>
+        <li>Tick 終了時は Dirty 領域を優先的に再解析し、全 Object Graph を毎 Tick SCC 解析する必要はない。</li>
+        <li>新規 edge により複数 SCC が一つになった場合は Group merge、edge 削除で SCC が分割された場合は Group split を行う。</li>
+        <li>Array / List / Map / struct 等を経由する間接 Object Reference を Graph edge として扱う詳細は未決事項とする。</li>
+      </ul>
+
+
+      <h3>4.6 Destruction Candidate と Runtime Temporary Reference</h3>
+      <ul>
+        <li>Reference Count が 0 になった Object / Reference Group は即座に free せず、まず Destruction Candidate として mark する。</li>
+        <li>Tick 終了処理で Runtime Temporary Reference と CallBuffer 状態を含めて安全確認した後に destroy する。</li>
+        <li>CallBuffer 内の target Object と Object Reference argument は Call 実行完了まで Strong Reference とする。</li>
+        <li>VM Stack 上の Object Reference、実行中 method argument、CallBuffer entry、Volatile Reference は Runtime Temporary Reference として寿命計算に含める。</li>
+        <li>Weak Reference は初期仕様では導入しない。</li>
+      </ul>
+
+
+      <h3>4.7 Allocation / compaction</h3>
+      <ul>
+        <li>Object allocation は size class に応じた arena / slot を使用してよい。</li>
+        <li>ObjectId / Handle を介した間接参照を維持する限り、実装は sliding compaction 等の移動最適化を行ってよい。</li>
+        <li>物理メモリ配置最適化は、Committed / Volatile State と Reference lifetime の観測可能な意味を変えてはならない。</li>
+      </ul>
+
+
+      <h3>4.8 WASM 実装時のメモリ管理</h3>
+      <div class="note">
+        WASM ネイティブ実装では物理 GC / allocation を WASM 実行環境へ委譲できる。<br>
+        ただし Aloe の観測可能な意味として、Object ownership、Committed / Volatile State、CallBuffer による Strong Reference、
+        Tick 境界の参照更新と破棄安全性を維持する。
+      </div>
+    </section><section id="vm-ch5" class="chapter">
+      <h2>5. パイプ / フィルタの VM 表現</h2>
+
+
+      <h3>5.1 pipe&lt;T&gt;</h3>
+      <ul>
+        <li>VM レベルで <strong>PIPE</strong> タグを持つ値として表現する。</li>
+        <li>内部には以下のような情報を持つ想定:
+          <ul>
+            <li>バッファ（リングバッファ／キュー）</li>
+            <li>同期プリミティブ（ロック／条件変数など）</li>
+            <li>要素の型情報（ランタイム型情報への参照）</li>
+          </ul>
+        </li>
+        <li>複数スレッドからアクセスしても壊れないよう、実装は <strong>すべての pipe オブジェクトをスレッドセーフ</strong> にする必要がある。
+          <ul>
+            <li>これは AloeVM 全実装に共通の仕様上の要求であり、C# 実装に限らない。</li>
+            <li>ロック方式（ミューテックス、スピンロック、ロックフリーキュー等）は実装依存とする。</li>
+          </ul>
+        </li>
+        <li>実装例:
+          <ul>
+            <li>OS パイプ／ソケット</li>
+            <li>メモリマップドファイル上のリングバッファ</li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <h3>5.2 filter</h3>
+      <ul>
+        <li>filter は専用タグ（FILTER）を持つ値として表現される。</li>
+        <li>filter 値は、概念的には
+          <ul>
+            <li>「bound 関数へのポインタ」</li>
+            <li>フィルタ定義メタ情報（in/out 型）</li>
+          </ul>
+          をまとめた構造体。</li>
+        <li>ユーザ定義フィルタも同じ仕組みで表現できる。</li>
+      </ul>
+
+
+      <h3>5.3 パイプライン文の実行モデル</h3>
+      <pre><code class="language-aloe">
+A | filter(F) | B;
+      </code></pre>
+      <ul>
+        <li>VM はこの文を「接続構築命令」の列に展開する。</li>
+        <li>典型的な流れ:
+          <ol>
+            <li><code>A</code> の出力 pipe を解決する。</li>
+            <li><code>filter(F)</code> のインスタンスを生成し、<code>bound(input, output)</code> を別タスク／スレッドとして起動。</li>
+            <li>出力 pipe を <code>B</code> に接続する。</li>
+          </ol>
+        </li>
+        <li>ただし、実際に「フィルタごとにスレッドを起こすかどうか」は VM 実装に依存する。
+          <ul>
+            <li>仕様としては、「各 filter / producer / consumer がどのスレッドで実行されるか」は <strong>VM 実装依存</strong> とし、Aloe 言語仕様および AloeVM 仕様では固定しない。</li>
+            <li>C# 版 AloeVM のデフォルト実装では、<strong>パイプライン全体を 1 本のスレッドで実行するモデル</strong> を採用し、実装を簡潔に保つ。</li>
+            <li>他の実装（例えば高スループットなサーバ向け実装）では、ワーカースレッドプールで共有実行するモデルを採用してもよい。</li>
+          </ul>
+        </li>
+        <li>このため、Aloe プログラム側は「どの filter がどのスレッドで動くか」に依存したロジック（スレッドローカル変数に依存する挙動など）を書いてはならない。
+          <ul>
+            <li>スレッド数やスケジューリング戦略は、VM のチューニングや環境によって自由に変更されうる。</li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <h3>5.4 パイプのライフサイクルと VM 命令</h3>
+      <p>
+        pipe は VM レベルでは、概ね次の 4 フェーズを持つライフサイクルとして扱う：
+        <strong>生成</strong> → <strong>接続</strong> → <strong>切断</strong> → <strong>削除</strong>。
+        それぞれのフェーズは、7 章で定義する「pipe / filter / 接続カテゴリ（カテゴリ ID = 0x0A）」の命令によって操作される。
+      </p>
+      <ul>
+        <li><strong>生成フェーズ（Create）</strong>
+          <ul>
+            <li>新しい pipe インスタンスを確保し、バッファや同期オブジェクトを初期化する。</li>
+            <li>代表的な命令（例）:
+              <ul>
+                <li><code>PIPE_NEW</code>:
+                  <ul>
+                    <li>引数として要素型 ID、バッファサイズ、オプションフラグなどを取る。</li>
+                    <li>戻り値として pipe ハンドル（VM 値としての PIPE タグ付きハンドル）をスタックに積む。</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li><strong>接続フェーズ（Connect）</strong>
+          <ul>
+            <li>既存の pipe に対して、producer / consumer / filter を接続する。</li>
+            <li>代表的な命令（例）:
+              <ul>
+                <li><code>PIPE_BIND_PRODUCER</code>:
+                  <ul>
+                    <li>pipe ハンドルと producer 側エンドポイント（メソッド／タスク）を結び付ける。</li>
+                  </ul>
+                </li>
+                <li><code>PIPE_BIND_CONSUMER</code>:
+                  <ul>
+                    <li>pipe ハンドルと consumer 側エンドポイントを結び付ける。</li>
+                  </ul>
+                </li>
+                <li><code>PIPE_CONNECT</code>:
+                  <ul>
+                    <li>複数の pipe と filter をまとめて「パイプライン」として接続する高レベル命令として定義してもよい。</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li><strong>切断フェーズ（Disconnect）</strong>
+          <ul>
+            <li>producer / consumer / filter を pipe から切り離し、新たなデータの流入・流出を止める。</li>
+            <li>代表的な命令（例）:
+              <ul>
+                <li><code>PIPE_DISCONNECT</code>:
+                  <ul>
+                    <li>指定したエンドポイントを pipe から切り離す。</li>
+                    <li>既にバッファ内に存在するデータの扱い（破棄する／最後まで読み出させる）は実装ポリシーで決める。</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </li>
+        <li><strong>削除フェーズ（Delete / Close）</strong>
+          <ul>
+            <li>pipe 自体をクローズし、関連するバッファや同期オブジェクトを解放する。</li>
+            <li>代表的な命令（例）:
+              <ul>
+                <li><code>PIPE_CLOSE</code>:
+                  <ul>
+                    <li>pipe ハンドルをクローズし、GC から見て到達不能になった時点で、ヒープ上の pipe オブジェクトが解放候補となる。</li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+            <li>Aloe 言語レベルの <code>delete</code> や <code>with</code> ブロック終了時の暗黙クローズは、
+              これらの命令にコンパイルされる想定である。</li>
+          </ul>
+        </li>
+      </ul>
+      <div class="note">
+        producer / consumer として動作するコードは、通常は「通常の関数／メソッド＋スレッド（またはタスク）」の組み合わせで表現される。<br>
+        必要に応じて、<code>PRODUCER_START</code>, <code>PRODUCER_STOP</code>, <code>CONSUMER_START</code>, <code>CONSUMER_STOP</code> のような
+        制御専用命令を 0x0A カテゴリ内に追加してもよい。
+      </div>
+    </section>
+
+
+    <!-- 6. AloeBC バイナリ形式 -->
+    <section id="vm-ch6" class="chapter">
+      <h2>6. AloeBC バイナリ形式</h2>
+
+
+      <h3>6.1 全体構造</h3>
+      <p>AloeBC（Aloe Byte Code）は、AloeVM 向けコンパイル結果を格納するバイナリフォーマットである。</p>
+
+
+      <h3>6.2 ヘッダ</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>オフセット</th>
+              <th>サイズ</th>
+              <th>フィールド</th>
+              <th>内容</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0</td>
+              <td>6 byte</td>
+              <td>Magic</td>
+              <td>ASCII 文字列 <code>"ALOEBC"</code></td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td>1 byte</td>
+              <td>VersionMajor</td>
+              <td>メジャーバージョン</td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td>1 byte</td>
+              <td>VersionMinor</td>
+              <td>マイナーバージョン</td>
+            </tr>
+            <tr>
+              <td>8</td>
+              <td>1 byte</td>
+              <td>VersionBuild</td>
+              <td>ビルド番号</td>
+            </tr>
+            <tr>
+              <td>9</td>
+              <td>1 byte</td>
+              <td>Reserved</td>
+              <td>予約（0 固定）</td>
+            </tr>
+            <tr>
+              <td>10</td>
+              <td>4 byte</td>
+              <td>HeaderSize</td>
+              <td>ヘッダ全体のサイズ（リトルエンディアン）</td>
+            </tr>
+            <tr>
+              <td>14</td>
+              <td>4 byte</td>
+              <td>ConstPoolOffset</td>
+              <td>定数プールの先頭オフセット</td>
+            </tr>
+            <tr>
+              <td>18</td>
+              <td>4 byte</td>
+              <td>TypeTableOffset</td>
+              <td>型テーブルの先頭オフセット</td>
+            </tr>
+            <tr>
+              <td>22</td>
+              <td>4 byte</td>
+              <td>FuncTableOffset</td>
+              <td>関数テーブルの先頭オフセット</td>
+            </tr>
+            <tr>
+              <td>26</td>
+              <td>4 byte</td>
+              <td>CodeSectionOffset</td>
+              <td>コードセクションの先頭オフセット</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>エンディアンは <strong>リトルエンディアン</strong> を前提とする。</p>
+
+
+      <h3>6.3 定数プール（概要）</h3>
+      <ul>
+        <li>文字列リテラル、数値リテラル、型情報などを一元管理する。</li>
+        <li>各エントリは「タグ + 長さ + 本体」で構成される可変長レコード。</li>
+        <li>タグの例:
+          <ul>
+            <li>0x01: UTF-8 文字列</li>
+            <li>0x02: int32</li>
+            <li>0x03: float32</li>
+            <li>0x04: decimal</li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <h3>6.4 型テーブル（概要）</h3>
+      <ul>
+        <li>各 Aloe 型（class / struct / enum / bitfield enum / pipe&lt;T&gt; など）に ID を割り当てる。</li>
+        <li>enum / bitfield enum は VM 上では <strong>int32 値型</strong> としてフラグ付けされる。</li>
+        <li>bitfield enum の有効ビット数（0～31）はメタ情報として保持してもよい（警告発生などに利用）。</li>
+      </ul>
+
+
+      <h3>6.5 関数テーブル・コードセクション</h3>
+      <ul>
+        <li>関数テーブル:
+          <ul>
+            <li>関数シグネチャ（引数の型、戻り値の型）</li>
+            <li>ローカル変数の数</li>
+            <li>コードセクション内のオフセット・長さ</li>
+            <li>例外ハンドラテーブルのエントリ数および先頭オフセット</li>
+          </ul>
+        </li>
+        <li>コードセクション:
+          <ul>
+            <li>VM 命令列をバイト列として格納。</li>
+            <li>命令セットの詳細は第 7 章参照。</li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <h3>6.6 例外ハンドラテーブル</h3>
+      <p>
+        各関数には 0 個以上の例外ハンドラエントリを持つテーブルを関連付ける。
+        関数テーブル内の情報を用いて、当該関数のコード先頭からの相対オフセットとエントリ数を取得できる。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>フィールド名</th>
+              <th>型</th>
+              <th>内容</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>TryStartOffset</td>
+              <td>uint32</td>
+              <td>関数コード先頭からのオフセット（バイト単位）。<code>try</code> ブロックの開始位置（inclusive）。</td>
+            </tr>
+            <tr>
+              <td>TryEndOffset</td>
+              <td>uint32</td>
+              <td><code>try</code> ブロックの終了位置（exclusive）。範囲は <code>[TryStartOffset, TryEndOffset)</code> と解釈する。</td>
+            </tr>
+            <tr>
+              <td>HandlerStartOffset</td>
+              <td>uint32</td>
+              <td>対応するハンドラブロック（<code>catch</code> / <code>finally</code> / <code>filter</code>）の先頭オフセット。</td>
+            </tr>
+            <tr>
+              <td>HandlerEndOffset</td>
+              <td>uint32</td>
+              <td>ハンドラブロックの終了オフセット（exclusive）。</td>
+            </tr>
+            <tr>
+              <td>HandlerKind</td>
+              <td>uint8</td>
+              <td>
+                ハンドラ種別。
+                例: 0 = catch, 1 = finally, 2 = filter（将来拡張用に 3 以降は予約）。
+              </td>
+            </tr>
+            <tr>
+              <td>Reserved</td>
+              <td>uint8[3]</td>
+              <td>パディングおよび将来拡張用。現行仕様では 0 固定。</td>
+            </tr>
+            <tr>
+              <td>ExceptionTypeId</td>
+              <td>uint32</td>
+              <td>
+                <code>HandlerKind == catch</code> の場合に有効な例外型 ID（型テーブルへのインデックス）。<br>
+                0 を指定した場合は「任意の例外（catch-all）」を意味する。<br>
+                <code>finally</code> の場合は 0 固定、<code>filter</code> の場合の扱いは将来拡張。
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li>1 つの <code>try</code> 範囲に対して複数の <code>catch</code> を持つ場合、
+          <code>TryStartOffset</code> / <code>TryEndOffset</code> が同一で <code>HandlerKind = catch</code> のエントリを複数並べる。</li>
+        <li><code>catch</code> の評価順序はテーブル内の並び順に従う。</li>
+        <li><code>finally</code> ブロックは、同じ <code>try</code> 範囲に対して 0 または 1 個のエントリを持つことができる。</li>
+      </ul>
+    </section>
+
+
+    <!-- 7. 命令セットと WASM 対応 -->
+    <section id="vm-ch7" class="chapter">
+      <h2>7. 命令セットと WASM 対応（概要）</h2>
+
+
+      <h3>7.1 命令カテゴリ</h3>
+      <p>命令セットはおおよそ以下のカテゴリに分かれる想定であり、各カテゴリには 1 バイトのカテゴリ ID を割り当てる。</p>
+      <ul>
+        <li>スタック操作命令
+          <ul>
+            <li>PUSH, POP, DUP, SWAP など</li>
+          </ul>
+        </li>
+        <li>算術・論理命令
+          <ul>
+            <li>ADD, SUB, MUL, DIV, MOD</li>
+            <li>AND, OR, XOR, SHL, SHR</li>
+          </ul>
+        </li>
+        <li>比較命令
+          <ul>
+            <li>CMPEQ, CMPNE, CMPLT, CMPLE, CMPGT, CMPGE</li>
+          </ul>
+        </li>
+        <li>制御フロー命令
+          <ul>
+            <li>JMP, JMP_IF_TRUE, JMP_IF_FALSE</li>
+          </ul>
+        </li>
+        <li>関数呼び出し命令
+          <ul>
+            <li>CALL, RET</li>
+          </ul>
+        </li>
+        <li>オブジェクト操作命令
+          <ul>
+            <li>NEWOBJ, GETFIELD, SETFIELD など</li>
+          </ul>
+        </li>
+        <li>配列・コレクション操作命令（将来）</li>
+        <li>pipe / filter / producer / consumer / 接続・切断命令</li>
+        <li>例外処理・VM 管理・デバッグ命令</li>
+      </ul>
+
+
+      <div class="note">
+        本仕様書では、命令カテゴリと ID 構成のポリシーのみを定義する。<br>
+        個々の命令ごとのオペコード値やビット配置は、別資料「AloeVM 命令セットリファレンス」で詳細に定義する。
+      </div>
+
+
+      <h3>7.2 命令 ID の構成（カテゴリ + 連番）</h3>
+      <p>
+        AloeVM の各命令には、<strong>16bit（2 バイト）の命令 ID</strong> を割り当てる。<br>
+        命令 ID は上位 1 バイトを <strong>カテゴリ ID</strong>、下位 1 バイトを <strong>カテゴリ内連番</strong> として扱う。
+      </p>
+      <ul>
+        <li>16bit 命令 ID の構成:
+          <ul>
+            <li>上位 8bit: カテゴリ ID（例: スタック操作 = 0x01, 算術 = 0x02 など）</li>
+            <li>下位 8bit: カテゴリ内での連番（そのカテゴリのオペコード表の並び順）</li>
+          </ul>
+        </li>
+        <li>数式で表すと、命令 ID は次のように求めることができる：
+          <pre><code>OpcodeID = (Category &lt;&lt; 8) | IndexInCategory</code></pre>
+        </li>
+        <li>具体例:
+          <ul>
+            <li>スタック操作カテゴリ（カテゴリ ID = <code>0x01</code>）の 1 番目の命令 → <code>0x0101</code></li>
+            <li>同カテゴリの 2 番目の命令 → <code>0x0102</code></li>
+            <li>算術カテゴリ（カテゴリ ID = <code>0x02</code>）の 3 番目の命令 → <code>0x0203</code></li>
+          </ul>
+        </li>
+      </ul>
+
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ ID（上位 1 バイト）</th>
+              <th>カテゴリ名（例）</th>
+              <th>備考</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x01</td>
+              <td>スタック操作命令</td>
+              <td><code>PUSH</code>, <code>POP</code>, <code>DUP</code>, <code>SWAP</code> など</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>算術命令</td>
+              <td><code>ADD</code>, <code>SUB</code>, <code>MUL</code>, <code>DIV</code>, <code>MOD</code> など</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>論理・ビット演算命令</td>
+              <td><code>AND</code>, <code>OR</code>, <code>XOR</code>, <code>SHL</code>, <code>SHR</code> など</td>
+            </tr>
+            <tr>
+              <td>0x04</td>
+              <td>比較命令</td>
+              <td><code>CMPEQ</code>, <code>CMPNE</code>, <code>CMPLT</code>, <code>CMPLE</code>, <code>CMPGT</code>, <code>CMPGE</code></td>
+            </tr>
+            <tr>
+              <td>0x05</td>
+              <td>制御フロー命令</td>
+              <td><code>JMP</code>, <code>JMP_IF_TRUE</code>, <code>JMP_IF_FALSE</code> など</td>
+            </tr>
+            <tr>
+              <td>0x06</td>
+              <td>呼び出し・戻り命令</td>
+              <td><code>CALL</code>, <code>RET</code> など</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>メモリアクセス命令</td>
+              <td>ローカル／引数／グローバル／フィールドの load/store など</td>
+            </tr>
+            <tr>
+              <td>0x08</td>
+              <td>オブジェクト / 配列命令</td>
+              <td><code>NEWOBJ</code>, <code>NEWARR</code>, <code>GETFIELD</code>, <code>SETFIELD</code> など</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>例外・エラー命令</td>
+              <td><code>THROW</code>, <code>RETHROW</code>, <code>LEAVE</code> など</td>
+            </tr>
+            <tr>
+              <td>0x0A</td>
+              <td>pipe / filter / 接続命令</td>
+              <td>pipe 生成・接続・切断・producer/consumer 起動など</td>
+            </tr>
+            <tr>
+              <td>0x0B</td>
+              <td>VM 管理・デバッグ命令</td>
+              <td><code>NOP</code>, <code>HALT</code>, <code>BREAKPOINT</code> など</td>
+            </tr>
+            <tr>
+              <td>0xF0〜0xFF</td>
+              <td>実装依存・実験用命令</td>
+              <td>特定実装でのみ使用される拡張命令の予約領域</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+
+      <h3>7.3 命令セット詳細の参照先</h3>
+      <p>
+        個々のオペコード ID・オペランド形式・バイナリ表現の詳細な一覧は、
+        本仕様書ではなく別資料「<strong>AloeVM 命令セットリファレンス</strong>」で定義する。<br>
+        実装者は、本章のポリシーとカテゴリ設計を前提としたうえで、命令セットの具体的な定義については
+        命令セットリファレンスを参照すること。
+      </p>
+
+
+      <h3>7.4 WASM への 1:1 マッピング方針</h3>
+      <ul>
+        <li>基本算術・比較命令は、可能な限り WASM の <code>i32.add</code>, <code>i32.lt_s</code> などへ 1:1 でマッピングする。</li>
+        <li>スタック操作も WASM のスタックマシンと概念的に一致するため、ほぼそのまま変換可能。</li>
+        <li>例外処理は、WASM の exception handling 拡張またはエラーコード + ブロック構造の組み合わせで表現する。</li>
+        <li>pipe / filter は、WASM の <code>ref</code> 型＋ホスト関数を用いて実装されることが多い。</li>
+      </ul>
+
+
+      <h3>7.5 aloe2wasm の役割</h3>
+      <ul>
+        <li>Aloe ソース → AloeBC → AloeVM 実行 という経路とは別に、
+          <ul>
+            <li>Aloe ソース → 中間 IR → WASM という <strong>ネイティブ WASM ビルド</strong> 経路を用意する。</li>
+          </ul>
+        </li>
+        <li>このとき、AloeVM 命令セットと WASM 命令セットが近いほど、コンパイラ実装が単純になる。</li>
+        <li>理想的には「AloeVM 命令列をそのまま WASM にシリアライズするだけ」で動作するレベルを目指す。</li>
+      </ul>
+    </section>
+
+
+    <!-- 8. Object / Tick / CallBuffer 実行モデル -->
+    <section id="vm-ch8" class="chapter">
+      <h2>8. Object / Tick / CallBuffer 実行モデル</h2>
+
+
+      <p>
+        AloeVM は複数 VMThread 上で Object の async command を実行するが、Mutable State の所有単位は Task ではなく <strong>Object</strong> とする。
+        外部 Object は public property によって Committed State を取得し、public async method によって状態変更を要求する。
+      </p>
+
+
+      <h3>8.1 Object ownership</h3>
+      <ul>
+        <li>class Object は自身の member state を所有し、その Object 自身だけが変更する。</li>
+        <li>外部 Object から class member variable を直接 Read / Write しない。</li>
+        <li>Tick 中の内部変更は Volatile State に反映し、Committed State は Tick 終了まで変更しない。</li>
+      </ul>
+
+
+      <h3>8.2 public property と状態可視性</h3>
+      <ul>
+        <li>外部 Object から public property getter を実行した場合、対象 Object の Committed State を読む。</li>
+        <li>Object 自身は最新の Volatile State を読み、Volatile 値が無い member は Committed 値を読む。</li>
+        <li>public property setter は存在しない。</li>
+      </ul>
+
+
+      <h3>8.3 Volatile State</h3>
+      <ul>
+        <li>Object member の Write は Tick 中に Volatile State を直接更新する。</li>
+        <li>実装は全 Object State を copy せず、Dirty Member + Volatile Value の Lazy Copy を使用してよい。</li>
+        <li>Tick Commit 後、Volatile State を破棄または reset する。</li>
+        <li><strong>Field 変更履歴を記録する TaskChangeBuffer / Change Record 方式は廃止する。</strong></li>
+      </ul>
+
+
+      <h3>8.4 Instance CallBuffer</h3>
+      <ul>
+        <li>各 Object は CallBuffer を持つ。</li>
+        <li>外部 Object からの public async method call は即時実行せず CallBuffer に enqueue する。</li>
+        <li>CallBuffer 追加は排他制御し、Buffer entry は記録順に実行する。</li>
+        <li>CallBuffer entry は target Object と Object Reference argument を Call 完了まで Strong Reference として保持する。</li>
+      </ul>
+
+
+      <h3>8.5 CallBuffer 順序と決定論</h3>
+      <ul>
+        <li>CallBuffer lock により一回の実行中の call 順は確定し、データ race を避ける。</li>
+        <li>複数 VMThread が同時に lock を取得しようとする場合、OS scheduling によって lock 取得順が変わり得る。</li>
+        <li>したがって現仕様は <strong>Race Free</strong> を保証するが、同一入力に対する完全 Replay Determinism は保証しない。</li>
+        <li>完全決定論が必要な場合の Sender Object ID / Sender Sequence / Logical Call Order 等は将来仕様とする。</li>
+      </ul>
+
+
+      <h3>8.6 self call と同期処理</h3>
+      <ul>
+        <li><code>targetObject == currentObject</code> の self call は CallBuffer に enqueue せず同期実行する。</li>
+        <li>private / protected instance method は同期実行でき、戻り値を持てる。</li>
+        <li>通常 function と通常 static method は同期実行し、戻り値を持てる。</li>
+      </ul>
+
+
+      <h3>8.7 Static CallBuffer</h3>
+      <ul>
+        <li>public static async method は class / type ごとの Static CallBuffer を使用する。</li>
+        <li>static async call も現在 Tick 終了までに処理する。</li>
+        <li>同一 type の Static CallBuffer をどの VMThread が実行するか、必ず逐次実行するかは未決事項とする。</li>
+      </ul>
+
+
+      <h3>8.8 async CallGraph</h3>
+      <ul>
+        <li>public async instance method と public static async method を CallGraph 解析対象とする。</li>
+        <li>async → async call を edge とし、自己循環を含むすべての cycle を Compile Error とする。</li>
+        <li>動的 dispatch は静的に到達可能なすべての call 先候補を Graph に含め、必要なら最終 link 時にも検証する。</li>
+        <li>SCC 等のアルゴリズムで cycle を検出できる。</li>
+      </ul>
+
+
+      <h3>8.9 Tick 中に生成された Call</h3>
+      <ul>
+        <li>Tick 開始時に存在した Call だけでなく、async method 実行中に enqueue された新規 Call も同じ Tick 中に実行する。</li>
+        <li>通常の CallBuffer entry は次 Tick へ持ち越さない。</li>
+      </ul>
+
+
+      <h3>8.10 Tick Quiescence</h3>
+<pre><code>Running async method count == 0
+AND
+all Instance CallBuffers == empty
+AND
+all Static CallBuffers == empty
+AND
+Scheduler pending work == 0
+</code></pre>
+      <p>上記をすべて満たした状態を Tick Quiescence とする。新しい Call が追加された場合は Quiescence ではない。</p>
+
+
+      <h3>8.11 main() と tick()</h3>
+      <ul>
+        <li><code>main()</code> はプログラム開始時に一度実行される Root Scope / Tick Driver であり、CallBuffer と Quiescence の対象外とする。</li>
+        <li>main scope から直接または間接的に参照可能な Object Reference 集合を言語意味論上の Root とする。</li>
+        <li><code>tick()</code> は main からのみ呼び出せる Runtime intrinsic または専用 statement とする。</li>
+        <li><code>tick()</code> は同期 Barrier であり、return 時には async 処理、Volatile Commit、参照処理、GC が完了している。</li>
+        <li>main が return するとプログラムを終了し、残存 Object Graph / Reference Group / CallBuffer は破棄可能とする。</li>
+      </ul>
+
+
+      <h3>8.12 VM Tick pipeline</h3>
+<pre><code>tick()
+  ↓
+Instance / Static CallBuffer execution
+  ↓
+newly generated Calls
+  ↓
+Tick Quiescence
+  ↓
+Volatile → Committed
+  ↓
+Reference Graph update
+  ↓
+Reference Group update
+  ↓
+Reference Count update
+  ↓
+Destruction Candidate processing
+  ↓
+GC
+  ↓
+tick() return
+</code></pre>
+
+
+      <h3>8.13 VMThread Pool と Scheduling</h3>
+      <ul>
+        <li>VM は複数 VMThread / OS Thread を使用して異なる Object の async method を並列実行できる。</li>
+        <li>同一 Object の Mutable State は owner Object の method のみが更新する。</li>
+        <li>Scheduler は pending CallBuffer work を VMThread Pool へ割り当て、Tick Quiescence 判定に pending work を含める。</li>
+      </ul>
+
+
+      <h3>8.14 Game Frame との分離</h3>
+      <ul>
+        <li>VM Tick と Game Render Frame は同一概念ではない。</li>
+        <li>VM は Renderer / VSYNC / Frame Clear / GPU を認識しない。</li>
+        <li>Host Runtime は Input 処理 → Aloe commands → tick() → Physics → Render 等の順で VM Tick を利用できる。</li>
+      </ul>
+
+
+      <h3>8.15 Host synchronous Query</h3>
+      <ul>
+        <li>Keyboard.isDown / isPressed 等、Host 状態を同期的に問い合わせる static method を提供できる。</li>
+        <li>複数 VMThread から呼び出される可能性があるため、Host Thread Safety 要件は別途正式化する。</li>
+      </ul>
+
+
+      <h3>8.16 async failure と Tick atomicity</h3>
+      <p>
+        async method の未処理例外を Tick Failure とし、実行中 VMThread を合流し、Volatile State を Commit せず、
+        未処理 Call を破棄して <code>tick()</code> から main へ例外を throw する案を候補とする。
+        Host の不可逆副作用の扱いを含め、これは未決事項である。
+      </p>
+    </section>
+
+
+    <!-- 9. 未決事項・TODO -->
+    <section id="vm-ch9" class="chapter">
+      <h2>9. 未決事項・TODO</h2>
+
+
+      <h3>9.1 まだ決まっていない事項</h3>
+      <ol>
+        <li>public property getter を副作用なしの Read-only Query に制限するか。</li>
+        <li>mutable global variable / mutable static field を禁止し、同期 function / static method を stateless に限定するか。</li>
+        <li>Host synchronous function / Query の Thread Safety 要件。</li>
+        <li>constructor の正式な実行方式と constructor 完了前の <code>this</code> の async 流出禁止。</li>
+        <li>async method 未処理例外時の Tick Failure / Volatile rollback / <code>tick()</code> 例外伝播。</li>
+        <li>Tick Failure 時の未処理 CallBuffer entry と Host 不可逆副作用の扱い。</li>
+        <li>Static CallBuffer の実行 VMThread と同一 type 内逐次実行規則。</li>
+        <li>完全 Replay Determinism の論理順序付け。</li>
+        <li>同 Tick Property 可視性による 1 Tick 遅延と Phase 導入の必要性。</li>
+        <li>Object Reference property と Collection 内 Object Reference の Graph edge 規則。</li>
+        <li>Reference Group merge / split / Dirty 局所 SCC 更新アルゴリズム。</li>
+        <li>Tick 中に生成 / 破棄される Object の可視性・寿命。</li>
+        <li>Audio / Network / File / Renderer 等の Host 副作用と Tick Atomicity。</li>
+        <li>同一 Tick 中の Pipe データ可視性。</li>
+      </ol><h3>9.2 将来の拡張候補</h3>
+      <ul>
+        <li>JIT コンパイル層（ホット関数のネイティブコード化）</li>
+        <li>デバッガフック（ブレークポイント・ステップ実行・変数ウォッチ）</li>
+        <li>プロファイラ API（実行時間・割り当てメモリの計測）</li>
+        <li>分散実行（複数プロセス／ノードにまたがる pipe のサポート）</li>
+      </ul>
+
+
+      <div class="note">
+        現在の仕様書の内容だけでも、<strong>Aloe コンパイラ / C# 実装の AloeVM / aloe2wasm のプロトタイプ</strong>は実装可能なレベルを目指している。<br>
+        ただし、命令セット表やメモリ管理の細部は試行錯誤しつつブラッシュアップしていく前提。
+      </div>
+    </section>
+
+
+    <hr />
+
+
+    <!-- Appendix: 生成AI向け編集ポリシー -->
+    <section id="editor-notes">
+      <h2>Appendix: 生成AI 向け編集ポリシー（仕様書本文ではない）</h2>
+      <p>
+        この付録は、AloeVM 仕様書を生成 AI（例: ChatGPT）で編集する際のルールを示すものであり、
+        仕様書本文の一部では<strong>ない</strong>。本文の技術的内容よりも優先されることはない。
+      </p>
+      <ul>
+        <li>本文の技術内容・仕様の意味を変更しないこと。
+          誤字脱字の修正や、明らかな表記ゆれの統一は許可されるが、アルゴリズムや仕様の挙動を変えてはならない。</li>
+        <li>章立てや見出しの順序は、ユーザーから明示的な指示がない限り変更しないこと。</li>
+        <li>既存のサンプルコードや擬似コードのロジックは保持し、見た目だけの書き換え（不要な大文字小文字変更など）は行わないこと。</li>
+        <li>「別資料で管理する」と明記された内容（例: 命令セット詳細）は、この仕様書内に勝手に再展開しないこと。
+          詳細が必要な場合は「AloeVM 命令セットリファレンスを参照」といった参照文の追加にとどめる。</li>
+        <li>メタ情報を更新する場合、ヘッダ内の <code>edit-version</code> と <code>edit-date</code> を必ず更新すること。</li>
+        <li>
+          <strong>時刻の扱い:</strong>
+          <ul>
+            <li><code>edit-date</code> には、必ず <strong>Asia/Tokyo の現在時刻</strong> を使用すること。</li>
+            <li>形式は ISO 8601（例: <code>2025-12-03T11:45:54+09:00</code>）とし、年月日・時分秒・タイムゾーンオフセットを含めること。</li>
+            <li>推測や他タイムゾーンの時刻を用いてはならない。生成 AI は、ユーザーから与えられた現在時刻（または専用ツールから取得した Asia/Tokyo の現在時刻）をそのまま書き込むこと。</li>
+          </ul>
+        </li>
+        <li>この付録自体は、必要に応じて追記・修正してよいが、その場合も本文の仕様内容には影響を与えないようにすること。</li>
+      </ul>
+    </section>
+
+
+  </main>
+</div>
+</body>
+</html>

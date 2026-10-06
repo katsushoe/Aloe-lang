@@ -1,0 +1,690 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aloe Package Specification (Draft, English Version)</title>
+  <meta name="edit-version" content="1" />
+  <meta name="edit-date" content="2025-12-04T09:30:00+09:00" />
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "Hiragino Sans", "Yu Gothic", sans-serif;
+      line-height: 1.7;
+      color: #111827;
+      background: #f5f5f7;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 280px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 1.5rem 1.25rem 2.5rem;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1.1rem;
+      margin: 0 0 0.4rem;
+    }
+    .sidebar .subtitle {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-bottom: 1.4rem;
+    }
+    .sidebar h2 {
+      font-size: 0.85rem;
+      margin: 1.2rem 0 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #9ca3af;
+    }
+    .sidebar nav ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 0.9rem;
+    }
+    .sidebar nav li {
+      margin: 0.18rem 0;
+    }
+    .sidebar a {
+      color: inherit;
+      text-decoration: none;
+      display: block;
+      padding: 0.25rem 0.45rem;
+      border-radius: 0.35rem;
+    }
+    .sidebar a:hover {
+      background: #1f2937;
+    }
+    .chapter-index {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-right: 0.35rem;
+    }
+
+    .content {
+      flex: 1;
+      max-width: 1100px;
+      padding: 2rem 3rem 3rem;
+      margin: 0 auto;
+      background: #f9fafb;
+    }
+    h1, h2, h3, h4, h5 {
+      color: #111827;
+      margin-top: 1.6em;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    p {
+      margin-top: 0.4em;
+      margin-bottom: 0.7em;
+    }
+    ul, ol {
+      padding-left: 1.4em;
+      margin-top: 0.2em;
+      margin-bottom: 0.7em;
+    }
+    pre, code {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas,
+                   "Ricty Diminished", monospace;
+      font-size: 0.9rem;
+    }
+    pre {
+      background: #1118270d;
+      padding: 0.8rem 1rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      border: 1px solid #e5e7eb;
+      margin: 0.9em 0;
+    }
+    hr {
+      margin: 2.2rem 0;
+      border: none;
+      border-top: 1px solid #e5e7eb;
+    }
+    .note {
+      font-size: 0.9rem;
+      color: #4b5563;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #374151;
+      margin-left: 0.4rem;
+    }
+    .badge-stable {
+      background: #d1fae5;
+      color: #065f46;
+    }
+    .badge-draft {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <h1>Aloe Package Spec</h1>
+    <div class="subtitle">
+      Draft • English • Package format specification<br>
+      (Build tool specification is in a separate document)
+    </div>
+
+    <h2>Chapters</h2>
+    <nav>
+      <ul>
+        <li><a href="#ch0"><span class="chapter-index">0.</span>Overview and scope</a></li>
+        <li><a href="#ch1"><span class="chapter-index">1.</span>Basic concepts</a></li>
+        <li><a href="#ch2"><span class="chapter-index">2.</span>Package layout</a></li>
+        <li><a href="#ch3"><span class="chapter-index">3.</span><code>&lt;package&gt;.meta.json</code></a></li>
+        <li><a href="#ch4"><span class="chapter-index">4.</span>Package DB <code>package-db.json</code></a></li>
+        <li><a href="#ch5"><span class="chapter-index">5.</span>Versioning and compatibility</a></li>
+        <li><a href="#ch6"><span class="chapter-index">6.</span>Relation to compilers / tools</a></li>
+        <li><a href="#appendix"><span class="chapter-index">A.</span>Editing policy (for generative AI)</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1 id="top">Aloe Package Specification (Draft, English Version)</h1>
+    <p class="note">
+      This document defines the <strong>“package” level specification</strong> surrounding
+      the Aloe language and AloeVM.<br>
+      Here, a “package” refers to a pair consisting of a compiled Aloe module group
+      in a <code>.abc</code> file and its metadata (<code>.meta.json</code>).<br>
+      The command-line specification and project file format for build tools (for example <code>aloec</code>)
+      are defined separately in a <strong>“Build Tool Specification”</strong>.
+    </p>
+
+    <hr>
+
+    <h2 id="ch0">0. Overview and scope</h2>
+
+    <h3>0.1 Purpose of this specification</h3>
+    <ul>
+      <li>To unify the package format for Aloe so that multiple compilers / build tools / IDEs can handle it in a common way.</li>
+      <li>To provide, in addition to binary code (<code>.abc</code>), type information, signature information, dependencies, and so on in JSON format.</li>
+      <li>To enable a minimum level of completion and static checking using only <code>.meta.json</code>, even in the absence of source code.</li>
+    </ul>
+
+    <h3>0.2 Out of scope (what this document does not cover)</h3>
+    <ul>
+      <li>Syntax, type system, and runtime semantics of the Aloe language
+        <ul>
+          <li>→ See the “Aloe Language Specification”.</li>
+        </ul>
+      </li>
+      <li>The instruction set of AloeVM, stack structure, and the binary layout of <code>.abc</code> files
+        <ul>
+          <li>→ See the “AloeVM Specification”.</li>
+        </ul>
+      </li>
+      <li>Command-line options and behavior of build tools (such as <code>aloec</code>)
+        <ul>
+          <li>→ These will be defined in the “Aloe Build Tool Specification” (planned).</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>0.3 Stability and versioning</h3>
+    <p>
+      This document is a draft and may change based on implementation experience.<br>
+      However, the policy is that <strong>once adopted, the structures of
+      <code>.meta.json</code> and <code>package-db.json</code> should not be changed in a breaking way lightly</strong>.
+    </p>
+
+    <hr>
+
+    <h2 id="ch1">1. Basic concepts</h2>
+
+    <h3>1.1 Package</h3>
+    <p>
+      In Aloe, a “package” mainly consists of the following pair of files:
+    </p>
+    <ul>
+      <li><code>&lt;package&gt;.abc</code>
+        <ul>
+          <li>A bytecode file (Aloe ByteCode) that AloeVM executes directly.</li>
+          <li>Its concrete binary structure is defined in the AloeVM Specification.</li>
+        </ul>
+      </li>
+      <li><code>&lt;package&gt;.meta.json</code>
+        <ul>
+          <li>Metadata describing public symbols in the package
+              (classes, structs, enums, functions, methods, filters, annotations, etc.).</li>
+          <li>This specification defines the JSON schema.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>1.2 Package name and version</h3>
+    <ul>
+      <li>Package names are recommended to use <strong>lowercase, dot-separated namespaces</strong>
+          such as <code>aloe.system</code>.</li>
+      <li>By convention, versions follow the <code>MAJOR.MINOR.PATCH</code> format
+          (for example <code>1.2.0</code>).</li>
+      <li>The notation for version ranges (such as <code>&gt;=1.0.0 &lt;2.0.0</code>) is defined in detail
+          by the tool-side specification (build tool specification).</li>
+    </ul>
+
+    <h3>1.3 Package DB</h3>
+    <p>
+      The “package database” used at build time and runtime is represented by a single JSON file
+      named <code>package-db.json</code>.<br>
+      It is an index that aggregates, for multiple packages,
+      “where the corresponding <code>.abc</code> and <code>.meta.json</code> files are located”.
+    </p>
+
+    <hr>
+
+    <h2 id="ch2">2. Package layout</h2>
+
+    <h3>2.1 Example file layout</h3>
+    <pre><code>myapp.core.abc           // Bytecode executed by AloeVM
+myapp.core.meta.json     // Package metadata (defined in this spec)
+myapp.util.abc
+myapp.util.meta.json
+package-db.json          // Package database (see chapter 4)
+</code></pre>
+
+    <h3>2.2 Relationship between .abc and .meta.json</h3>
+    <ul>
+      <li><code>.abc</code> … Actual code and data (defined in the AloeVM Specification).</li>
+      <li><code>.meta.json</code> … “Declaration information” such as types, function signatures, and dependencies.
+        <ul>
+          <li>Tools (compilers, IDEs, static analyzers, etc.) are, in principle, expected to treat
+              <code>.meta.json</code> as the primary source and not interpret <code>.abc</code> directly.</li>
+          <li>Logically, <code>.abc</code> and <code>.meta.json</code> form a single unit, but they are separate files.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr>
+
+    <h2 id="ch3">3. <code>&lt;package&gt;.meta.json</code> specification</h2>
+
+    <h3>3.1 Top-level structure</h3>
+    <pre><code>{
+  "formatVersion": 1,
+  "package": { ... },
+  "source": { ... },
+  "dependencies": [ ... ],
+  "exports": {
+    "types":       [ ... ],
+    "functions":   [ ... ],
+    "methods":     [ ... ],
+    "filters":     [ ... ],
+    "annotations": [ ... ]
+  }
+}
+</code></pre>
+    <ul>
+      <li><code>formatVersion</code>
+        <ul>
+          <li>An integer indicating the version of this JSON format itself.</li>
+          <li>It is incremented only when there are breaking changes.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>3.2 <code>package</code> section</h3>
+    <pre><code>"package": {
+  "name": "myapp.core",
+  "version": "0.1.0",
+  "build": {
+    "configuration": "Debug",          // "Debug" / "Release", etc.
+    "compiler": "aloec",               // Name of the compiler used
+    "compilerVersion": "0.1.0",        // Compiler version
+    "buildTime": "2025-12-04T09:30:00Z"
+  }
+}
+</code></pre>
+    <ul>
+      <li><code>name</code> … Package name.</li>
+      <li><code>version</code> … Package version.</li>
+      <li><code>build</code> … Build-related metadata.
+        <ul>
+          <li>The compiler name and build time are primarily useful for tool debugging
+              and do not have language-spec-level meaning.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>3.3 <code>source</code> section</h3>
+    <pre><code>"source": {
+  "files": [
+    "src/Main.as",
+    "src/App.as"
+  ]
+}
+</code></pre>
+    <ul>
+      <li>A list of relative paths to Aloe source files that were compiled into this package.</li>
+      <li>In environments where users cannot access the source, this may be an empty array.</li>
+    </ul>
+
+    <h3>3.4 <code>dependencies</code> section</h3>
+    <pre><code>"dependencies": [
+  {
+    "name": "aloe.system",
+    "versionRange": "&gt;=0.1.0"
+  },
+  {
+    "name": "myapp.util",
+    "versionRange": "0.2.x"
+  }
+]
+</code></pre>
+    <ul>
+      <li><code>name</code> … Name of the dependent package.</li>
+      <li><code>versionRange</code> … Required version range (the format is defined in the build tool specification).</li>
+      <li>Dependency resolution is primarily the responsibility of build tools,
+          but <code>.meta.json</code> is used as the source of this information.</li>
+    </ul>
+
+    <hr>
+
+    <h3>3.5 <code>exports.types</code>: type information</h3>
+    <pre><code>"exports": {
+  "types": [
+    {
+      "kind": "class",
+      "namespace": "MyApp",
+      "name": "App",
+      "visibility": "public"
+    },
+    {
+      "kind": "enum",
+      "namespace": "MyApp.Logging",
+      "name": "LogLevel",
+      "visibility": "public",
+      "underlyingType": "int",
+      "members": [
+        {
+          "name": "Debug",
+          "value": 1,
+          "bitIndex": null,
+          "isAlias": false,
+          "documentation": "Debug level"
+        },
+        {
+          "name": "Info",
+          "value": 2,
+          "bitIndex": null,
+          "isAlias": false,
+          "documentation": "Information level"
+        }
+      ]
+    },
+    {
+      "kind": "bitfield-enum",
+      "namespace": "MyApp.Logging",
+      "name": "LogFlags",
+      "visibility": "public",
+      "underlyingType": "int",
+      "members": [
+        {
+          "name": "None",
+          "value": 1,
+          "bitIndex": 0,
+          "isAlias": false,
+          "documentation": null
+        },
+        {
+          "name": "Info",
+          "value": 8,
+          "bitIndex": 3,
+          "isAlias": false,
+          "documentation": null
+        }
+      ]
+    }
+  ],
+  ...
+}
+</code></pre>
+
+    <h4>3.5.1 Common fields</h4>
+    <ul>
+      <li><code>kind</code>
+        <ul>
+          <li>One of <code>"class"</code>, <code>"struct"</code>, <code>"interface"</code>,
+              <code>"trait"</code>, <code>"enum"</code>, <code>"bitfield-enum"</code>,
+              <code>"annotation"</code>.</li>
+        </ul>
+      </li>
+      <li><code>namespace</code> … Namespace part of the fully qualified name (for example <code>"MyApp.Logging"</code>).</li>
+      <li><code>name</code> … Type name (for example <code>"App"</code>).</li>
+      <li><code>visibility</code> … Currently <code>"public"</code> or <code>"internal"</code>.</li>
+    </ul>
+
+    <h4>3.5.2 Additional fields for enum / bitfield enum</h4>
+    <ul>
+      <li><code>underlyingType</code>
+        <ul>
+          <li>Under the current Aloe language specification, this is always <code>"int"</code>.</li>
+        </ul>
+      </li>
+      <li><code>members</code> (array)
+        <ul>
+          <li><code>name</code> … Enumerator name.</li>
+          <li><code>value</code> … Actual <code>int</code> value of the enumerator
+              (with implicit sequences and <code>b(n)</code> already expanded).</li>
+          <li><code>bitIndex</code>
+            <ul>
+              <li>For <code>kind: "bitfield-enum"</code> only, the bit position in the range 0–31.</li>
+              <li>For normal enums, this is <code>null</code> or omitted.</li>
+            </ul>
+          </li>
+          <li><code>isAlias</code> … <code>true</code> if this is an alias sharing the same <code>value</code> as another enumerator.</li>
+          <li><code>documentation</code> … A string for future doc comment use (optional).</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr>
+
+    <h3>3.6 <code>exports.functions</code>: top-level functions</h3>
+    <pre><code>"functions": [
+  {
+    "namespace": "MyApp",
+    "name": "MainHelper",
+    "visibility": "internal",
+    "parameters": [
+      { "name": "x", "type": "int" },
+      { "name": "y", "type": "int" }
+    ],
+    "returnType": "int",
+    "isAsync": false,
+    "attributes": []
+  }
+]
+</code></pre>
+    <ul>
+      <li><code>namespace</code>, <code>name</code>, <code>visibility</code> are the same as for types.</li>
+      <li><code>parameters</code>
+        <ul>
+          <li><code>name</code> … Parameter name.</li>
+          <li><code>type</code> … String representation of the Aloe type
+              (for example <code>"int"</code>, <code>"string[]"</code>, <code>"MyApp.User"</code>).</li>
+        </ul>
+      </li>
+      <li><code>returnType</code> … Return type (including <code>"void"</code>).</li>
+      <li><code>isAsync</code> … <code>true</code> if this is an <code>async</code> function.</li>
+      <li><code>attributes</code> … Metadata for future extensions (for now it can be an empty array).</li>
+    </ul>
+
+    <hr>
+
+    <h3>3.7 <code>exports.methods</code>: methods</h3>
+    <pre><code>"methods": [
+  {
+    "ownerType": "MyApp.App",           // Fully qualified type name
+    "name": "Run",
+    "visibility": "public",
+    "isStatic": false,
+    "isAsync": false,
+    "parameters": [
+      { "name": "args", "type": "string[]" }
+    ],
+    "returnType": "void",
+    "attributes": []
+  }
+]
+</code></pre>
+    <ul>
+      <li><code>ownerType</code> … Fully qualified name in the form <code>namespace.name</code>.</li>
+      <li><code>name</code>, <code>visibility</code>, <code>parameters</code>, <code>returnType</code>, <code>isAsync</code> are as for functions.</li>
+      <li><code>isStatic</code> … <code>true</code> if this is a <code>static</code> method.</li>
+    </ul>
+
+    <hr>
+
+    <h3>3.8 <code>exports.filters</code>: filters</h3>
+    <pre><code>"filters": [
+  {
+    "name": "json&lt;T&gt;",
+    "namespace": "aloe.json",
+    "visibility": "public",
+    "inputType": "pipe&lt;byte&gt;",
+    "outputType": "pipe&lt;T&gt;",
+    "optionsType": "aloe.json.JsonOptions",
+    "attributes": []
+  }
+]
+</code></pre>
+    <ul>
+      <li><code>name</code> … Filter name (it may include a generic representation if applicable).</li>
+      <li><code>namespace</code>, <code>visibility</code> … Same as above.</li>
+      <li><code>inputType</code>, <code>outputType</code> … String representations of the input and output Aloe types.</li>
+      <li><code>optionsType</code> … If the filter has an options type (such as a bitfield enum), this is its fully qualified name; otherwise <code>null</code>.</li>
+    </ul>
+
+    <hr>
+
+    <h3>3.9 <code>exports.annotations</code>: annotations</h3>
+    <pre><code>"annotations": [
+  {
+    "name": "StructLayout",
+    "namespace": "aloe.runtime",
+    "visibility": "public",
+    "targetKinds": [ "struct" ],
+    "description": "Annotation to specify the memory layout of a struct"
+  }
+]
+</code></pre>
+    <ul>
+      <li><code>name</code>, <code>namespace</code>, <code>visibility</code> … Same as above.</li>
+      <li><code>targetKinds</code> … The kinds of targets to which this annotation can be applied
+          (for example <code>"struct"</code>, <code>"class"</code>, <code>"method"</code>, etc.).</li>
+      <li><code>description</code> … Short description (optional).</li>
+    </ul>
+
+    <hr>
+
+    <h2 id="ch4">4. Package DB <code>package-db.json</code></h2>
+
+    <h3>4.1 Top-level structure</h3>
+    <pre><code>{
+  "formatVersion": 1,
+  "packages": [
+    {
+      "name": "myapp.core",
+      "version": "0.1.0",
+      "abcPath": "packages/myapp.core.abc",
+      "metaPath": "packages/myapp.core.meta.json",
+      "dependencies": [
+        { "name": "aloe.system", "versionRange": "&gt;=0.1.0" }
+      ]
+    }
+  ]
+}
+</code></pre>
+    <ul>
+      <li><code>formatVersion</code> … Version of this file format.</li>
+      <li><code>packages</code> … List of available packages.</li>
+    </ul>
+
+    <h3>4.2 Individual package entry</h3>
+    <ul>
+      <li><code>name</code> … Package name.</li>
+      <li><code>version</code> … Package version.</li>
+      <li><code>abcPath</code> … Path to the <code>.abc</code> file
+          (a path relative to <code>package-db.json</code> or an absolute path).</li>
+      <li><code>metaPath</code> … Path to the corresponding <code>.meta.json</code> file.</li>
+      <li><code>dependencies</code> … Dependencies on other packages required by this package.
+        <ul>
+          <li>The structure is the same as the <code>dependencies</code> in <code>.meta.json</code>, but it is duplicated here
+              to make resolution at build and runtime easier.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <p>
+      Build tools typically read <code>dependencies</code> from <code>.meta.json</code>,
+      while obtaining the physical paths of packages from <code>package-db.json</code>.
+    </p>
+
+    <hr>
+
+    <h2 id="ch5">5. Versioning and compatibility</h2>
+
+    <h3>5.1 Handling of <code>formatVersion</code></h3>
+    <ul>
+      <li>Both <code>.meta.json</code> and <code>package-db.json</code> have a <code>formatVersion</code> field.</li>
+      <li>These are the versions of the “JSON formats themselves” and are independent of the Aloe language version.</li>
+      <li>For backward-compatible changes such as adding fields,
+          <code>formatVersion</code> is generally kept as-is,
+          and incremented only when a breaking change is introduced.</li>
+    </ul>
+
+    <h3>5.2 Package version compatibility</h3>
+    <ul>
+      <li>The <code>version</code> field of a package can be used to indicate the level of API compatibility.</li>
+      <li>Changes such as adding, removing, or changing the values of enum members
+          can be detected mechanically from the differences between <code>.meta.json</code> files,
+          and we anticipate future “compatibility checker” tools that perform automatic checks.</li>
+    </ul>
+
+    <hr>
+
+    <h2 id="ch6">6. Relation to compilers / tools</h2>
+
+    <h3>6.1 Responsibilities of compilers</h3>
+    <ul>
+      <li>When compiling source code, an Aloe compiler:
+        <ul>
+          <li>Outputs <code>&lt;package&gt;.abc</code> (bytecode).</li>
+          <li>Outputs <code>&lt;package&gt;.meta.json</code> (metadata conforming to this specification) at the same time.</li>
+        </ul>
+      </li>
+      <li>It is recommended that the metadata contain at least information about public symbols (<code>public</code>).</li>
+    </ul>
+
+    <h3>6.2 Typical usage patterns for tools</h3>
+    <ul>
+      <li>Build tools:
+        <ul>
+          <li>Read <code>dependencies</code> from <code>.meta.json</code> to resolve dependencies.</li>
+          <li>Use <code>package-db.json</code> to locate and resolve packages.</li>
+        </ul>
+      </li>
+      <li>IDEs / LSP:
+        <ul>
+          <li>Refer to <code>exports.types</code>, <code>exports.functions</code>,
+              <code>exports.methods</code>, <code>exports.filters</code>, and <code>exports.annotations</code>
+              for completion and signature help.</li>
+          <li>Use the <code>members</code> array to show the list of enum / bitfield enum members and their values.</li>
+        </ul>
+      </li>
+      <li>Static analysis tools:
+        <ul>
+          <li>Use differences between <code>.meta.json</code> files to detect breaking changes and check API compatibility.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr>
+
+    <h2 id="appendix">Appendix: Editing policy for generative AI (specific to this specification)</h2>
+    <p class="note">
+      This section is an internal rule for editing the Aloe Package Specification with generative AI
+      and is not part of the specification body.
+    </p>
+    <ul class="note">
+      <li>This document is treated as the canonical “Aloe Package Specification”.</li>
+      <li>If an English version is created in the future, its chapter structure and meaning must match the Japanese version.</li>
+      <li><code>edit-version</code> is a counter specific to this specification and is managed separately
+          from the Aloe Language Specification and AloeVM Specification.</li>
+      <li>Only when a change is made that affects the meaning of the specification body
+          (including sample JSON) is <code>edit-version</code> incremented by +1.</li>
+      <li>Always treat the latest HTML presented by the user as authoritative and apply only the minimal diffs relative to it.</li>
+      <li>Do not arbitrarily add build tool specifications (such as arguments for <code>aloec</code>) to this document.
+          Those are to be defined separately in the “Build Tool Specification”.</li>
+    </ul>
+
+  </main>
+</div>
+</body>
+</html>

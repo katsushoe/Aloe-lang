@@ -1,0 +1,726 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Aloe Standard Library Specification (Filters – Draft, English)</title>
+  <meta name="edit-version" content="3">
+  <meta name="edit-date" content="2025-12-03T08:15:00+09:00">
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "Hiragino Sans", "Yu Gothic", sans-serif;
+      line-height: 1.7;
+      background: #f5f5f7;
+      color: #111827;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 1.5rem 1.25rem;
+      box-sizing: border-box;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1rem;
+      margin: 0 0 0.25rem;
+    }
+    .sidebar .subtitle {
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-bottom: 1rem;
+    }
+    .sidebar nav h2 {
+      font-size: 0.8rem;
+      margin: 1.25rem 0 0.25rem;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .sidebar nav ul {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    .sidebar nav li {
+      margin: 0.15rem 0;
+    }
+    .sidebar nav a {
+      color: #e5e7eb;
+      text-decoration: none;
+      font-size: 0.85rem;
+    }
+    .sidebar nav a:hover {
+      text-decoration: underline;
+    }
+    .content {
+      flex: 1;
+      max-width: 1000px;
+      padding: 2rem 2.5rem 3rem;
+      box-sizing: border-box;
+    }
+    .content h1 {
+      font-size: 1.6rem;
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+    }
+    .content .meta {
+      font-size: 0.8rem;
+      color: #6b7280;
+      margin-bottom: 1.5rem;
+    }
+    .content h2 {
+      font-size: 1.3rem;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 0.25rem;
+      margin-top: 2.5rem;
+    }
+    .content h3 {
+      font-size: 1.05rem;
+      margin-top: 1.8rem;
+      margin-bottom: 0.4rem;
+    }
+    .content h4 {
+      font-size: 0.95rem;
+      margin-top: 1.2rem;
+      margin-bottom: 0.3rem;
+    }
+    .content p {
+      margin: 0.4rem 0;
+    }
+    .content ul, .content ol {
+      padding-left: 1.3rem;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      background: #e5e7eb;
+      color: #374151;
+      border-radius: 999px;
+      padding: 0.05rem 0.6rem;
+      margin-right: 0.3rem;
+    }
+    code {
+      font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.85em;
+      background: #e5e7eb;
+      padding: 0.05rem 0.3rem;
+      border-radius: 0.25rem;
+    }
+    pre {
+      background: #111827;
+      color: #e5e7eb;
+      padding: 0.8rem 1rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+    }
+    .note {
+      border-left: 3px solid #3b82f6;
+      background: #dbeafe;
+      color: #1e3a8a;
+      padding: 0.75rem 0.9rem;
+      font-size: 0.85rem;
+      border-radius: 0.25rem;
+      margin: 1rem 0;
+    }
+    .filter-header {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-top: 1.1rem;
+    }
+    .sig {
+      font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.85rem;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #e5e7eb;
+      margin: 2rem 0;
+    }
+    @media (max-width: 900px) {
+      .layout {
+        flex-direction: column;
+      }
+      .sidebar {
+        position: static;
+        width: 100%;
+        max-height: none;
+      }
+      .content {
+        padding: 1.5rem 1.25rem 2.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Aloe Standard Library</h1>
+      <div class="subtitle">Filters Library Spec (Draft, EN)</div>
+
+      <nav>
+        <h2>Chapters</h2>
+        <ul>
+          <li><a href="#ch0">0. Overview</a></li>
+          <li><a href="#ch1">1. Common Rules for Filters</a></li>
+          <li><a href="#ch2">2. Text / Encoding</a></li>
+          <li><a href="#ch3">3. JSON / Data Transformation</a></li>
+          <li><a href="#ch4">4. Conditional / Ordering</a></li>
+          <li><a href="#ch5">5. Crypto / Hash / Binary</a></li>
+          <li><a href="#ch6">6. String Utilities</a></li>
+          <li><a href="#ch7">7. Archive / Compression / CSV</a></li>
+          <li><a href="#ch8">8. HTML / Sanitization</a></li>
+          <li><a href="#ch9">9. Parsing / Formatting</a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Aloe Standard Library Specification (Filters)</h1>
+      <div class="meta">
+        Draft • English • Filters Library • version 3<br>
+        This document is a separate “standard filters library specification” independent from the Aloe language specification.
+      </div>
+
+      <section id="ch0">
+        <h2>0. Overview</h2>
+        <p>
+          This document defines a set of <span class="tag">standard filters</span> in Aloe,
+          based on the concepts of <code>pipe&lt;T&gt;</code> and <code>filter</code>.
+        </p>
+        <p>
+          The core language specification defines syntax, the type system, and the
+          <code>pipe</code> / <code>filter</code> constructs. This document is independent of that
+          and describes the names, behavior, and types of the filters that are provided by default.
+        </p>
+        <p>
+          Implementations should aim to be “as faithful as possible” to the signatures and
+          semantics defined here, but some behavior may depend on the implementation due to
+          performance or platform differences.
+        </p>
+
+        <div class="note">
+          <strong>NOTE:</strong> All code examples in this document are Aloe pseudo code and
+          may be updated in the future as the language specification evolves.
+        </div>
+      </section>
+
+      <section id="ch1">
+        <h2>1. Common Rules for Filters</h2>
+
+        <h3>1.1 Invocation syntax</h3>
+        <p>
+          All filters in this document are applied to a <code>pipe&lt;T&gt;</code> using the
+          <code>filter(NAME ...)</code> form.
+        </p>
+
+        <pre><code>// Full form
+stdin
+    | filter(utf8)
+    | filter(lineSplit)
+    | filter(trim)
+    | stdout;</code></pre>
+
+        <p>
+          However, <strong>within a pipeline statement</strong> the keyword <code>filter</code>
+          may be omitted, and the sugar syntax <code>|: NAME ...</code> can be used instead.
+        </p>
+
+        <pre><code>// Short form (pipeline-only sugar)
+stdin
+    |: utf8
+    |: lineSplit
+    |: trim
+    | stdout;</code></pre>
+
+        <p>
+          The following two snippets are equivalent:
+        </p>
+
+        <pre><code>stdin
+    | filter(utf8)
+    | filter(json: User);
+
+stdin
+    |: utf8
+    |: json: User;</code></pre>
+
+        <p>
+          Filters that require type parameters receive the type as a
+          <strong>labeled argument</strong>:
+        </p>
+
+        <pre><code>stdin
+    |: utf8
+    |: json: User
+    | users;</code></pre>
+
+        <h3>1.2 Type notation</h3>
+        <p>
+          For simplicity, types are written in a compact form in this document. Examples:
+        </p>
+        <ul>
+          <li><code>pipe&lt;string&gt;</code> – a pipe of strings</li>
+          <li><code>pipe&lt;byte&gt;</code> – a pipe of bytes</li>
+          <li><code>pipe&lt;T&gt;</code> – a pipe parameterized by type <code>T</code></li>
+        </ul>
+
+        <h3>1.3 Side effects and exceptions</h3>
+        <p>
+          Filters may exhibit the following behaviors:
+        </p>
+        <ul>
+          <li>Consume the entire input pipe before producing output (e.g. <code>sort</code>, <code>shuffle</code>, <code>zip</code>)</li>
+          <li>Pass through only a subset of the input (e.g. <code>if</code>, <code>startswith</code>, <code>contains</code>)</li>
+          <li>Maintain internal state (e.g. ciphers with contexts like <code>AESencrypt</code>)</li>
+        </ul>
+
+        <p>
+          How errors are handled (exceptions vs returning <code>Result&lt;T&gt;</code>, etc.)
+          may be described individually for each filter when relevant.
+        </p>
+
+        <h3>1.4 Namespaces</h3>
+        <p>
+          The root namespace of the standard library is <code>aloe</code>.
+          Every standard filter belongs to a namespace under this root.
+        </p>
+        <ul>
+          <li>Namespace names are <strong>all lowercase</strong>, and segments are separated by <code>.</code>.</li>
+          <li>Examples: <code>aloe.text</code>, <code>aloe.encoding</code>, <code>aloe.crypto.hash</code>, etc.</li>
+        </ul>
+        <p>
+          This document assigns each filter a “<strong>canonical fully-qualified name</strong>”
+          of the form <code>aloe.xxx.yyy</code>. How imports work or how these names can be
+          shortened in actual code is defined in the language specification.
+        </p>
+      </section>
+
+      <section id="ch2">
+        <h2>2. Text / Encoding</h2>
+
+        <h3>2.1 <code>utf8</code></h3>
+        <p class="filter-header">Namespace / Signature</p>
+        <p class="sig">
+          Namespace: <code>aloe.encoding</code><br>
+          filter utf8 : pipe&lt;byte&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>Decodes the input byte stream as UTF-8 and produces a stream of strings.</p>
+
+        <pre><code>stdin
+    |: utf8
+    |: lineSplit
+    | stdout;</code></pre>
+
+        <h3>2.2 <code>lineSplit</code></h3>
+        <p class="filter-header">Namespace / Signature</p>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter lineSplit : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>
+          Splits string chunks into individual lines and emits one line per element.
+          The handling of line endings (<code>\n</code> / <code>\r\n</code>) is
+          implementation-dependent, but at minimum <code>\n</code> must be treated as a separator.
+        </p>
+
+        <pre><code>stdin
+    |: utf8
+    |: lineSplit
+    |: trim
+    | stdout;</code></pre>
+      </section>
+
+      <section id="ch3">
+        <h2>3. JSON / Data Transformation</h2>
+
+        <h3>3.1 <code>json</code> (decode)</h3>
+        <p class="filter-header">Namespace / Signature</p>
+        <p class="sig">
+          Namespace: <code>aloe.json</code><br>
+          filter json&lt;T&gt; : pipe&lt;string&gt; -&gt; pipe&lt;T&gt;
+        </p>
+        <p>
+          Decodes JSON text into typed objects. At the call site, the type is passed
+          as in <code>filter(json: User)</code>.
+        </p>
+
+        <pre><code>stdin
+    |: utf8
+    |: json: User
+    | users;    // pipe&lt;User&gt;</code></pre>
+
+        <h3>3.2 CSV: <code>csvenode</code> / <code>csvdecode</code></h3>
+
+        <h4>3.2.1 <code>csvenode</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.csv</code><br>
+          filter csvenode : pipe&lt;string[]&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>
+          Encodes a string array into a single CSV line. Separators and escaping rules
+          are implementation-dependent, but should follow a standard CSV specification.
+        </p>
+
+        <h4>3.2.2 <code>csvdecode</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.csv</code><br>
+          filter csvdecode : pipe&lt;string&gt; -&gt; pipe&lt;string[]&gt;
+        </p>
+        <p>
+          Parses each line as CSV and emits an array of columns.
+        </p>
+
+        <pre><code>stdin
+    |: utf8
+    |: lineSplit
+    |: csvdecode
+    | rows;   // pipe&lt;string[]&gt;</code></pre>
+      </section>
+
+      <section id="ch4">
+        <h2>4. Conditional / Ordering</h2>
+
+        <h3>4.1 <code>if</code> / <code>elseif</code> / <code>else</code></h3>
+        <p>
+          These filters form a group that controls which elements pass through based on conditions.
+          They are interpreted as a single composite filter.
+        </p>
+
+        <p class="filter-header">Namespace / Signatures (conceptual)</p>
+        <p class="sig">
+          Namespace: <code>aloe.filter</code><br>
+          filter if     : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;<br>
+          filter elseif : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;<br>
+          filter else   : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;
+        </p>
+
+        <pre><code>users
+    |: if:     .Age &gt;= 20 and .Gender == Gender.Male
+    |: elseif: .Age &gt;= 13
+    |: else
+    | stdout;</code></pre>
+
+        <ul>
+          <li><code>if</code> is the first conditional branch.</li>
+          <li><code>elseif</code> is an additional branch that is valid only when it directly follows an <code>if</code> or another <code>elseif</code>.</li>
+          <li><code>else</code> passes elements that did not match any previous condition.</li>
+        </ul>
+
+        <h3>4.2 <code>switch</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.filter</code><br>
+          filter switch : pipe&lt;T&gt; -&gt; pipe&lt;T&gt; (detailed specification to be added)
+        </p>
+        <p>
+          <code>switch</code> retrieves a key from each element and routes it to one
+          of multiple branches based on that key. For now, only the name and rough role
+          are reserved; the exact syntax (how to write <code>case</code> clauses, etc.)
+          will be defined in the language specification.
+        </p>
+
+        <h3>4.3 <code>sort</code></h3>
+        <p class="filter-header">Namespace / Signature</p>
+        <p class="sig">
+          Namespace: <code>aloe.collection</code><br>
+          filter sort       : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;<br>
+          filter sort(key)  : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;
+        </p>
+        <p>
+          Sorts the input elements and emits them in sorted order. Internally, the filter
+          buffers all elements, sorts them, and then outputs them.
+        </p>
+
+        <pre><code>users
+    |: sort: .Age   // sort by Age ascending
+    | stdout;</code></pre>
+
+        <h3>4.4 <code>shuffle</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.collection</code><br>
+          filter shuffle : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;
+        </p>
+        <p>
+          Randomly permutes the order of elements. Internally, it buffers all elements
+          and then outputs them in randomized order.
+        </p>
+
+        <pre><code>cards
+    |: shuffle
+    | gameDeck;</code></pre>
+      </section>
+
+      <section id="ch5">
+        <h2>5. Crypto / Hash / Binary</h2>
+
+        <h3>5.1 Hash: <code>md4</code> / <code>sha1</code> / <code>sha256</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.crypto.hash</code><br>
+          filter md4    : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter sha1   : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter sha256 : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p>
+          Computes a hash value for the entire input and outputs the hash as a byte stream.
+          For security purposes, <code>sha256</code> is recommended, while <code>md4</code>
+          and <code>sha1</code> should be treated as legacy/compatibility options.
+        </p>
+
+        <pre><code>stdin
+    |: sha256
+    |: bin2hex
+    | stdout;</code></pre>
+
+        <h3>5.2 Byte-level conversion: <code>bin2hex</code> / <code>crc32</code></h3>
+
+        <h4>5.2.1 <code>bin2hex</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.encoding</code><br>
+          filter bin2hex : pipe&lt;byte&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>Converts a byte stream to a hexadecimal string representation.</p>
+
+        <h4>5.2.2 <code>crc32</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.crypto.hash</code><br>
+          filter crc32 : pipe&lt;byte&gt; -&gt; pipe&lt;uint32&gt;
+        </p>
+        <p>
+          Computes the CRC32 of the entire input and outputs it as a single integer.
+        </p>
+
+        <h3>5.3 Base64 / URL</h3>
+        <p class="sig">
+          Namespace: <code>aloe.encoding</code><br>
+          filter base64encode : pipe&lt;byte&gt; -&gt; pipe&lt;string&gt;<br>
+          filter base64decode : pipe&lt;string&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p class="sig">
+          Namespace: <code>aloe.net.http</code><br>
+          filter urlencode    : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter urldecode    : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <pre><code>fileBytes
+    |: base64encode
+    | stdout;
+
+// ...
+
+stdin
+    |: base64decode
+    | fileBytes;</code></pre>
+
+        <h3>5.4 Symmetric cryptography: Blowfish / AES</h3>
+
+        <h4>5.4.1 Blowfish: <code>blowfishencrypt</code> / <code>blowfishdecrypt</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.crypto.cipher</code><br>
+          filter blowfishencrypt(ctx: BlowfishContext) : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter blowfishdecrypt(ctx: BlowfishContext) : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p>
+          Uses a <code>BlowfishContext</code> containing key, IV, mode, etc., to perform
+          encryption and decryption.
+        </p>
+
+        <h4>5.4.2 AES: <code>AESencrypt</code> / <code>AESdecrypt</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.crypto.cipher</code><br>
+          filter AESencrypt(ctx: AESContext) : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter AESdecrypt(ctx: AESContext) : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p>
+          Performs encryption/decryption using AES (e.g. CBC / GCM). Supported modes and
+          padding details are defined by <code>AESContext</code>.
+        </p>
+      </section>
+
+      <section id="ch6">
+        <h2>6. String Utilities</h2>
+
+        <h3>6.1 Case conversion: <code>tolower</code> / <code>toupper</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter tolower : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter toupper : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <pre><code>lines
+    |: tolower
+    | normalized;</code></pre>
+
+        <h3>6.2 Case styles: <code>camelcase</code> / <code>pascalcase</code> / <code>snakecase</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter camelcase  : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter pascalcase : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter snakecase  : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <ul>
+          <li><strong>camelcase</strong>: <code>"hello world"</code> → <code>"helloWorld"</code></li>
+          <li><strong>pascalcase</strong>: <code>"hello world"</code> → <code>"HelloWorld"</code></li>
+          <li><strong>snakecase</strong>: <code>"Hello World"</code> → <code>"hello_world"</code></li>
+        </ul>
+
+        <h3>6.3 Substring filters: <code>startswith</code> / <code>contains</code> / <code>strstr</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter startswith(prefix: string) : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter contains(needle: string)   : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter strstr(needle: string)     : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <ul>
+          <li><code>startswith</code>: passes only lines that start with <code>prefix</code>.</li>
+          <li><code>contains</code>: passes only lines that contain <code>needle</code>.</li>
+          <li><code>strstr</code>: returns the substring from the first occurrence of <code>needle</code> to the end (similar to PHP’s <code>strstr</code>).</li>
+        </ul>
+
+        <pre><code>lines
+    |: startswith: "[ERROR]"
+    |: strstr: "detail="
+    | stdout;</code></pre>
+
+        <h3>6.4 Trimming / Joining: <code>ltrim</code> / <code>rtrim</code> / <code>trim</code> / <code>join</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter ltrim : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter rtrim : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter trim  : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter join(sep: string) : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <p>
+          <code>join</code> concatenates all input strings using <code>sep</code> and
+          outputs a single string.
+        </p>
+
+        <pre><code>lines
+    |: trim
+    |: join: "\n"
+    | text;</code></pre>
+      </section>
+
+      <section id="ch7">
+        <h2>7. Archive / Compression / CSV</h2>
+
+        <h3>7.1 ZIP / TAR: <code>zip</code> / <code>unzip</code> / <code>tar</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.archive</code><br>
+          filter zip   : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter unzip : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter tar   : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p>
+          A simple model where the entire stream is treated as a single archive.
+          Operations for multiple entries, filenames, etc. can be defined separately
+          as higher-level APIs.
+        </p>
+
+        <pre><code>stdin
+    |: zip
+    | stdout;
+
+// ...
+
+stdin
+    |: unzip
+    | stdout;</code></pre>
+
+        <h3>7.2 CSV: <code>csvenode</code> / <code>csvdecode</code></h3>
+        <p>(Already described in section 3.2; re-listed here for categorization.)</p>
+      </section>
+
+      <section id="ch8">
+        <h2>8. HTML / Sanitization</h2>
+
+        <h3>8.1 Escaping / Unescaping</h3>
+        <p class="sig">
+          Namespace: <code>aloe.html</code><br>
+          filter htmlspecialchars          : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter htmlspecialchars_decode   : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter html_entity_decode        : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter strip_tags                : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <ul>
+          <li><code>htmlspecialchars</code>: converts characters like <code>&lt;</code>, <code>&gt;</code>, <code>&amp;</code>, <code>&quot;</code> to HTML-safe entities.</li>
+          <li><code>htmlspecialchars_decode</code>: inverse of the above.</li>
+          <li><code>html_entity_decode</code>: decodes a wider range of HTML entities (e.g. <code>&amp;nbsp;</code>).</li>
+          <li><code>strip_tags</code>: removes HTML tags and leaves only text.</li>
+        </ul>
+
+        <pre><code>htmlLines
+    |: strip_tags
+    |: trim
+    | plainText;</code></pre>
+      </section>
+
+      <section id="ch9">
+        <h2>9. Parsing / Formatting</h2>
+
+        <h3>9.1 Query strings: <code>parse_str</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.net.http</code><br>
+          filter parse_str : pipe&lt;string&gt; -&gt; pipe&lt;map&lt;string, string&gt;&gt;
+        </p>
+        <p>
+          Parses query strings such as <code>"foo=1&amp;bar=2"</code> and emits a map
+          of key–value pairs.
+        </p>
+
+        <h3>9.2 Number formatting: <code>number_format</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.number</code><br>
+          filter number_format(spec: string) : pipe&lt;decimal&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>
+          Formats numbers as strings. The format string <code>spec</code> is
+          implementation-dependent; for example, <code>"#,##0.00"</code> can be used.
+        </p>
+
+        <h3>9.3 Regex escaping: <code>quote_meta</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter quote_meta : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>
+          Escapes regular-expression meta characters so that the string can be safely
+          used as a literal pattern.
+        </p>
+
+        <pre><code>patterns
+    |: quote_meta
+    | safePatterns;</code></pre>
+
+        <hr>
+
+        <p>
+          Filters not listed in this document can be freely added by users or external
+          libraries. The names defined here are reserved as “Aloe standard filters” and
+          are intended to serve as a common API across compatible implementations.
+        </p>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

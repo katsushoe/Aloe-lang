@@ -1,0 +1,23 @@
+# Promptプロジェクトのファイルすべてを除外
+.vs/
+
+AloeSample/bin/
+AloeSample/obj/
+
+CommonLib/bin/
+CommonLib/obj/
+
+CompilerLib/bin/
+CompilerLib/obj/
+
+RuntimeLib/bin/
+RuntimeLib/obj/
+
+Test_CompilerLib/bin/
+Test_CompilerLib/obj/
+
+Documents/bin/
+Documents/obj/
+
+Documents/TODO.md
+

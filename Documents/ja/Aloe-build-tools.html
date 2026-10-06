@@ -1,0 +1,730 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aloe ビルドツール仕様書（ドラフト、日本語版）</title>
+  <meta name="edit-version" content="1" />
+  <meta name="edit-date" content="2025-12-04T19:00:00+09:00" />
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "Hiragino Sans", "Yu Gothic", sans-serif;
+      line-height: 1.7;
+      color: #111827;
+      background: #f5f5f7;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 280px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 1.5rem 1.25rem 2.5rem;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1.1rem;
+      margin: 0 0 0.4rem;
+    }
+    .sidebar .subtitle {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-bottom: 1.4rem;
+    }
+    .sidebar h2 {
+      font-size: 0.85rem;
+      margin: 1.2rem 0 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #9ca3af;
+    }
+    .sidebar nav ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 0.9rem;
+    }
+    .sidebar nav li {
+      margin: 0.18rem 0;
+    }
+    .sidebar a {
+      color: inherit;
+      text-decoration: none;
+      display: block;
+      padding: 0.25rem 0.45rem;
+      border-radius: 0.35rem;
+    }
+    .sidebar a:hover {
+      background: #1f2937;
+    }
+    .chapter-index {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-right: 0.35rem;
+    }
+
+    .content {
+      flex: 1;
+      max-width: 1100px;
+      padding: 2rem 3rem 3rem;
+      margin: 0 auto;
+      background: #f9fafb;
+    }
+    h1, h2, h3, h4, h5 {
+      color: #111827;
+      margin-top: 1.6em;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    p {
+      margin-top: 0.4em;
+      margin-bottom: 0.7em;
+    }
+    ul, ol {
+      padding-left: 1.4em;
+      margin-top: 0.2em;
+      margin-bottom: 0.7em;
+    }
+    pre, code {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas,
+                   "Ricty Diminished", monospace;
+      font-size: 0.9rem;
+    }
+    pre {
+      background: #1118270d;
+      padding: 0.8rem 1rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      border: 1px solid #e5e7eb;
+      margin: 0.9em 0;
+    }
+    hr {
+      margin: 2.2rem 0;
+      border: none;
+      border-top: 1px solid #e5e7eb;
+    }
+    .note {
+      font-size: 0.9rem;
+      color: #4b5563;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #374151;
+      margin-left: 0.4rem;
+    }
+    .badge-draft {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .cmd {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.85rem;
+      background: #1118270d;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.35rem;
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <h1>Aloe Build Tool Spec</h1>
+    <div class="subtitle">
+      Draft • Japanese • CLI / ビルドフロー仕様<br>
+      （パッケージフォーマット仕様は別文書）
+    </div>
+
+    <h2>Chapters</h2>
+    <nav>
+      <ul>
+        <li><a href="#ch0"><span class="chapter-index">0.</span>概要と位置づけ</a></li>
+        <li><a href="#ch1"><span class="chapter-index">1.</span>基本構造と用語</a></li>
+        <li><a href="#ch2"><span class="chapter-index">2.</span>グローバルオプション</a></li>
+        <li><a href="#ch3"><span class="chapter-index">3.</span><code>compile</code> コマンド</a></li>
+        <li><a href="#ch4"><span class="chapter-index">4.</span><code>build</code> コマンド</a></li>
+        <li><a href="#ch5"><span class="chapter-index">5.</span><code>run</code> コマンド</a></li>
+        <li><a href="#ch6"><span class="chapter-index">6.</span><code>pack</code> コマンド</a></li>
+        <li><a href="#ch7"><span class="chapter-index">7.</span>依存パッケージ（<code>restore</code> / <code>install</code>）</a></li>
+        <li><a href="#ch8"><span class="chapter-index">8.</span><code>package-db</code> サブコマンド</a></li>
+        <li><a href="#ch9"><span class="chapter-index">9.</span>静的チェック（<code>check</code> / <code>lint</code>）</a></li>
+        <li><a href="#appendix"><span class="chapter-index">A.</span>編集ポリシー（生成AI向け）</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1 id="top">Aloe ビルドツール仕様書（ドラフト、日本語版）</h1>
+    <p class="note">
+      この文書は、Aloe 言語および AloeVM を利用したプロジェクトをビルド・実行するための
+      <strong>公式コマンドラインツール <code>aloe</code></strong> の仕様を定義する。<br>
+      パッケージフォーマット（<code>.abc</code> / <code>.meta.json</code> / <code>package-db.json</code>）自体の構造は、
+      別文書「Aloe パッケージ仕様書」で定義され、本書では引用のみ行う。
+    </p>
+
+    <hr />
+
+    <h2 id="ch0">0. 概要と位置づけ</h2>
+
+    <h3>0.1 目的</h3>
+    <ul>
+      <li>Aloe のソースコードをビルド・実行するための標準 CLI を定義する。</li>
+      <li>複数の IDE / エディタ / CI から共通に利用できるよう、コマンド・引数の意味を安定して提供する。</li>
+      <li>パッケージ仕様書で定義される <code>.meta.json</code> / <code>package-db.json</code> を前提としつつ、
+          それらの生成・更新の責務をビルドツール側に整理する。</li>
+    </ul>
+
+    <h3>0.2 スコープ</h3>
+    <p>本仕様書が扱うのは次の範囲である。</p>
+    <ul>
+      <li><code>aloe</code> コマンドの基本構造とグローバルオプション</li>
+      <li><code>compile</code> / <code>build</code> / <code>run</code> / <code>pack</code> のコマンド仕様</li>
+      <li>依存パッケージ取得（<code>restore</code> / <code>install</code>）の仕様</li>
+      <li><code>package-db</code> サブコマンドによる <code>package-db.json</code> 操作の仕様</li>
+      <li>静的チェック（<code>check</code> / <code>lint</code>）のコマンド枠組み</li>
+    </ul>
+    <p>以下は本仕様書の対象外とする。</p>
+    <ul>
+      <li>Aloe 言語の構文・型システム・実行意味論
+        <ul>
+          <li>→ 「Aloe 言語仕様書」を参照。</li>
+        </ul>
+      </li>
+      <li>AloeVM のバイトコード形式（AloeBC）やオペコード仕様
+        <ul>
+          <li>→ 「AloeVM 仕様書」を参照。</li>
+        </ul>
+      </li>
+      <li><code>.meta.json</code> と <code>package-db.json</code> の JSON 構造
+        <ul>
+          <li>→ 「Aloe パッケージ仕様書」を参照。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>0.3 安定度</h3>
+    <p>
+      本仕様書はドラフトであり、実装経験に応じて変更される可能性がある。<br />
+      ただし、すでに広く使われているコマンド名・オプションについては、
+      可能な限り後方互換を保つよう配慮する。
+    </p>
+
+    <hr />
+
+    <h2 id="ch1">1. 基本構造と用語</h2>
+
+    <h3>1.1 コマンドライン構造</h3>
+    <pre><code>aloe [グローバルオプション] &lt;command&gt; [コマンドオプション] [引数...]
+</code></pre>
+    <ul>
+      <li><code>aloe</code>
+        <ul>
+          <li>Aloe 向けの公式ビルドツール兼ランチャー。</li>
+        </ul>
+      </li>
+      <li><code>&lt;command&gt;</code>
+        <ul>
+          <li>実行するサブコマンド名。例：<code>compile</code>, <code>build</code>, <code>run</code> など。</li>
+        </ul>
+      </li>
+      <li>グローバルオプション
+        <ul>
+          <li>全コマンド共通で利用できるオプション。</li>
+          <li>コマンド名の前後どちらに置いてもよい（実装依存で順序を制限してもよい）。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>1.2 想定される基本シナリオ</h3>
+    <ul>
+      <li>単一ファイルを直接コンパイルする：
+        <pre><code>aloe compile main.aloe -o main.abc</code></pre>
+      </li>
+      <li>プロジェクト定義に従ってビルドする：
+        <pre><code>aloe build</code></pre>
+      </li>
+      <li>ビルドしてから実行する：
+        <pre><code>aloe run src/Main.aloe --args "foo bar"</code></pre>
+      </li>
+      <li>依存パッケージを取得する：
+        <pre><code>aloe restore</code></pre>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch2">2. グローバルオプション</h2>
+
+    <p>
+      グローバルオプションは、全てのサブコマンドで共通に使用できるオプションである。
+      一部のサブコマンドでは無視される場合もあるが、エラーとはしない。
+    </p>
+
+    <h3>2.1 一覧</h3>
+    <ul>
+      <li><code>-h</code>, <code>--help</code>
+        <ul>
+          <li>ヘルプを表示して終了する。</li>
+          <li>サブコマンドの後に指定した場合、そのコマンド固有のヘルプを表示してもよい。</li>
+        </ul>
+      </li>
+      <li><code>--version</code>
+        <ul>
+          <li>Aloe CLI 自体のバージョンを表示して終了する。</li>
+          <li>表示内容は少なくとも <code>ALOE_VERSION</code> と整合していることが望ましい。</li>
+        </ul>
+      </li>
+      <li><code>-v</code>, <code>--verbose</code>
+        <ul>
+          <li>詳細なログを標準エラー出力に出す。</li>
+          <li>複数回指定（例：<code>-vv</code>）でより詳細なレベルにするかどうかは実装依存。</li>
+        </ul>
+      </li>
+      <li><code>-q</code>, <code>--quiet</code>
+        <ul>
+          <li>最小限の出力のみにする。</li>
+          <li><code>--verbose</code> と同時に指定された場合の優先順位は実装依存だが、
+              どちらかに統一した挙動をとること。</li>
+        </ul>
+      </li>
+      <li><code>--no-color</code>
+        <ul>
+          <li>カラー出力を無効化する。</li>
+        </ul>
+      </li>
+      <li><code>--package-db &lt;path&gt;</code>
+        <ul>
+          <li>使用する <code>package-db.json</code> のパスを明示的に指定する。</li>
+          <li>未指定時は、カレントディレクトリやユーザーごとの標準パスなど、
+              実装が定める探索パスに従って自動検出する。</li>
+        </ul>
+      </li>
+      <li><code>--config &lt;path&gt;</code>
+        <ul>
+          <li>プロジェクト設定ファイル（例：<code>aloe.config.json</code>）のパス。</li>
+          <li>未指定時の既定値やファイル形式は将来の仕様追加で定義する。</li>
+        </ul>
+      </li>
+      <li><code>--working-dir &lt;path&gt;</code>
+        <ul>
+          <li>作業ディレクトリ（ワークスペースルート）を指定する。</li>
+          <li>省略時はプロセスのカレントディレクトリ。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch3">3. <code>compile</code> コマンド</h2>
+
+    <h3>3.1 概要</h3>
+    <p>
+      <code>compile</code> は、1 つ以上の Aloe ソースファイルから
+      直接 <code>.abc</code> および <code>.meta.json</code> を生成するためのコマンドである。<br />
+      主に小規模なサンプルや、プロジェクトファイルを用意しない簡易コンパイル用途を想定する。
+    </p>
+
+    <h3>3.2 形式</h3>
+    <pre><code>aloe compile [options] &lt;input-files...&gt;
+</code></pre>
+
+    <h3>3.3 オプション</h3>
+    <ul>
+      <li><code>-o</code>, <code>--out &lt;path&gt;</code>
+        <ul>
+          <li>出力する <code>.abc</code> ファイルのパス。</li>
+          <li>省略時はパッケージ名から自動決定する（例：<code>myapp.core.abc</code>）。</li>
+        </ul>
+      </li>
+      <li><code>--meta-out &lt;path&gt;</code>
+        <ul>
+          <li>出力する <code>.meta.json</code> のパス。</li>
+          <li>省略時は <code>.abc</code> と同じディレクトリに <code>&lt;package&gt;.meta.json</code> を出力する。</li>
+        </ul>
+      </li>
+      <li><code>--package-name &lt;name&gt;</code>
+        <ul>
+          <li>パッケージ名（例：<code>myapp.core</code>）。</li>
+          <li><code>.meta.json</code> の <code>package.name</code> に保存される。</li>
+        </ul>
+      </li>
+      <li><code>--package-version &lt;version&gt;</code>
+        <ul>
+          <li>パッケージのバージョン（例：<code>0.1.0</code>）。</li>
+          <li><code>.meta.json</code> の <code>package.version</code> に保存される。</li>
+        </ul>
+      </li>
+      <li><code>--configuration &lt;config&gt;</code>
+        <ul>
+          <li>ビルド構成（例：<code>Debug</code>, <code>Release</code>）。</li>
+          <li><code>.meta.json</code> の <code>package.build.configuration</code> に保存される。</li>
+        </ul>
+      </li>
+      <li><code>--output-dir &lt;dir&gt;</code>
+        <ul>
+          <li><code>.abc</code> / <code>.meta.json</code> の出力ディレクトリをまとめて指定する。</li>
+          <li><code>-o</code> / <code>--meta-out</code> が指定されている場合は、そちらが優先される。</li>
+        </ul>
+      </li>
+      <li><code>-I</code>, <code>--import-dir &lt;dir&gt;</code>
+        <ul>
+          <li>依存パッケージを探索するディレクトリを追加する。複数回指定可能。</li>
+          <li>各ディレクトリ内の <code>.abc</code> / <code>.meta.json</code> / <code>package-db.json</code> の扱いは実装依存だが、
+              いずれにせよパッケージ仕様書に準拠する必要がある。</li>
+        </ul>
+      </li>
+      <li><code>--no-package-db</code>
+        <ul>
+          <li><code>package-db.json</code> を探索・参照しない。</li>
+          <li>依存解決は <code>--import-dir</code> 等の明示指定のみを用いる。</li>
+        </ul>
+      </li>
+      <li><code>--emit-meta-only</code>
+        <ul>
+          <li><code>.abc</code> を出力せず、<code>.meta.json</code> のみを生成する。</li>
+        </ul>
+      </li>
+      <li><code>--emit-abc-only</code>
+        <ul>
+          <li><code>.meta.json</code> を出力せず、<code>.abc</code> のみを生成する。</li>
+          <li>ツール連携の観点から、通常は <code>.meta.json</code> の出力を推奨する。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch4">4. <code>build</code> コマンド</h2>
+
+    <h3>4.1 概要</h3>
+    <p>
+      <code>build</code> は、プロジェクト定義・ワークスペース定義に従って
+      Aloe ソースコード一式をビルドするコマンドである。<br />
+      複数パッケージの依存関係を解決しながらビルドすることを想定する。
+    </p>
+
+    <h3>4.2 形式</h3>
+    <pre><code>aloe build [options] [path/to/project]
+</code></pre>
+    <ul>
+      <li><code>path/to/project</code> を省略した場合、<code>--working-dir</code> またはカレントディレクトリをプロジェクトルートとして扱う。</li>
+    </ul>
+
+    <h3>4.3 オプション</h3>
+    <ul>
+      <li><code>--configuration &lt;config&gt;</code>
+        <ul>
+          <li>ビルド構成（<code>Debug</code> / <code>Release</code> 等）。</li>
+          <li>プロジェクト設定ファイルに定義された構成を上書きしてビルドする。</li>
+        </ul>
+      </li>
+      <li><code>--no-deps</code>
+        <ul>
+          <li>依存パッケージのビルドを行わず、指定されたプロジェクトのみビルドする。</li>
+        </ul>
+      </li>
+      <li><code>--force</code>
+        <ul>
+          <li>インクリメンタルビルドを無視し、常にフルビルドを行う。</li>
+        </ul>
+      </li>
+      <li><code>--out-dir &lt;dir&gt;</code>
+        <ul>
+          <li>ビルド成果物（<code>.abc</code> / <code>.meta.json</code> 等）の出力ディレクトリをまとめて指定する。</li>
+        </ul>
+      </li>
+      <li><code>--update-package-db</code>
+        <ul>
+          <li>ビルド完了後、対象パッケージの情報を <code>package-db.json</code> に自動登録・更新する。</li>
+          <li><code>--package-db</code> が指定されている場合、そのパスのファイルを更新対象とする。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch5">5. <code>run</code> コマンド</h2>
+
+    <h3>5.1 概要</h3>
+    <p>
+      <code>run</code> は、指定されたソースファイルまたはプロジェクトをビルドし、
+      直後に AloeVM 上で実行するためのコマンドである。<br />
+      すでにビルド済みの <code>.abc</code> を直接実行する実装も許容される。
+    </p>
+
+    <h3>5.2 形式</h3>
+    <pre><code>aloe run [options] &lt;main-file.or.project&gt;
+</code></pre>
+
+    <h3>5.3 オプション</h3>
+    <ul>
+      <li><code>--args "&lt;arg1 arg2 ...&gt;"</code>
+        <ul>
+          <li>メイン関数（例：<code>function main(args: string[]): int</code>）に渡す引数を空白区切りで指定する。</li>
+          <li>引数のパースやエスケープ規則は実装のプラットフォーム（シェル）に依存する。</li>
+        </ul>
+      </li>
+      <li><code>--no-build</code>
+        <ul>
+          <li>再ビルドを行わず、既存のビルド成果物（<code>.abc</code> 等）を用いて実行する。</li>
+          <li>ビルド成果物が存在しない場合の挙動（エラーとする等）は実装仕様で定義する。</li>
+        </ul>
+      </li>
+      <li><code>--configuration &lt;config&gt;</code>
+        <ul>
+          <li>実行前にビルドする場合のビルド構成。（<code>Debug</code> / <code>Release</code> 等）</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch6">6. <code>pack</code> コマンド</h2>
+
+    <h3>6.1 概要</h3>
+    <p>
+      <code>pack</code> は、ビルド済みの <code>.abc</code> / <code>.meta.json</code> 等から
+      配布用パッケージ（アーカイブ）を作成するコマンドである。<br />
+      パッケージ形式そのもの（<code>.zip</code> 等）は本仕様書の範囲外とし、最低限のインターフェースのみを定義する。
+    </p>
+
+    <h3>6.2 形式</h3>
+    <pre><code>aloe pack [options] [project-or-meta]
+</code></pre>
+
+    <h3>6.3 オプション</h3>
+    <ul>
+      <li><code>--format &lt;fmt&gt;</code>
+        <ul>
+          <li>パッケージ形式。例：<code>zip</code>, <code>dir</code>。</li>
+          <li>規定値は <code>zip</code> とする。</li>
+        </ul>
+      </li>
+      <li><code>--output &lt;path&gt;</code>
+        <ul>
+          <li>生成するパッケージファイルのパス。</li>
+        </ul>
+      </li>
+      <li><code>--include-source</code>
+        <ul>
+          <li>ビルド元のソースコードをパッケージに同梱する。</li>
+        </ul>
+      </li>
+      <li><code>--no-meta</code>
+        <ul>
+          <li><code>.meta.json</code> をパッケージに含めない。</li>
+          <li>ツール連携・ IDE サポートの観点から、通常は <code>.meta.json</code> を含めることを推奨する。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch7">7. 依存パッケージ（<code>restore</code> / <code>install</code>）</h2>
+
+    <h3>7.1 <code>restore</code> コマンド</h3>
+    <p>
+      <code>restore</code> は、プロジェクト設定で宣言された依存パッケージを一括取得するためのコマンドである。<br />
+      具体的な依存宣言の方法（設定ファイル形式など）は今後の仕様で定義する。
+    </p>
+
+    <h4>7.1.1 形式</h4>
+    <pre><code>aloe restore [options] [project]
+</code></pre>
+
+    <h4>7.1.2 オプション</h4>
+    <ul>
+      <li><code>--source &lt;url-or-path&gt;</code>
+        <ul>
+          <li>取得元のパッケージリポジトリまたはローカルパス。</li>
+          <li>複数指定できるかどうかは実装に委ねる。</li>
+        </ul>
+      </li>
+      <li><code>--packages-dir &lt;dir&gt;</code>
+        <ul>
+          <li>パッケージのインストール先ディレクトリ。</li>
+          <li>省略時はユーザー環境毎の既定ディレクトリを利用する。</li>
+        </ul>
+      </li>
+      <li><code>--no-package-db-update</code>
+        <ul>
+          <li>インストール後に <code>package-db.json</code> を自動更新しない。</li>
+          <li>この場合、ユーザーもしくは他ツールが別途 <code>package-db.json</code> を更新する必要がある。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>7.2 <code>install</code> コマンド</h3>
+    <p>
+      <code>install</code> は、特定のパッケージを個別にインストールするためのコマンドである。<br />
+      多くの場合、開発者が明示的に追加したいパッケージを指定する用途を想定する。
+    </p>
+
+    <h4>7.2.1 形式</h4>
+    <pre><code>aloe install [options] &lt;package&gt;[@version]
+</code></pre>
+
+    <h4>7.2.2 オプション</h4>
+    <ul>
+      <li><code>--source &lt;url-or-path&gt;</code>
+        <ul>
+          <li>取得元のパッケージリポジトリまたはローカルパス。</li>
+        </ul>
+      </li>
+      <li><code>--packages-dir &lt;dir&gt;</code>
+        <ul>
+          <li>インストール先ディレクトリ。</li>
+        </ul>
+      </li>
+      <li><code>--global</code>
+        <ul>
+          <li>ユーザー共通のグローバル領域にインストールする。</li>
+          <li>グローバル領域のパスは実装仕様で定義される。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch8">8. <code>package-db</code> サブコマンド</h2>
+
+    <h3>8.1 概要</h3>
+    <p>
+      <code>package-db</code> サブコマンド群は、パッケージ仕様書で定義される
+      <code>package-db.json</code> の内容を直接操作するためのユーティリティである。<br />
+      ここでは基本的なインターフェースのみを定義し、細かな運用ルールは実装に委ねる。
+    </p>
+
+    <h3>8.2 <code>list</code></h3>
+    <pre><code>aloe package-db list [options]
+</code></pre>
+    <ul>
+      <li><code>--name &lt;pattern&gt;</code>
+        <ul>
+          <li>パッケージ名でフィルタする。</li>
+          <li>パターンマッチの仕様（プレフィックス一致 / ワイルドカードなど）は実装に委ねる。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>8.3 <code>add</code></h3>
+    <pre><code>aloe package-db add [options]
+</code></pre>
+    <ul>
+      <li><code>--name &lt;name&gt;</code>
+        <ul>
+          <li>パッケージ名。</li>
+        </ul>
+      </li>
+      <li><code>--version &lt;version&gt;</code>
+        <ul>
+          <li>パッケージバージョン。</li>
+        </ul>
+      </li>
+      <li><code>--abc &lt;path&gt;</code>
+        <ul>
+          <li>対応する <code>.abc</code> ファイルへのパス。</li>
+        </ul>
+      </li>
+      <li><code>--meta &lt;path&gt;</code>
+        <ul>
+          <li>対応する <code>.meta.json</code> へのパス。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>8.4 <code>remove</code></h3>
+    <pre><code>aloe package-db remove [options]
+</code></pre>
+    <ul>
+      <li><code>--name &lt;name&gt;</code>
+        <ul>
+          <li>パッケージ名。</li>
+        </ul>
+      </li>
+      <li><code>--version &lt;version&gt;</code>
+        <ul>
+          <li>パッケージバージョン。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch9">9. 静的チェック（<code>check</code> / <code>lint</code>）</h2>
+
+    <h3>9.1 概要</h3>
+    <p>
+      本章では、静的解析や API 互換性チェックのためのコマンド枠組みを定義する。<br />
+      具体的な検査内容・警告の種類などの詳細は将来の仕様で追加される。
+    </p>
+
+    <h3>9.2 <code>check</code></h3>
+    <pre><code>aloe check [options] [project]
+</code></pre>
+    <ul>
+      <li>プロジェクト定義と依存パッケージに基づき、解析上のエラーを検査する。</li>
+      <li>戻り値（終了コード）によって、エラーの有無を示す。</li>
+    </ul>
+
+    <h3>9.3 <code>lint</code></h3>
+    <pre><code>aloe lint [options] [paths...]
+</code></pre>
+    <ul>
+      <li>指定されたファイル群に対して構文・スタイル上の問題を検査する。</li>
+      <li>現時点では警告レベル・ルールセットの仕様は未定義とし、
+          将来的に拡張される余地を残す。</li>
+    </ul>
+
+    <h3>9.4 API 差分チェック（案）</h3>
+    <pre><code>aloe check --api-diff &lt;old-meta&gt; &lt;new-meta&gt;
+</code></pre>
+    <ul>
+      <li>2 つの <code>.meta.json</code> を比較し、破壊的変更の有無を検査する用途を想定する。</li>
+      <li>判定ルール（何を破壊的とみなすか）は、パッケージ仕様書と共に定義・調整される。</li>
+    </ul>
+
+    <hr />
+
+    <h2 id="appendix">Appendix: 生成AI向け編集ポリシー（この仕様書専用）</h2>
+    <p class="note">
+      この節は Aloe ビルドツール仕様書を生成 AI で編集する際の内規であり、
+      仕様本文の一部ではない。
+    </p>
+    <ul class="note">
+      <li>この文書は「Aloe ビルドツール仕様書」の正本として扱う。</li>
+      <li>将来英語版を作成する場合も、章構成と意味は日本語版と一致させる。</li>
+      <li><code>edit-version</code> はこの仕様書専用のカウンタであり、Aloe 言語仕様書・AloeVM 仕様書・
+          Aloe パッケージ仕様書とは別管理とする。</li>
+      <li>仕様本文（コマンド・オプション・例など）の意味が変わる修正を行った場合のみ、
+          <code>edit-version</code> を +1 する。</li>
+      <li>ユーザーが直前に提示した最新版 HTML を常に正本とし、それに対する最小限の差分だけを適用する。</li>
+      <li>パッケージフォーマット（<code>.meta.json</code> / <code>package-db.json</code>）の JSON 構造は、
+          必ず「Aloe パッケージ仕様書」側で定義し、本書に二重定義しない。</li>
+      <li>ターゲット切り替え（<code>--target</code> 等）に関するオプションは、現時点では本仕様書に追加しない。
+          追加する場合はユーザーと合意した上で改版する。</li>
+    </ul>
+
+  </main>
+</div>
+</body>
+</html>

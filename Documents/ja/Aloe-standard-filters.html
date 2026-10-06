@@ -1,0 +1,710 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Aloe 標準ライブラリ仕様（フィルタ編・ドラフト、日本語版）</title>
+  <meta name="edit-version" content="3">
+  <meta name="edit-date" content="2025-12-03T08:15:00+09:00">
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "Hiragino Sans", "Yu Gothic", sans-serif;
+      line-height: 1.7;
+      background: #f5f5f7;
+      color: #111827;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 1.5rem 1.25rem;
+      box-sizing: border-box;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1rem;
+      margin: 0 0 0.25rem;
+    }
+    .sidebar .subtitle {
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-bottom: 1rem;
+    }
+    .sidebar nav h2 {
+      font-size: 0.8rem;
+      margin: 1.25rem 0 0.25rem;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .sidebar nav ul {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+    }
+    .sidebar nav li {
+      margin: 0.15rem 0;
+    }
+    .sidebar nav a {
+      color: #e5e7eb;
+      text-decoration: none;
+      font-size: 0.85rem;
+    }
+    .sidebar nav a:hover {
+      text-decoration: underline;
+    }
+    .content {
+      flex: 1;
+      max-width: 1000px;
+      padding: 2rem 2.5rem 3rem;
+      box-sizing: border-box;
+    }
+    .content h1 {
+      font-size: 1.6rem;
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+    }
+    .content .meta {
+      font-size: 0.8rem;
+      color: #6b7280;
+      margin-bottom: 1.5rem;
+    }
+    .content h2 {
+      font-size: 1.3rem;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 0.25rem;
+      margin-top: 2.5rem;
+    }
+    .content h3 {
+      font-size: 1.05rem;
+      margin-top: 1.8rem;
+      margin-bottom: 0.4rem;
+    }
+    .content h4 {
+      font-size: 0.95rem;
+      margin-top: 1.2rem;
+      margin-bottom: 0.3rem;
+    }
+    .content p {
+      margin: 0.4rem 0;
+    }
+    .content ul, .content ol {
+      padding-left: 1.3rem;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.75rem;
+      background: #e5e7eb;
+      color: #374151;
+      border-radius: 999px;
+      padding: 0.05rem 0.6rem;
+      margin-right: 0.3rem;
+    }
+    code {
+      font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.85em;
+      background: #e5e7eb;
+      padding: 0.05rem 0.3rem;
+      border-radius: 0.25rem;
+    }
+    pre {
+      background: #111827;
+      color: #e5e7eb;
+      padding: 0.8rem 1rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+    pre code {
+      background: transparent;
+      padding: 0;
+    }
+    .note {
+      border-left: 3px solid #3b82f6;
+      background: #dbeafe;
+      color: #1e3a8a;
+      padding: 0.75rem 0.9rem;
+      font-size: 0.85rem;
+      border-radius: 0.25rem;
+      margin: 1rem 0;
+    }
+    .filter-header {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-top: 1.1rem;
+    }
+    .sig {
+      font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.85rem;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #e5e7eb;
+      margin: 2rem 0;
+    }
+    @media (max-width: 900px) {
+      .layout {
+        flex-direction: column;
+      }
+      .sidebar {
+        position: static;
+        width: 100%;
+        max-height: none;
+      }
+      .content {
+        padding: 1.5rem 1.25rem 2.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <h1>Aloe 標準ライブラリ</h1>
+      <div class="subtitle">Filters Library Spec (Draft, JA)</div>
+
+      <nav>
+        <h2>Chapters</h2>
+        <ul>
+          <li><a href="#ch0">0. Overview（概要）</a></li>
+          <li><a href="#ch1">1. フィルタ共通ルール</a></li>
+          <li><a href="#ch2">2. テキスト / エンコーディング</a></li>
+          <li><a href="#ch3">3. JSON / データ変換</a></li>
+          <li><a href="#ch4">4. 条件分岐 / 並び替え</a></li>
+          <li><a href="#ch5">5. 暗号 / ハッシュ / バイナリ</a></li>
+          <li><a href="#ch6">6. 文字列ユーティリティ</a></li>
+          <li><a href="#ch7">7. アーカイブ / 圧縮 / CSV</a></li>
+          <li><a href="#ch8">8. HTML / サニタイズ</a></li>
+          <li><a href="#ch9">9. パース / フォーマット</a></li>
+        </ul>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <h1>Aloe 標準ライブラリ仕様（フィルタ編）</h1>
+      <div class="meta">
+        Draft • Japanese • Filters Library • version 3<br>
+        この文書は Aloe 言語仕様書とは別個の「標準フィルタライブラリ仕様」です。
+      </div>
+
+      <section id="ch0">
+        <h2>0. Overview（概要）</h2>
+        <p>
+          この文書では、Aloe 言語のうち「<code>pipe&lt;T&gt;</code> と <code>filter</code>」を前提とした
+          <span class="tag">標準フィルタ群</span> を定義する。
+        </p>
+        <p>
+          言語仕様書本体は構文・型システム・<code>pipe</code> / <code>filter</code> 構文などを定義し、
+          本書はそれとは独立して「標準的に提供されるフィルタの名前・振る舞い・型」を記述する。
+        </p>
+        <p>
+          実装は、ここに定義されたシグネチャと意味論に「できるだけ忠実」であることを目標とするが、
+          性能・プラットフォーム差異などにより一部挙動が実装依存になる場合がある。
+        </p>
+
+        <div class="note">
+          <strong>NOTE:</strong> ここでのコード例はすべて Aloe の擬似コードであり、
+          将来の言語仕様の変更に合わせて更新される可能性がある。
+        </div>
+      </section>
+
+      <section id="ch1">
+        <h2>1. フィルタ共通ルール</h2>
+
+        <h3>1.1 呼び出し構文</h3>
+        <p>
+          本書に登場するフィルタは、すべて <code>pipe&lt;T&gt;</code> に対して
+          <code>filter(NAME ...)</code> 形式で適用される。
+        </p>
+
+        <pre><code>// 完全形
+stdin
+    | filter(utf8)
+    | filter(lineSplit)
+    | filter(trim)
+    | stdout;</code></pre>
+
+        <p>
+          ただし、<strong>パイプライン文の中では</strong> <code>filter</code> キーワードを省略し、
+          <code>|: NAME ...</code> という糖衣構文を用いることができる。
+        </p>
+
+        <pre><code>// 省略形（パイプライン専用構文）
+stdin
+    |: utf8
+    |: lineSplit
+    |: trim
+    | stdout;</code></pre>
+
+        <p>
+          次の 2 つは等価である:
+        </p>
+
+        <pre><code>stdin
+    | filter(utf8)
+    | filter(json: User);
+
+stdin
+    |: utf8
+    |: json: User;</code></pre>
+
+        <p>
+          型引数が必要なものは、<strong>ラベル付き引数</strong> として型を渡す:
+        </p>
+
+        <pre><code>stdin
+    |: utf8
+    |: json: User
+    | users;</code></pre>
+
+        <h3>1.2 型記法</h3>
+        <p>
+          本書では型を簡略化して記述する。例:
+        </p>
+        <ul>
+          <li><code>pipe&lt;string&gt;</code> – 文字列のパイプ</li>
+          <li><code>pipe&lt;byte&gt;</code> – バイト列のパイプ</li>
+          <li><code>pipe&lt;T&gt;</code> – 型パラメータ付きのパイプ</li>
+        </ul>
+
+        <h3>1.3 副作用と例外</h3>
+        <p>
+          フィルタは次のような挙動を取ることがある:
+        </p>
+        <ul>
+          <li>入力パイプをすべて消費してから出力を流す（例: <code>sort</code>, <code>shuffle</code>, <code>zip</code>）</li>
+          <li>入力の一部だけを通す（例: <code>if</code>, <code>startswith</code>, <code>contains</code>）</li>
+          <li>内部状態を持つ（例: 暗号コンテキスト付き <code>AESencrypt</code>）</li>
+        </ul>
+
+        <p>
+          フィルタがエラーに遭遇した場合の扱い（例外 / <code>Result&lt;T&gt;</code> の返却など）は、
+          各フィルタの説明で必要に応じて言及する。
+        </p>
+
+        <h3>1.4 名前空間（namespace）</h3>
+        <p>
+          標準ライブラリのルート名前空間は <code>aloe</code> とする。
+          すべての標準フィルタは、このルート配下の名前空間に属する。
+        </p>
+        <ul>
+          <li>名前空間名は<strong>すべて小文字</strong>とし、区切りは <code>.</code> を用いる。</li>
+          <li>例: <code>aloe.text</code>, <code>aloe.encoding</code>, <code>aloe.crypto.hash</code> など。</li>
+        </ul>
+        <p>
+          本書では、それぞれのフィルタに対して「<strong>正規の完全修飾名</strong>」として
+          <code>aloe.xxx.yyy</code> 形式の名前空間を付与する。実際のコード中でのインポートや
+          省略形（短い名前のみでの利用）については、言語仕様側で定義される。
+        </p>
+      </section>
+
+      <section id="ch2">
+        <h2>2. テキスト / エンコーディング</h2>
+
+        <h3>2.1 <code>utf8</code></h3>
+        <p class="filter-header">名前空間 / シグネチャ</p>
+        <p class="sig">
+          Namespace: <code>aloe.encoding</code><br>
+          filter utf8 : pipe&lt;byte&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>入力のバイト列を UTF-8 としてデコードし、文字列ストリームに変換する。</p>
+
+        <pre><code>stdin
+    |: utf8
+    |: lineSplit
+    | stdout;</code></pre>
+
+        <h3>2.2 <code>lineSplit</code></h3>
+        <p class="filter-header">名前空間 / シグネチャ</p>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter lineSplit : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>
+          文字列チャンクを改行で区切り、1 行ごとの文字列として出力する。
+          改行コードの扱い（<code>\n</code> / <code>\r\n</code>）は実装依存だが、少なくとも
+          <code>\n</code> では行分割される。
+        </p>
+
+        <pre><code>stdin
+    |: utf8
+    |: lineSplit
+    |: trim
+    | stdout;</code></pre>
+      </section>
+
+      <section id="ch3">
+        <h2>3. JSON / データ変換</h2>
+
+        <h3>3.1 <code>json</code>（デコード）</h3>
+        <p class="filter-header">名前空間 / シグネチャ</p>
+        <p class="sig">
+          Namespace: <code>aloe.json</code><br>
+          filter json&lt;T&gt; : pipe&lt;string&gt; -&gt; pipe&lt;T&gt;
+        </p>
+        <p>
+          JSON テキストを型付きオブジェクトにデコードする。
+          呼び出し時には <code>filter(json: User)</code> のように型を渡す。
+        </p>
+
+        <pre><code>stdin
+    |: utf8
+    |: json: User
+    | users;    // pipe&lt;User&gt;</code></pre>
+
+        <h3>3.2 CSV 系: <code>csvenode</code> / <code>csvdecode</code></h3>
+
+        <h4>3.2.1 <code>csvenode</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.csv</code><br>
+          filter csvenode : pipe&lt;string[]&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>
+          文字列配列を 1 行の CSV テキストにエンコードする。区切り文字やエスケープ規則は
+          実装依存だが、標準的な CSV 仕様に従うことを推奨する。
+        </p>
+
+        <h4>3.2.2 <code>csvdecode</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.csv</code><br>
+          filter csvdecode : pipe&lt;string&gt; -&gt; pipe&lt;string[]&gt;
+        </p>
+        <p>
+          各行を CSV としてパースし、カラムの配列として出力する。
+        </p>
+
+        <pre><code>stdin
+    |: utf8
+    |: lineSplit
+    |: csvdecode
+    | rows;   // pipe&lt;string[]&gt;</code></pre>
+      </section>
+
+      <section id="ch4">
+        <h2>4. 条件分岐 / 並び替え</h2>
+
+        <h3>4.1 <code>if</code> / <code>elseif</code> / <code>else</code></h3>
+        <p>
+          これらは「条件に応じて要素を通過させる」フィルタ群であり、1 つの複合フィルタとして解釈される。
+        </p>
+
+        <p class="filter-header">名前空間 / シグネチャ（概念的）</p>
+        <p class="sig">
+          Namespace: <code>aloe.filter</code><br>
+          filter if     : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;<br>
+          filter elseif : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;<br>
+          filter else   : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;
+        </p>
+
+        <pre><code>users
+    |: if:     .Age &gt;= 20 and .Gender == Gender.Male
+    |: elseif: .Age &gt;= 13
+    |: else
+    | stdout;</code></pre>
+
+        <ul>
+          <li><code>if</code> は最初の条件ブランチ。</li>
+          <li><code>elseif</code> は追加の条件ブランチであり、直前が <code>if</code> または <code>elseif</code> の場合にのみ有効。</li>
+          <li><code>else</code> は「どの条件にも一致しなかった要素」を通す最終ブランチ。</li>
+        </ul>
+
+        <h3>4.2 <code>switch</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.filter</code><br>
+          filter switch : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;（詳細仕様は今後拡張）
+        </p>
+        <p>
+          <code>switch</code> は、要素からキーを取り出し、その値に応じて複数の分岐に振り分けるフィルタである。
+          現時点では名前と役割のみ予約し、具体的な構文（<code>case</code> の書き方など）は今後の言語仕様側で定義する。
+        </p>
+
+        <h3>4.3 <code>sort</code></h3>
+        <p class="filter-header">名前空間 / シグネチャ</p>
+        <p class="sig">
+          Namespace: <code>aloe.collection</code><br>
+          filter sort       : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;<br>
+          filter sort(key)  : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;
+        </p>
+        <p>
+          入力要素をソートして出力する。内部で全要素を一度バッファし、ソート後に順番に流す。
+        </p>
+
+        <pre><code>users
+    |: sort: .Age   // 年齢で昇順ソート
+    | stdout;</code></pre>
+
+        <h3>4.4 <code>shuffle</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.collection</code><br>
+          filter shuffle : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;
+        </p>
+        <p>
+          要素の順序をランダムに並び替える。内部で全件をバッファしてから乱択して出力する。
+        </p>
+
+        <pre><code>cards
+    |: shuffle
+    | gameDeck;</code></pre>
+      </section>
+
+      <section id="ch5">
+        <h2>5. 暗号 / ハッシュ / バイナリ</h2>
+
+        <h3>5.1 ハッシュ: <code>md4</code> / <code>sha1</code> / <code>sha256</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.crypto.hash</code><br>
+          filter md4    : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter sha1   : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter sha256 : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p>
+          入力全体のハッシュ値を計算し、そのハッシュバイト列を出力する。
+          セキュリティ用途には <code>sha256</code> の利用を推奨し、
+          <code>md4</code> / <code>sha1</code> は互換性用途に限る。
+        </p>
+
+        <pre><code>stdin
+    |: sha256
+    |: bin2hex
+    | stdout;</code></pre>
+
+        <h3>5.2 バイト列変換: <code>bin2hex</code> / <code>crc32</code></h3>
+
+        <h4>5.2.1 <code>bin2hex</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.encoding</code><br>
+          filter bin2hex : pipe&lt;byte&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>バイト列を 16 進表現の文字列に変換する。</p>
+
+        <h4>5.2.2 <code>crc32</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.crypto.hash</code><br>
+          filter crc32 : pipe&lt;byte&gt; -&gt; pipe&lt;uint32&gt;
+        </p>
+        <p>入力全体の CRC32 値を計算し、1 つの整数として出力する。</p>
+
+        <h3>5.3 Base64 / URL</h3>
+        <p class="sig">
+          Namespace: <code>aloe.encoding</code><br>
+          filter base64encode : pipe&lt;byte&gt; -&gt; pipe&lt;string&gt;<br>
+          filter base64decode : pipe&lt;string&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p class="sig">
+          Namespace: <code>aloe.net.http</code><br>
+          filter urlencode    : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter urldecode    : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <pre><code>fileBytes
+    |: base64encode
+    | stdout;
+
+// ...
+
+stdin
+    |: base64decode
+    | fileBytes;</code></pre>
+
+        <h3>5.4 共通暗号: Blowfish / AES</h3>
+
+        <h4>5.4.1 Blowfish: <code>blowfishencrypt</code> / <code>blowfishdecrypt</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.crypto.cipher</code><br>
+          filter blowfishencrypt(ctx: BlowfishContext) : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter blowfishdecrypt(ctx: BlowfishContext) : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p>
+          コンテキスト <code>ctx</code> に鍵・IV・モード等を保持し、それに従って暗号化／復号を行う。
+        </p>
+
+        <h4>5.4.2 AES: <code>AESencrypt</code> / <code>AESdecrypt</code></h4>
+        <p class="sig">
+          Namespace: <code>aloe.crypto.cipher</code><br>
+          filter AESencrypt(ctx: AESContext) : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter AESdecrypt(ctx: AESContext) : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p>
+          AES (CBC / GCM など) による暗号化／復号を行う。具体的なモードやパディングは
+          <code>AESContext</code> の定義に依存する。
+        </p>
+      </section>
+
+      <section id="ch6">
+        <h2>6. 文字列ユーティリティ</h2>
+
+        <h3>6.1 大文字・小文字変換: <code>tolower</code> / <code>toupper</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter tolower : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter toupper : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <pre><code>lines
+    |: tolower
+    | normalized;</code></pre>
+
+        <h3>6.2 ケース形式変換: <code>camelcase</code> / <code>pascalcase</code> / <code>snakecase</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter camelcase  : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter pascalcase : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter snakecase  : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <ul>
+          <li><strong>camelcase</strong>: <code>"hello world"</code> → <code>"helloWorld"</code></li>
+          <li><strong>pascalcase</strong>: <code>"hello world"</code> → <code>"HelloWorld"</code></li>
+          <li><strong>snakecase</strong>: <code>"Hello World"</code> → <code>"hello_world"</code></li>
+        </ul>
+
+        <h3>6.3 部分一致フィルタ: <code>startswith</code> / <code>contains</code> / <code>strstr</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter startswith(prefix: string) : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter contains(needle: string)   : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter strstr(needle: string)     : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <ul>
+          <li><code>startswith</code>: <code>prefix</code> で始まる行だけを通す。</li>
+          <li><code>contains</code>: <code>needle</code> を含む行だけを通す。</li>
+          <li><code>strstr</code>: <code>needle</code> が現れた位置以降のサブ文字列を返す（PHP の <code>strstr</code> に類似）。</li>
+        </ul>
+
+        <pre><code>lines
+    |: startswith: "[ERROR]"
+    |: strstr: "detail="
+    | stdout;</code></pre>
+
+        <h3>6.4 トリム / 結合: <code>ltrim</code> / <code>rtrim</code> / <code>trim</code> / <code>join</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter ltrim : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter rtrim : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter trim  : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter join(sep: string) : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <p>
+          <code>join</code> は、入力の全ての文字列を <code>sep</code> で結合し、1 つの文字列として出力する。
+        </p>
+
+        <pre><code>lines
+    |: trim
+    |: join: "\n"
+    | text;</code></pre>
+      </section>
+
+      <section id="ch7">
+        <h2>7. アーカイブ / 圧縮 / CSV</h2>
+
+        <h3>7.1 ZIP / TAR: <code>zip</code> / <code>unzip</code> / <code>tar</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.archive</code><br>
+          filter zip   : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter unzip : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter tar   : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
+        </p>
+        <p>
+          ここでは「ストリーム全体を 1 つのアーカイブとして扱う」単純なモデルを想定する。
+          複数エントリの操作やファイル名などの詳細は、別途高レベル API として定義しうる。
+        </p>
+
+        <pre><code>stdin
+    |: zip
+    | stdout;
+
+// ...
+
+stdin
+    |: unzip
+    | stdout;</code></pre>
+
+        <h3>7.2 CSV: <code>csvenode</code> / <code>csvdecode</code></h3>
+        <p>（3.2 で説明済み。ここではカテゴリとして再掲のみ。）</p>
+      </section>
+
+      <section id="ch8">
+        <h2>8. HTML / サニタイズ</h2>
+
+        <h3>8.1 エスケープ / 逆変換</h3>
+        <p class="sig">
+          Namespace: <code>aloe.html</code><br>
+          filter htmlspecialchars          : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter htmlspecialchars_decode   : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter html_entity_decode        : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
+          filter strip_tags                : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+
+        <ul>
+          <li><code>htmlspecialchars</code>: <code>&lt;</code>, <code>&gt;</code>, <code>&amp;</code>, <code>&quot;</code> などを安全なエンティティに変換。</li>
+          <li><code>htmlspecialchars_decode</code>: 上記の逆変換。</li>
+          <li><code>html_entity_decode</code>: より広い HTML エンティティ（例: <code>&amp;nbsp;</code> 等）を実体化。</li>
+          <li><code>strip_tags</code>: HTML タグを除去し、テキストのみ残す。</li>
+        </ul>
+
+        <pre><code>htmlLines
+    |: strip_tags
+    |: trim
+    | plainText;</code></pre>
+      </section>
+
+      <section id="ch9">
+        <h2>9. パース / フォーマット</h2>
+
+        <h3>9.1 クエリ文字列: <code>parse_str</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.net.http</code><br>
+          filter parse_str : pipe&lt;string&gt; -&gt; pipe&lt;map&lt;string, string&gt;&gt;
+        </p>
+        <p>
+          <code>"foo=1&amp;bar=2"</code> のようなクエリ文字列をパースし、キーと値のマップとして返す。
+        </p>
+
+        <h3>9.2 数値フォーマット: <code>number_format</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.number</code><br>
+          filter number_format(spec: string) : pipe&lt;decimal&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>
+          数値をフォーマット済みの文字列に変換する。書式文字列 <code>spec</code> の形式は実装依存だが、
+          例として <code>"#,##0.00"</code> のような形式を想定できる。
+        </p>
+
+        <h3>9.3 正規表現向けエスケープ: <code>quote_meta</code></h3>
+        <p class="sig">
+          Namespace: <code>aloe.text</code><br>
+          filter quote_meta : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
+        </p>
+        <p>
+          正規表現エンジンのメタ文字をエスケープし、安全にリテラルとして扱えるようにする。
+        </p>
+
+        <pre><code>patterns
+    |: quote_meta
+    | safePatterns;</code></pre>
+
+        <hr>
+
+        <p>
+          本書に列挙されていないフィルタは、ユーザー定義フィルタまたは外部ライブラリとして自由に追加できる。
+          ここで定義した名前は「Aloe 標準フィルタ」として予約され、互換実装間での共通 API として機能することを意図している。
+        </p>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

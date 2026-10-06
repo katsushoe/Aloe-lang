@@ -1,0 +1,766 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Aloe Standard Library Specification (Draft, English Version)</title>
+  <meta name="edit-version" content="5">
+  <meta name="edit-date" content="2026-10-06T08:33:38+09:00">
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "Hiragino Sans", "Yu Gothic", sans-serif;
+      line-height: 1.7;
+      background: #f5f5f7;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 1.5rem 1.25rem;
+      box-sizing: border-box;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1.1rem;
+      margin: 0 0 0.4rem;
+    }
+    .sidebar .subtitle {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-bottom: 1.4rem;
+    }
+    .sidebar h2 {
+      font-size: 0.85rem;
+      margin: 1.2rem 0 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #9ca3af;
+    }
+    .sidebar nav ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 0.9rem;
+    }
+    .sidebar nav li {
+      margin: 0.15rem 0;
+    }
+    .sidebar a {
+      color: inherit;
+      text-decoration: none;
+      display: block;
+      padding: 0.25rem 0.4rem;
+      border-radius: 0.35rem;
+    }
+    .sidebar a:hover {
+      background: #1f2937;
+    }
+    .sidebar .chapter-index {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-right: 0.35rem;
+    }
+
+
+    .content {
+      flex: 1;
+      max-width: 1100px;
+      padding: 2rem 3rem;
+      box-sizing: border-box;
+      margin: 0 auto;
+      background: #f9fafb;
+    }
+    h1, h2, h3, h4, h5 {
+      margin-top: 1.6em;
+      color: #111827;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    pre, code {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas,
+                   "Ricty Diminished", monospace;
+      font-size: 0.9rem;
+    }
+    pre {
+      background: #1118270d;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      border: 1px solid #e5e7eb;
+    }
+    ul, ol {
+      padding-left: 1.4em;
+    }
+    hr {
+      margin: 2.2rem 0;
+      border: none;
+      border-top: 1px solid #e5e7eb;
+    }
+    .note {
+      font-size: 0.9rem;
+      color: #4b5563;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 999px;
+      border: 1px solid #d1d5db;
+      background: #f3f4f6;
+      color: #4b5563;
+      margin-left: 0.4rem;
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+
+  <!-- Left sidebar menu -->
+  <aside class="sidebar">
+    <h1>Aloe StdLib Spec</h1>
+    <div class="subtitle">Draft • English • Core System / Log / Globals</div>
+
+
+    <h2>Chapters</h2>
+    <nav>
+      <ul>
+        <li><a href="#ch0"><span class="chapter-index">0.</span>Overview</a></li>
+        <li><a href="#ch1"><span class="chapter-index">1.</span>Namespaces and import rules</a></li>
+        <li><a href="#ch2"><span class="chapter-index">2.</span>Naming rules (functions / constants)</a></li>
+        <li><a href="#ch3"><span class="chapter-index">3.</span>Global constants (aloe)</a></li>
+        <li><a href="#ch4"><span class="chapter-index">4.</span>aloe.system (system functions)</a></li>
+        <li><a href="#ch5"><span class="chapter-index">5.</span>aloe.log (log levels / log functions)</a></li>
+        <li><a href="#ch6"><span class="chapter-index">6.</span>Error handlers and handling of LogLevel</a></li>
+        <li><a href="#ch7"><span class="chapter-index">7.</span>Aloe Runtime Object / Tick Integration</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+
+  <!-- Main content -->
+  <main class="content">
+    <h1 id="top">Aloe Standard Library Specification (Draft, English Version)</h1>
+    <p class="note">
+      This document is a draft of the <strong>core part of the standard library (StdLib)</strong>
+      that is built on top of the Aloe language specification.<br>
+      At this moment, the focus is on the following three components:
+    </p>
+    <ul>
+      <li><strong>Global constants</strong> that belong to the <code>aloe</code> namespace</li>
+      <li><strong>System functions</strong> (print / exit / error handlers, etc.) that belong to the <code>aloe.system</code> namespace</li>
+      <li><strong>Log level constants and logging functions</strong> that belong to the <code>aloe.log</code> namespace</li>
+    </ul>
+    <p class="note">
+      In the future, additional chapters will be added for libraries such as file I/O and collection operations,
+      but those are out of scope for this document.
+    </p>
+
+
+    <hr>
+
+
+    <h2 id="ch0">0. Overview</h2>
+    <p>
+      The Aloe standard library provides common functionality for building practical applications
+      on top of the syntax, type system, and exception model defined in the language specification.<br>
+      This specification defines the following elements which are strongly tied to the Aloe runtime environment:
+    </p>
+    <ul>
+      <li><strong>Global constants</strong> that provide access to compile-time and runtime environment information</li>
+      <li><strong>System functions</strong> that handle standard output, standard error, process termination, etc.</li>
+      <li><strong>Log level constants and logging APIs</strong>, together with the associated <strong>global error handler</strong></li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch1">1. Namespaces and import rules</h2>
+
+
+    <h3>1.1 Core namespaces</h3>
+    <ul>
+      <li><code>aloe</code>
+        <ul>
+          <li>Defines <strong>global constants</strong> related to Aloe as a whole, such as version and target information.</li>
+          <li>This is a specially treated namespace: all of its constants can be referenced <strong>without import</strong>.</li>
+        </ul>
+      </li>
+      <li><code>aloe.system</code>
+        <ul>
+          <li>Defines <strong>system functions</strong> such as standard output, standard error, process exit, error handlers, and so on.</li>
+          <li>This namespace can also be used <strong>without import</strong>.</li>
+        </ul>
+      </li>
+      <li><code>aloe.log</code>
+        <ul>
+          <li>Provides a <code>bitfield enum LogLevel</code> representing log levels, and a set of logging functions.</li>
+          <li>Unlike <code>aloe</code> and <code>aloe.system</code>, this namespace <strong>requires an explicit import</strong>.</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>1.2 import example</h3>
+<pre><code>import aloe.log.LogLevel;
+import aloe.log.log;
+import aloe.log.log_ex;
+
+
+function main(args: string[]): int {
+    log(LogLevel.Info, "Application started");
+    return 0;
+}
+</code></pre>
+
+
+    <hr>
+
+
+    <h2 id="ch2">2. Naming rules (functions / constants)</h2>
+
+
+    <h3>2.1 System functions / library functions</h3>
+    <p>
+      Names of <strong>functions</strong> provided by the standard library follow these rules:
+    </p>
+    <ul>
+      <li>Form: <strong>lower snake case (<code>lower_snake_case</code>)</strong></li>
+      <li>Examples:
+        <ul>
+          <li><code>print</code></li>
+          <li><code>println</code></li>
+          <li><code>echo</code></li>
+          <li><code>exit</code></li>
+          <li><code>set_error_handler</code></li>
+          <li><code>clear_error_handler</code></li>
+          <li><code>log</code></li>
+          <li><code>log_ex</code></li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>2.2 Global constants / magic constants</h3>
+    <p>
+      All <strong>global constants</strong> and <strong>magic constants</strong> provided by the Aloe standard library
+      follow the rules below:
+    </p>
+    <ul>
+      <li>Form: <strong>upper snake case (<code>UPPER_SNAKE_CASE</code>)</strong></li>
+      <li>Examples:
+        <ul>
+          <li><code>ALOE_VERSION</code>, <code>ALOE_MAJOR_VERSION</code></li>
+          <li><code>ALOE_TARGET</code>, <code>ALOE_OS</code>, <code>ALOE_DEBUG</code></li>
+          <li><code>ALOE_INT_MIN</code>, <code>ALOE_INT_MAX</code></li>
+          <li><code>ALOE_BINDIR</code>, <code>ALOE_PLUGINDIR</code></li>
+          <li><code>__FILE__</code>, <code>__LINE__</code>, <code>__FUNCTION__</code></li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch3">3. Global constants (<code>aloe</code> namespace)</h2>
+
+
+    <p>
+      All constants defined here belong to the <code>aloe</code> namespace,
+      but are specially treated as <strong>referenceable without import</strong>.
+    </p>
+
+
+    <h3>3.1 Version / build information</h3>
+<pre><code>namespace aloe {
+    const ALOE_VERSION:         string;
+    const ALOE_MAJOR_VERSION:   int;
+    const ALOE_MINOR_VERSION:   int;
+    const ALOE_RELEASE_VERSION: int;
+
+
+    const ALOE_TARGET: string;
+    const ALOE_OS:     string;
+
+
+    const ALOE_DEBUG: bool;
+}
+</code></pre>
+    <ul>
+      <li><code>ALOE_VERSION</code>
+        <ul>
+          <li>The full Aloe version string (example: <code>"5.2.7-extra"</code>).</li>
+        </ul>
+      </li>
+      <li><code>ALOE_MAJOR_VERSION</code>
+        <ul>
+          <li>The major version (example: <code>"5.2.7-extra"</code> → <code>5</code>).</li>
+        </ul>
+      </li>
+      <li><code>ALOE_MINOR_VERSION</code>
+        <ul>
+          <li>The minor version (example: <code>"5.2.7-extra"</code> → <code>2</code>).</li>
+        </ul>
+      </li>
+      <li><code>ALOE_RELEASE_VERSION</code>
+        <ul>
+          <li>The release (patch) number (example: <code>"5.2.7-extra"</code> → <code>7</code>).</li>
+        </ul>
+      </li>
+      <li><code>ALOE_TARGET</code>
+        <ul>
+          <li>The build target (examples: <code>"x86"</code>, <code>"x64"</code>, <code>"arm"</code>, <code>"wasm"</code>).</li>
+        </ul>
+      </li>
+      <li><code>ALOE_OS</code>
+        <ul>
+          <li>The OS family at build time.</li>
+          <li>Its value is one of:
+            <ul>
+              <li><code>"Windows"</code>, <code>"BSD"</code>, <code>"Darwin"</code>, <code>"Solaris"</code>, <code>"Linux"</code>, <code>"Unknown"</code></li>
+            </ul>
+          </li>
+        </ul>
+      </li>
+      <li><code>ALOE_DEBUG</code>
+        <ul>
+          <li><code>true</code> in debug builds only, and <code>false</code> otherwise (e.g. release builds).</li>
+          <li>The value is fixed at compile time and does not change at runtime.</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>3.2 Numeric ranges</h3>
+<pre><code>namespace aloe {
+    const ALOE_INT_MIN:   int;
+    const ALOE_INT_MAX:   int;
+    const ALOE_FLOAT_MIN: float;
+    const ALOE_FLOAT_MAX: float;
+}
+</code></pre>
+    <ul>
+      <li><code>ALOE_INT_MIN</code> / <code>ALOE_INT_MAX</code>
+        <ul>
+          <li>The minimum / maximum values representable by the <code>int</code> type in Aloe.</li>
+          <li>The bit width is VM-implementation-dependent, but these constants always represent
+              the “safe range” for that implementation.</li>
+        </ul>
+      </li>
+      <li><code>ALOE_FLOAT_MIN</code>
+        <ul>
+          <li>The <strong>smallest positive normalized</strong> value for the <code>float</code> type
+              (the smallest finite value greater than 0).</li>
+        </ul>
+      </li>
+      <li><code>ALOE_FLOAT_MAX</code>
+        <ul>
+          <li>The <strong>maximum finite value</strong> for the <code>float</code> type (excluding Infinity).</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>3.3 Paths, directories, end-of-line</h3>
+<pre><code>namespace aloe {
+    const ALOE_BINDIR:        string;
+    const ALOE_PLUGINDIR:     string;
+    const ALOE_MAX_PATHLEN:   int;
+    const ALOE_DIR_SEPARATOR: string;
+    const ALOE_EOL:           string;
+}
+</code></pre>
+    <ul>
+      <li><code>ALOE_BINDIR</code>
+        <ul>
+          <li>The directory path where the Aloe binary (executable / host runtime) resides.</li>
+          <li>It is recommended that this be an absolute path in implementations.</li>
+        </ul>
+      </li>
+      <li><code>ALOE_PLUGINDIR</code>
+        <ul>
+          <li>The directory path where extension plugins (filters, annotations, etc.) are installed.</li>
+        </ul>
+      </li>
+      <li><code>ALOE_MAX_PATHLEN</code>
+        <ul>
+          <li>The maximum number of characters for path strings that the Aloe standard library supports.</li>
+          <li>How file APIs behave when passed a path exceeding this length is defined in the standard library specification.</li>
+        </ul>
+      </li>
+      <li><code>ALOE_DIR_SEPARATOR</code>
+        <ul>
+          <li>A single-character string representing the OS-dependent path separator.</li>
+          <li>On Windows systems this is <code>"\"</code>, and on Unix-like systems (Linux / BSD / Darwin, etc.) this is <code>"/"</code>.</li>
+        </ul>
+      </li>
+      <li><code>ALOE_EOL</code>
+        <ul>
+          <li>The logical newline string.</li>
+          <li>The default implementation uses <code>"\n"</code>.</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>3.4 Magic constants (location / context)</h3>
+<pre><code>namespace aloe {
+    const __FILE__:     string;
+    const __DIR__:      string;
+    const __LINE__:     int;
+    const __FUNCTION__: string;
+    const __METHOD__:   string;
+    const __CLASS__:    string;
+    const __TRAIT__:    string;
+}
+</code></pre>
+    <ul>
+      <li><code>__FILE__</code>
+        <ul>
+          <li>The logical path of the current source file.</li>
+        </ul>
+      </li>
+      <li><code>__DIR__</code>
+        <ul>
+          <li>The directory part of <code>__FILE__</code>.</li>
+          <li>If there is no parent directory, <code>"."</code> is used.</li>
+        </ul>
+      </li>
+      <li><code>__LINE__</code>
+        <ul>
+          <li>The current line number (1-based).</li>
+        </ul>
+      </li>
+      <li><code>__FUNCTION__</code>
+        <ul>
+          <li>The simple name of the current function / method.</li>
+        </ul>
+      </li>
+      <li><code>__METHOD__</code>
+        <ul>
+          <li>The fully qualified name of the current method (example: <code>"Aloe.Sample.App.Run"</code>).</li>
+        </ul>
+      </li>
+      <li><code>__CLASS__</code>
+        <ul>
+          <li>The fully qualified name of the current class / struct / enum.</li>
+          <li>Defined only inside the corresponding declaration.</li>
+        </ul>
+      </li>
+      <li><code>__TRAIT__</code>
+        <ul>
+          <li>The fully qualified name of the current trait.</li>
+          <li>Defined only inside a trait declaration.</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch4">4. <code>aloe.system</code> (system functions)</h2>
+
+
+    <p>
+      <code>aloe.system</code> provides system functions that are tightly coupled with the runtime environment,
+      such as standard output, process termination, and error handlers.<br>
+      Unlike other namespaces, <strong>all of its functions can be accessed without import.</strong>
+    </p>
+
+
+    <h3>4.1 Standard output</h3>
+<pre><code>namespace aloe.system {
+    function print(message: string): void;
+    function println(message: string): void;
+    function echo(message: string): void;
+}
+</code></pre>
+    <ul>
+      <li><code>print(message: string)</code>
+        <ul>
+          <li>Writes <code>message</code> to the standard output.</li>
+          <li>No newline is appended at the end of the output.</li>
+        </ul>
+      </li>
+      <li><code>println(message: string)</code>
+        <ul>
+          <li>Writes <code>message</code> to the standard output, then outputs <code>ALOE_EOL</code>.</li>
+        </ul>
+      </li>
+      <li><code>echo(message: string)</code>
+        <ul>
+          <li>Equivalent to <code>print</code>; writes the string without appending a newline.</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>4.2 Process termination</h3>
+<pre><code>namespace aloe.system {
+    function exit(): void;
+    function exit(code: int): void;
+}
+</code></pre>
+    <ul>
+      <li><code>exit()</code>
+        <ul>
+          <li>Terminates the process.</li>
+          <li>The return (exit) code is regarded as <code>0</code>.</li>
+        </ul>
+      </li>
+      <li><code>exit(code: int)</code>
+        <ul>
+          <li>Terminates the process and returns the specified <code>code</code> as the exit code.</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch5">5. <code>aloe.log</code> (log levels / log functions)</h2>
+
+
+    <p>
+      <code>aloe.log</code> provides a bitfield enum for log levels and basic logging functions.<br>
+      <strong>This namespace requires an explicit import.</strong>
+    </p>
+
+
+    <h3>5.1 LogLevel (log level constants)</h3>
+<pre><code>namespace aloe.log {
+    bitfield enum LogLevel {
+        None  : b(0),
+
+
+        Fatal : b(1),
+        Error : b(2),
+        Warn  : b(3),
+        Info  : b(4),
+        Debug : b(5),
+        Trace : b(6),
+
+
+        All   = Fatal | Error | Warn | Info | Debug | Trace
+    }
+}
+</code></pre>
+    <ul>
+      <li><code>LogLevel</code> is a <code>bitfield enum</code>, so you can specify combinations using bitwise OR.</li>
+      <li>Typical use cases:
+        <ul>
+          <li>Configuring “up to which level should be output” on the logger side.</li>
+          <li>Specifying “which levels of errors should be handled” when registering an error handler.</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>5.2 Logging functions</h3>
+<pre><code>namespace aloe.log {
+    function log(level: LogLevel, message: string): void;
+    function log_ex(level: LogLevel, message: string, ex: Exception): void;
+}
+</code></pre>
+    <ul>
+      <li><code>log(level, message)</code>
+        <ul>
+          <li>Outputs a log entry with the specified <code>level</code> and <code>message</code>.</li>
+          <li>The destination (standard error, file, external system, etc.) depends on the VM / runtime implementation.</li>
+        </ul>
+      </li>
+      <li><code>log_ex(level, message, ex)</code>
+        <ul>
+          <li>Same as <code>log</code>, but it additionally records information about the exception object <code>ex</code>
+              (type name, message, stack trace, etc.).</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="ch6">6. Error handlers and handling of LogLevel</h2>
+
+
+    <p>
+      In Aloe, when unhandled exceptions or fatal errors occur, a user-defined
+      <strong>global error handler</strong> can be invoked.
+      This mechanism is realized through the cooperation between <code>aloe.system</code> and <code>aloe.log</code>.
+    </p>
+
+
+    <h3>6.1 Error handler registration API</h3>
+<pre><code>namespace aloe.system {
+    function set_error_handler(
+        handler: function(aloe.log.LogLevel, string, Exception?): void,
+        levels:  aloe.log.LogLevel = aloe.log.LogLevel.All
+    ): void;
+
+
+    function clear_error_handler(): void;
+}
+</code></pre>
+    <ul>
+      <li><code>set_error_handler(handler, levels)</code>
+        <ul>
+          <li>Registers the global error handler.</li>
+          <li>The <code>handler</code> argument is a function with the following signature:
+<pre><code>function handler(level: aloe.log.LogLevel,
+                  message: string,
+                  ex: Exception?): void
+</code></pre>
+          </li>
+          <li><code>levels</code> specifies which log levels should trigger this handler, using bitwise OR of <code>LogLevel</code> values.
+            <ul>
+              <li>If omitted, <code>LogLevel.All</code> (all levels) is used.</li>
+            </ul>
+          </li>
+          <li>If <code>set_error_handler</code> is called multiple times, the last registered handler becomes effective.</li>
+        </ul>
+      </li>
+      <li><code>clear_error_handler()</code>
+        <ul>
+          <li>Unregisters the user-defined error handler and restores the VM’s default behavior
+              (such as writing to standard error, terminating the process, etc.).</li>
+        </ul>
+      </li>
+    </ul>
+
+
+    <h3>6.2 Overview of invocation timing</h3>
+    <p>
+      The exact mapping (which exception corresponds to which <code>LogLevel</code>) is determined
+      by the VM / runtime specification, but roughly the following rules are assumed:
+    </p>
+    <ul>
+      <li>When a thread / process terminates due to an unhandled exception:
+        <ul>
+          <li><code>level = LogLevel.Fatal</code> or <code>LogLevel.Error</code></li>
+        </ul>
+      </li>
+      <li>For recoverable runtime errors (e.g. non-fatal I/O errors):
+        <ul>
+          <li><code>level = LogLevel.Error</code> or <code>LogLevel.Warn</code></li>
+        </ul>
+      </li>
+      <li>For diagnostic notifications, etc.:
+        <ul>
+          <li><code>level = LogLevel.Info</code>, <code>Debug</code>, <code>Trace</code>, and so on</li>
+        </ul>
+      </li>
+    </ul>
+    <p>
+      How errors occurring inside the error handler itself are handled (errors inside the handler)
+      is defined by the VM implementation specification.
+      In many implementations, it is recommended that “errors inside the handler are ultimately treated as Fatal,
+      and the process is terminated.”
+    </p>
+    <hr>
+
+
+    <h2 id="ch7">7. Aloe Runtime Object / Tick Integration</h2>
+    <p>
+      This chapter defines the boundary between the standard library and Aloe Runtime's Object / Tick / CallBuffer execution model.
+      The semantics of Object ownership, CallBuffer, Volatile / Committed State, and Reference Groups are defined by the language and VM specifications.
+    </p>
+
+
+    <h3>7.1 Object state access</h3>
+    <ul>
+      <li>When a standard-library or Host API exposes class Object state, synchronous external reads use public properties.</li>
+      <li>External state-change requests use public async methods and are enqueued in the target Object / type CallBuffer.</li>
+      <li>Standard APIs do not use public property setters or direct external writes to class member variables.</li>
+    </ul>
+
+
+    <h3>7.2 Positioning of tick()</h3>
+    <ul>
+      <li><code>tick()</code> is a Runtime intrinsic or dedicated statement that synchronously executes a VM Tick from main.</li>
+      <li><code>tick()</code> is not fixed as an ordinary <code>aloe.system</code> library function.</li>
+      <li>When it returns, async Calls for the current Tick, Volatile Commit, reference processing, and GC have completed.</li>
+    </ul>
+
+
+    <h3>7.3 Host synchronous Queries</h3>
+    <p>
+      Static methods such as Keyboard.isDown / isPressed may synchronously query Host state and return a value immediately on the calling VMThread.
+    </p>
+    <ul>
+      <li>Because multiple VMThreads may call them concurrently, Host Thread Safety requirements must be specified per API or by a common rule.</li>
+      <li>The exact Thread Safety rule remains open.</li>
+    </ul>
+
+
+    <h3>7.4 Host async Commands</h3>
+    <ul>
+      <li>Operations such as Audio.play, Network.send, or Renderer commands may be represented as public static async methods.</li>
+      <li>An async command without an instance uses a per-type Static CallBuffer.</li>
+      <li>Serialization rules and the executor VMThread for a Static CallBuffer remain open issues.</li>
+    </ul>
+
+
+    <h3>7.5 Host side effects and Tick Atomicity</h3>
+    <p>
+      VM-internal State can support Tick-level failure handling through Volatile → Committed,
+      but Host side effects such as Audio / Network / File / Renderer operations may be irreversible.
+      If an unhandled async exception becomes Tick Failure, whether Host side effects execute immediately or are delayed until Tick Commit remains open.
+    </p>
+
+
+    <h3>7.6 Outside the Standard Library responsibility</h3>
+    <ul>
+      <li>CallBuffer locking / scheduling / Tick Quiescence are AloeVM / Runtime responsibilities.</li>
+      <li>Reference Counting, Reference Groups, Destruction Candidates, and Runtime Temporary References are VM lifetime-management mechanisms.</li>
+      <li>The standard library does not expose these internal structures as public APIs.</li>
+    </ul>
+
+
+    <hr>
+
+
+    <h2 id="editor-notes">Appendix: Editing policy (not part of the specification body)</h2>
+    <p class="note">
+      <strong>Editing policy for generative AI (Aloe Standard Library Specification):</strong><br>
+      ・This document is maintained under the same editing policy as the Aloe language specification and the AloeVM specification.<br>
+      ・The Japanese and English versions (chapter structure, headings, and the meaning of the text) must always be kept in sync.
+        Do not simplify or extend only one side arbitrarily.<br>
+      ・Within the standard library specification, <code>edit-version</code> must be monotonically increasing,
+        and it is incremented by +1 only when the specification body (including samples) is changed.
+        Do not decrease or roll it back.<br>
+      ・<code>edit-date</code> must always contain the “current time in Asia/Tokyo at the moment the edit is applied”
+        in ISO 8601 format. Do not use guessed times or times in other time zones.<br>
+      ・As a rule, unrelated parts must not be changed.
+        Even if the meaning is the same, do not “helpfully” change variable names, method names, or wording.<br>
+      ・If you want to add new specification items or modify existing specifications in a way that changes their meaning,
+        you must first consult the user and obtain agreement before applying the changes.<br>
+      ・Always treat the full HTML that the user most recently provided as the “canonical” text,
+        and apply only the minimal diffs against that version.<br>
+      ・If you can no longer reconstruct the latest HTML locally, or if you are unsure what the latest version is,
+        stop editing and ask the user for confirmation instead of continuing to apply changes.<br>
+    </p>
+
+
+  </main>
+</div>
+</body>
+</html>

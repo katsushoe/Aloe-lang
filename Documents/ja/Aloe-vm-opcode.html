@@ -1,0 +1,1253 @@
+﻿```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>AloeVM 命令セットリファレンス（ドラフト）</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.7;
+      color: #222;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 260px;
+      background: #111827;
+      color: #f9fafb;
+      padding: 1rem 0.75rem 2rem;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1.05rem;
+      margin: 0 0 0.5rem;
+      padding: 0 0.25rem;
+    }
+    .sidebar small {
+      display: block;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-bottom: 0.75rem;
+      padding: 0 0.25rem;
+    }
+    .nav-section-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9ca3af;
+      margin: 0.75rem 0 0.25rem;
+      padding: 0 0.25rem;
+    }
+    .nav-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .nav-list li {
+      margin: 0;
+    }
+    .nav-link {
+      display: block;
+      padding: 0.25rem 0.5rem;
+      margin: 0 0.1rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      color: #e5e7eb;
+      text-decoration: none;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .nav-link:hover {
+      background: #374151;
+    }
+    .nav-link.active {
+      background: #4b5563;
+      color: #ffffff;
+      font-weight: 600;
+    }
+    .content {
+      flex: 1;
+      padding: 1.5rem 2rem 3rem;
+      max-width: 1024px;
+      margin: 0 auto;
+    }
+    h2, h3 {
+      line-height: 1.3;
+    }
+    h2 {
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 0.25rem;
+      margin-top: 0;
+    }
+    h3 {
+      margin-top: 1.75rem;
+    }
+    .note {
+      padding: 0.5rem 0.75rem;
+      border-left: 4px solid #888;
+      background: #fafafa;
+      margin: 1rem 0 1.5rem;
+      font-size: 0.9rem;
+    }
+    .table-wrap {
+      overflow-x: auto;
+      margin-bottom: 1.5rem;
+    }
+    table {
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      min-width: 640px;
+    }
+    th, td {
+      border: 1px solid #d1d5db;
+      padding: 0.25rem 0.5rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #f3f4f6;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+    }
+    @media (max-width: 800px) {
+      .layout { flex-direction: column; }
+      .sidebar {
+        width: 100%;
+        position: static;
+        max-height: none;
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .sidebar h1, .sidebar small, .nav-section-title {
+        width: 100%;
+      }
+      .nav-list {
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .nav-list li {
+        flex: 0 0 50%;
+      }
+      .content {
+        padding: 1rem 1rem 3rem;
+      }
+    }
+  </style>
+  <script>
+    function showSection(id) {
+      const sections = document.querySelectorAll('.op-section');
+      sections.forEach(s => s.style.display = 'none');
+      const target = document.getElementById(id);
+      if (target) target.style.display = 'block';
+
+
+      const links = document.querySelectorAll('.nav-link');
+      links.forEach(a => a.classList.remove('active'));
+      const activeLink = document.querySelector('.nav-link[data-target="' + id + '"]');
+      if (activeLink) activeLink.classList.add('active');
+
+
+      if (window.innerWidth <= 800) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+    window.addEventListener('DOMContentLoaded', () => {
+      const first = document.querySelector('.op-section');
+      if (first) first.style.display = 'block';
+      const firstLink = document.querySelector('.nav-link');
+      if (firstLink) firstLink.classList.add('active');
+
+
+      document.querySelectorAll('.nav-link').forEach(a => {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          showSection(a.dataset.target);
+        });
+      });
+    });
+  </script>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>AloeVM 命令セットリファレンス</h1>
+    <small>（現時点のドラフト。AloeVM 仕様書本体の第 7 章と整合するように運用する。）</small>
+
+
+    <div class="nav-section">
+      <div class="nav-section-title">Categories</div>
+      <ul class="nav-list">
+        <li><a class="nav-link" data-target="cat-01">0x01 Stack / Const</a></li>
+        <li><a class="nav-link" data-target="cat-02">0x02 Load / Store</a></li>
+        <li><a class="nav-link" data-target="cat-03">0x03 Arithmetic / Bit</a></li>
+        <li><a class="nav-link" data-target="cat-04">0x04 Compare</a></li>
+        <li><a class="nav-link" data-target="cat-05">0x05 Control Flow</a></li>
+        <li><a class="nav-link" data-target="cat-06">0x06 Call / Return</a></li>
+        <li><a class="nav-link" data-target="cat-07">0x07 Object / Array</a></li>
+        <li><a class="nav-link" data-target="cat-08">0x08 Pipe I/O</a></li>
+        <li><a class="nav-link" data-target="cat-09">0x09 Pipe / Filter / Producer / Consumer</a></li>
+        <li><a class="nav-link" data-target="cat-0a">0x0A Exception</a></li>
+        <li><a class="nav-link" data-target="cat-0f">0x0F Misc / System</a></li>
+      </ul>
+    </div>
+  </aside>
+
+
+  <main class="content">
+    <h2>AloeVM 命令セット（完全表 v0.2）</h2>
+
+
+    <div class="note">
+      <ul>
+        <li>命令 ID は 2 バイト長。1 バイト目が<strong>カテゴリ</strong>、2 バイト目が<strong>カテゴリ内連番</strong>（オペコード表の順番）。</li>
+        <li>本ファイルに列挙されていないカテゴリ＋インデックスの組み合わせは、現バージョンでは<strong>未使用／予約</strong>とみなす。</li>
+        <li>複数バイトの即値オペランドは、AloeVM 本体仕様と同様に<strong>リトルエンディアン</strong>で格納する。</li>
+        <li>命令の意味や VM 全体の振る舞いは、AloeVM 仕様書本体（特に第 1〜8 章）を優先する。public async method の外部呼び出しは CallBuffer enqueue、自 Object への self call や同期 method/function は即時実行という規則に従う。</li>
+      </ul>
+    </div>
+
+
+    <!-- 0x01 Stack / Const -->
+    <section id="cat-01" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x01: Stack / Const</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x01</td>
+              <td>0x00</td>
+              <td>PUSH_I32_0</td>
+              <td>なし</td>
+              <td>スタックトップに int32 値 0 を積む。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x01</td>
+              <td>PUSH_I32_1</td>
+              <td>なし</td>
+              <td>スタックトップに int32 値 1 を積む。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x02</td>
+              <td>PUSH_I32_M1</td>
+              <td>なし</td>
+              <td>スタックトップに int32 値 -1 を積む。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x03</td>
+              <td>PUSH_I32</td>
+              <td>int32 即値（4 byte）</td>
+              <td>スタックトップに指定した int32 即値を積む。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x04</td>
+              <td>PUSH_F32</td>
+              <td>float32 即値（4 byte）</td>
+              <td>スタックトップに float32 即値を積む。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x05</td>
+              <td>PUSH_DECIMAL</td>
+              <td>decimal 即値（16 byte, 実装依存）</td>
+              <td>スタックトップに decimal 即値を積む。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x06</td>
+              <td>PUSH_BOOL_FALSE</td>
+              <td>なし</td>
+              <td>スタックトップに bool 値 false を積む。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x07</td>
+              <td>PUSH_BOOL_TRUE</td>
+              <td>なし</td>
+              <td>スタックトップに bool 値 true を積む。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x08</td>
+              <td>PUSH_NULL</td>
+              <td>なし</td>
+              <td>スタックトップに null 参照を積む（参照型専用）。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x09</td>
+              <td>PUSH_CONST</td>
+              <td>定数プール index（uint16）</td>
+              <td>定数プールから指定 index の値を読み出し、スタックに積む。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x0A</td>
+              <td>DUP</td>
+              <td>なし</td>
+              <td>スタックトップの値を複製して 2 個にする。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x0B</td>
+              <td>POP</td>
+              <td>なし</td>
+              <td>スタックトップの値を 1 個捨てる。</td>
+            </tr>
+            <tr>
+              <td>0x01</td>
+              <td>0x0C</td>
+              <td>SWAP</td>
+              <td>なし</td>
+              <td>スタックトップ 2 要素の順序を入れ替える。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x02 Load / Store -->
+    <section id="cat-02" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x02: Load / Store（ローカル・引数・フィールド）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x02</td>
+              <td>0x00</td>
+              <td>LD_LOCAL</td>
+              <td>ローカル index（uint16）</td>
+              <td>指定ローカル変数の値をスタックトップに積む。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x01</td>
+              <td>ST_LOCAL</td>
+              <td>ローカル index（uint16）</td>
+              <td>スタックトップの値を指定ローカル変数に書き込み、スタックからは取り除く。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x02</td>
+              <td>LD_ARG</td>
+              <td>引数 index（uint16）</td>
+              <td>指定引数の値をスタックトップに積む。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x03</td>
+              <td>ST_ARG</td>
+              <td>引数 index（uint16）</td>
+              <td>スタックトップの値を指定引数スロットに書き込む（特殊なケースで使用）。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x04</td>
+              <td>LD_FIELD</td>
+              <td>フィールド ID（uint16）</td>
+              <td>スタックトップのオブジェクト参照から指定フィールドを読み、値をスタックに積み直す。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x05</td>
+              <td>ST_FIELD</td>
+              <td>フィールド ID（uint16）</td>
+              <td>スタックトップの値を、その下のオブジェクト参照の指定フィールドに書き込む。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x06</td>
+              <td>LD_STATIC_FIELD</td>
+              <td>フィールド ID（uint16）</td>
+              <td>静的フィールドの値を読み、スタックトップに積む。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x07</td>
+              <td>ST_STATIC_FIELD</td>
+              <td>フィールド ID（uint16）</td>
+              <td>スタックトップの値を静的フィールドに書き込む。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x08</td>
+              <td>LD_THIS</td>
+              <td>なし</td>
+              <td>現在のインスタンスメソッドの this 参照をスタックトップに積む。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x09</td>
+              <td>LD_ELEM</td>
+              <td>なし</td>
+              <td>スタックトップの index と、その下の配列参照から要素を読み出し、要素値をスタックに積み直す。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x0A</td>
+              <td>ST_ELEM</td>
+              <td>なし</td>
+              <td>スタックトップの値を、その下の index・その下の配列参照に対応する要素へ書き込む。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x0B</td>
+              <td>LD_LOCAL_0</td>
+              <td>なし</td>
+              <td>ローカル変数 0 をスタックトップに積む（ショートフォーム）。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x0C</td>
+              <td>LD_LOCAL_1</td>
+              <td>なし</td>
+              <td>ローカル変数 1 をスタックトップに積む（ショートフォーム）。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x0D</td>
+              <td>ST_LOCAL_0</td>
+              <td>なし</td>
+              <td>スタックトップの値をローカル変数 0 に書き込む（ショートフォーム）。</td>
+            </tr>
+            <tr>
+              <td>0x02</td>
+              <td>0x0E</td>
+              <td>ST_LOCAL_1</td>
+              <td>なし</td>
+              <td>スタックトップの値をローカル変数 1 に書き込む（ショートフォーム）。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x03 Arithmetic / Bit -->
+    <section id="cat-03" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x03: Arithmetic / Bit（算術・ビット演算）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x03</td>
+              <td>0x00</td>
+              <td>ADD_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、加算結果をスタックに積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x01</td>
+              <td>SUB_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、2 番目 − 1 番目の結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x02</td>
+              <td>MUL_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、乗算結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x03</td>
+              <td>DIV_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、2 番目 ÷ 1 番目の結果を積む（ゼロ除算は例外）。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x04</td>
+              <td>MOD_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、2 番目 % 1 番目の結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x05</td>
+              <td>NEG_I32</td>
+              <td>なし</td>
+              <td>スタックトップの int32 を符号反転し、結果を積み直す。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x06</td>
+              <td>ADD_F32</td>
+              <td>なし</td>
+              <td>float32 を 2 つ取り出し、加算結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x07</td>
+              <td>SUB_F32</td>
+              <td>なし</td>
+              <td>float32 を 2 つ取り出し、2 番目 − 1 番目の結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x08</td>
+              <td>MUL_F32</td>
+              <td>なし</td>
+              <td>float32 を 2 つ取り出し、乗算結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x09</td>
+              <td>DIV_F32</td>
+              <td>なし</td>
+              <td>float32 を 2 つ取り出し、2 番目 ÷ 1 番目の結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x0A</td>
+              <td>NEG_F32</td>
+              <td>なし</td>
+              <td>スタックトップの float32 を符号反転し、結果を積み直す。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x0B</td>
+              <td>ADD_DECIMAL</td>
+              <td>なし</td>
+              <td>decimal を 2 つ取り出し、加算結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x0C</td>
+              <td>SUB_DECIMAL</td>
+              <td>なし</td>
+              <td>decimal を 2 つ取り出し、2 番目 − 1 番目の結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x0D</td>
+              <td>MUL_DECIMAL</td>
+              <td>なし</td>
+              <td>decimal を 2 つ取り出し、乗算結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x0E</td>
+              <td>DIV_DECIMAL</td>
+              <td>なし</td>
+              <td>decimal を 2 つ取り出し、2 番目 ÷ 1 番目の結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x0F</td>
+              <td>AND_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、ビット単位 AND をとった結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x10</td>
+              <td>OR_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、ビット単位 OR をとった結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x11</td>
+              <td>XOR_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、ビット単位 XOR をとった結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x12</td>
+              <td>NOT_I32</td>
+              <td>なし</td>
+              <td>スタックトップの int32 にビット反転を適用し、結果を積み直す。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x13</td>
+              <td>SHL_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、2 番目を 1 番目ビット左シフトした結果を積む。</td>
+            </tr>
+            <tr>
+              <td>0x03</td>
+              <td>0x14</td>
+              <td>SHR_I32</td>
+              <td>なし</td>
+              <td>int32 を 2 つ取り出し、2 番目を 1 番目ビット右シフトした結果を積む。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x04 Compare -->
+    <section id="cat-04" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x04: Compare（比較）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x04</td>
+              <td>0x00</td>
+              <td>CMP_EQ</td>
+              <td>なし</td>
+              <td>スタックから 2 値を取り出し、等しければ bool true、そうでなければ false を積む。</td>
+            </tr>
+            <tr>
+              <td>0x04</td>
+              <td>0x01</td>
+              <td>CMP_NE</td>
+              <td>なし</td>
+              <td>スタックから 2 値を取り出し、異なれば bool true を積む。</td>
+            </tr>
+            <tr>
+              <td>0x04</td>
+              <td>0x02</td>
+              <td>CMP_LT</td>
+              <td>なし</td>
+              <td>2 番目 &lt; 1 番目 であれば bool true を積む。</td>
+            </tr>
+            <tr>
+              <td>0x04</td>
+              <td>0x03</td>
+              <td>CMP_LE</td>
+              <td>なし</td>
+              <td>2 番目 ≦ 1 番目 であれば bool true を積む。</td>
+            </tr>
+            <tr>
+              <td>0x04</td>
+              <td>0x04</td>
+              <td>CMP_GT</td>
+              <td>なし</td>
+              <td>2 番目 &gt; 1 番目 であれば bool true を積む。</td>
+            </tr>
+            <tr>
+              <td>0x04</td>
+              <td>0x05</td>
+              <td>CMP_GE</td>
+              <td>なし</td>
+              <td>2 番目 ≧ 1 番目 であれば bool true を積む。</td>
+            </tr>
+            <tr>
+              <td>0x04</td>
+              <td>0x06</td>
+              <td>CMP_NULL</td>
+              <td>なし</td>
+              <td>スタックトップの参照値が null なら bool true、そうでなければ false を積む。</td>
+            </tr>
+            <tr>
+              <td>0x04</td>
+              <td>0x07</td>
+              <td>CMP_NOT_NULL</td>
+              <td>なし</td>
+              <td>スタックトップの参照値が null でない場合に bool true を積む。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x05 Control Flow -->
+    <section id="cat-05" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x05: Control Flow（制御フロー）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x05</td>
+              <td>0x00</td>
+              <td>JMP</td>
+              <td>相対オフセット int32</td>
+              <td>指定オフセットだけ命令ポインタを移動する（無条件分岐）。</td>
+            </tr>
+            <tr>
+              <td>0x05</td>
+              <td>0x01</td>
+              <td>JMP_IF_TRUE</td>
+              <td>相対オフセット int32</td>
+              <td>スタックトップの bool が true の場合のみ分岐し、値はスタックから取り除かれる。</td>
+            </tr>
+            <tr>
+              <td>0x05</td>
+              <td>0x02</td>
+              <td>JMP_IF_FALSE</td>
+              <td>相対オフセット int32</td>
+              <td>スタックトップの bool が false の場合のみ分岐し、値はスタックから取り除かれる。</td>
+            </tr>
+            <tr>
+              <td>0x05</td>
+              <td>0x03</td>
+              <td>JMP_SWITCH</td>
+              <td>テーブル index / 分岐テーブル（実装依存）</td>
+              <td>スタックトップの整数値をもとに、分岐テーブルで指定されたラベルへジャンプする。</td>
+            </tr>
+            <tr>
+              <td>0x05</td>
+              <td>0x04</td>
+              <td>JMP_IF_ZERO</td>
+              <td>相対オフセット int32</td>
+              <td>スタックトップの整数値が 0 の場合に分岐する。</td>
+            </tr>
+            <tr>
+              <td>0x05</td>
+              <td>0x05</td>
+              <td>JMP_IF_NONZERO</td>
+              <td>相対オフセット int32</td>
+              <td>スタックトップの整数値が 0 でない場合に分岐する。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x06 Call / Return -->
+    <section id="cat-06" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x06: Call / Return（呼び出し・復帰）</h3>
+      <div class="note">public async method の enqueue / self call の同期実行は VM 実行意味論で決まる。<code>tick()</code> のバイトコード表現は本バージョンでは固定せず、Runtime intrinsic または将来の専用命令として扱う。</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x06</td>
+              <td>0x00</td>
+              <td>CALL</td>
+              <td>関数 ID（uint16）</td>
+              <td>指定された関数 ID を呼び出す。同期 function / method は現在 VMThread 上でフレームを作成して実行する。public static async method 等の async command は VM 仕様に従い Static CallBuffer へ enqueue する。</td>
+            </tr>
+            <tr>
+              <td>0x06</td>
+              <td>0x01</td>
+              <td>CALL_VIRT</td>
+              <td>スロット ID（uint16）</td>
+              <td>スタック上の this 参照から実際の型を解決する。targetObject == currentObject の self call は同期実行し、外部 Object の public async method は対象 Object の CallBuffer へ enqueue する。</td>
+            </tr>
+            <tr>
+              <td>0x06</td>
+              <td>0x02</td>
+              <td>CALL_INTERFACE</td>
+              <td>スロット ID（uint16）</td>
+              <td>インターフェース経由で call target を動的解決する。解決後の同期 / self / public async の実行方式は CALL_VIRT と同じ CallBuffer 規則に従う。</td>
+            </tr>
+            <tr>
+              <td>0x06</td>
+              <td>0x03</td>
+              <td>CALL_INDIRECT</td>
+              <td>シグネチャ ID（uint16）</td>
+              <td>スタックトップの関数ハンドルを使い、間接呼び出しを行う。</td>
+            </tr>
+            <tr>
+              <td>0x06</td>
+              <td>0x04</td>
+              <td>RET</td>
+              <td>なし</td>
+              <td>現在のフレームから復帰し、戻り値 1 個を呼び出し元スタックに残す。</td>
+            </tr>
+            <tr>
+              <td>0x06</td>
+              <td>0x05</td>
+              <td>RET_VOID</td>
+              <td>なし</td>
+              <td>戻り値を持たずにフレームから復帰する。</td>
+            </tr>
+            <tr>
+              <td>0x06</td>
+              <td>0x06</td>
+              <td>TAILCALL</td>
+              <td>関数 ID（uint16）</td>
+              <td>現在のフレームを再利用して末尾再帰呼び出しを行うことを示す（最適化ヒント）。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x07 Object / Array -->
+    <section id="cat-07" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x07: Object / Array（オブジェクト・配列）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x07</td>
+              <td>0x00</td>
+              <td>NEWOBJ</td>
+              <td>型 ID（uint16）</td>
+              <td>指定クラスのインスタンスをヒープに確保し、その参照をスタックに積む。</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>0x01</td>
+              <td>NEWSTRUCT</td>
+              <td>型 ID（uint16）</td>
+              <td>指定構造体のインスタンスを作成し、ヒープ上またはスタック上に配置する（実装依存）。</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>0x02</td>
+              <td>NEW_ARRAY</td>
+              <td>要素型 ID（uint16）</td>
+              <td>スタックトップの長さを読み取り、その長さの配列を確保して参照を積む。</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>0x03</td>
+              <td>NEW_ZEROARRAY</td>
+              <td>要素型 ID（uint16）</td>
+              <td>長さと要素をゼロ初期化した配列を確保する（NEW_ARRAY と同じだがゼロクリアを強調）。</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>0x04</td>
+              <td>BOX</td>
+              <td>型 ID（uint16）</td>
+              <td>スタックトップの値型を参照型としてヒープにボックス化する。</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>0x05</td>
+              <td>UNBOX</td>
+              <td>型 ID（uint16）</td>
+              <td>スタックトップの参照を指定値型としてアンボックスし、値型を積む。</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>0x06</td>
+              <td>CAST_CLASS</td>
+              <td>型 ID（uint16）</td>
+              <td>スタックトップの参照を指定クラスにキャストし、失敗時は例外。</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>0x07</td>
+              <td>IS_INSTANCE</td>
+              <td>型 ID（uint16）</td>
+              <td>スタックトップの参照が指定型のインスタンスであれば bool true を積む。</td>
+            </tr>
+            <tr>
+              <td>0x07</td>
+              <td>0x08</td>
+              <td>CLONE_OBJ</td>
+              <td>なし</td>
+              <td>スタックトップのオブジェクト参照をディープコピーまたはシャローコピーし、新しい参照を積む（実装依存）。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x08 Pipe I/O -->
+    <section id="cat-08" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x08: Pipe I/O（パイプの基本入出力）</h3>
+      <div class="note">
+        AloeVM 仕様書本体の「5. パイプ / フィルタの VM 表現」「5.4 パイプのライフサイクルと VM 命令」に対応する基礎 I/O 命令。
+        ライフサイクル系の命令（生成・接続・切断・削除）はカテゴリ 0x09 にまとめる。
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x08</td>
+              <td>0x00</td>
+              <td>PIPE_READ</td>
+              <td>なし</td>
+              <td>スタックトップの pipe&lt;T&gt; から 1 要素を読み出し、要素値をスタックに積む（ブロッキング）。</td>
+            </tr>
+            <tr>
+              <td>0x08</td>
+              <td>0x01</td>
+              <td>PIPE_WRITE</td>
+              <td>なし</td>
+              <td>スタックトップの値を、その下の pipe&lt;T&gt; に書き込む（必要に応じてブロッキング）。</td>
+            </tr>
+            <tr>
+              <td>0x08</td>
+              <td>0x02</td>
+              <td>PIPE_TRY_READ</td>
+              <td>なし</td>
+              <td>pipe から非ブロッキングで読み出しを試み、成功時は値と bool 成功フラグ、失敗時は bool false のみを積む。</td>
+            </tr>
+            <tr>
+              <td>0x08</td>
+              <td>0x03</td>
+              <td>PIPE_TRY_WRITE</td>
+              <td>なし</td>
+              <td>pipe への非ブロッキング書き込みを試み、成功フラグ bool をスタックに積む。</td>
+            </tr>
+            <tr>
+              <td>0x08</td>
+              <td>0x04</td>
+              <td>PIPE_CLOSE_READ</td>
+              <td>なし</td>
+              <td>スタックトップの pipe の読み取り側をクローズする。</td>
+            </tr>
+            <tr>
+              <td>0x08</td>
+              <td>0x05</td>
+              <td>PIPE_CLOSE_WRITE</td>
+              <td>なし</td>
+              <td>スタックトップの pipe の書き込み側をクローズする。</td>
+            </tr>
+            <tr>
+              <td>0x08</td>
+              <td>0x06</td>
+              <td>PIPE_GET_STATE</td>
+              <td>なし</td>
+              <td>pipe の状態（オープン／クローズ／エラーなど）を表す整数または enum をスタックに積む。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x09 Pipe / Filter / Producer / Consumer -->
+    <section id="cat-09" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x09: Pipe / Filter / Producer / Consumer（ライフサイクル・パイプライン構築）</h3>
+      <div class="note">
+        AloeVM 仕様書本体の「5.4 パイプのライフサイクルと VM 命令」に対応。<br />
+        パイプの生成・接続・切断・削除、および filter / producer / consumer タスクの開始／停止などを扱う。
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x09</td>
+              <td>0x00</td>
+              <td>PIPE_NEW</td>
+              <td>要素型 ID（uint16）</td>
+              <td>新しい pipe&lt;T&gt; を生成し、その参照をスタックに積む（ライフサイクル「生成」）。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x01</td>
+              <td>PIPE_FROM_HANDLE</td>
+              <td>ホストハンドル ID（uint16 など、実装依存）</td>
+              <td>ホスト環境のパイプリソースから AloeVM pipe 値を生成する。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x02</td>
+              <td>PIPE_CONNECT</td>
+              <td>なし</td>
+              <td>スタックトップ 2 つの pipe を「上流→下流」として接続する（ライフサイクル「接続」）。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x03</td>
+              <td>PIPE_DISCONNECT</td>
+              <td>なし</td>
+              <td>スタックトップ 2 つの pipe 間の接続を解除する（ライフサイクル「切断」）。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x04</td>
+              <td>PIPE_DELETE</td>
+              <td>なし</td>
+              <td>スタックトップの pipe をパイプラインから論理的に削除し、内部リソース解放の候補とする（ライフサイクル「削除」）。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x05</td>
+              <td>FILTER_NEW</td>
+              <td>filter 定義 ID（uint16）</td>
+              <td>指定された filter 定義から filter インスタンスを生成し、スタックに積む。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x06</td>
+              <td>FILTER_BIND</td>
+              <td>なし</td>
+              <td>スタック上の input pipe / output pipe / filter を取り、filter にパイプを結び付ける。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x07</td>
+              <td>FILTER_START</td>
+              <td>なし</td>
+              <td>スタックトップの filter を新しいタスクまたはスレッドとして起動する。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x08</td>
+              <td>FILTER_STOP</td>
+              <td>なし</td>
+              <td>実行中の filter を停止する（穏やかなキャンセルを意図）。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x09</td>
+              <td>PRODUCER_START</td>
+              <td>なし</td>
+              <td>スタックトップの producer を起動し、関連する pipe への書き込みを開始する。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x0A</td>
+              <td>PRODUCER_STOP</td>
+              <td>なし</td>
+              <td>producer を停止し、必要に応じて書き込み pipe をクローズする。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x0B</td>
+              <td>CONSUMER_START</td>
+              <td>なし</td>
+              <td>スタックトップの consumer を起動し、pipe からの読み取りを開始する。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x0C</td>
+              <td>CONSUMER_STOP</td>
+              <td>なし</td>
+              <td>consumer を停止し、必要に応じて読み取り側をクローズする。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x0D</td>
+              <td>PIPE_AWAIT_COMPLETION</td>
+              <td>なし</td>
+              <td>スタックトップの pipe またはパイプライン全体の完了を待機する（同期ポイント）。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x0E</td>
+              <td>PIPE_CANCEL</td>
+              <td>なし</td>
+              <td>スタックトップの pipe / パイプラインにキャンセル要求を送る。</td>
+            </tr>
+            <tr>
+              <td>0x09</td>
+              <td>0x0F</td>
+              <td>PIPE_FLUSH</td>
+              <td>なし</td>
+              <td>pipe のバッファをフラッシュし、下流に可能な限りデータを押し流す。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x0A Exception -->
+    <section id="cat-0a" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x0A: Exception（例外処理）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</th>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x0A</td>
+              <td>0x00</td>
+              <td>THROW</td>
+              <td>なし</td>
+              <td>スタックトップの例外オブジェクトをスローする。</td>
+            </tr>
+            <tr>
+              <td>0x0A</td>
+              <td>0x01</td>
+              <td>THROW_NEW</td>
+              <td>例外型 ID（uint16）</td>
+              <td>指定例外型のインスタンスを生成して即座にスローする（メッセージ等は実装依存）。</td>
+            </tr>
+            <tr>
+              <td>0x0A</td>
+              <td>0x02</td>
+              <td>RETHROW</td>
+              <td>なし</td>
+              <td>catch ブロック内部から、捕捉した例外を再スローする。</td>
+            </tr>
+            <tr>
+              <td>0x0A</td>
+              <td>0x03</td>
+              <td>LEAVE</td>
+              <td>相対オフセット int32</td>
+              <td>try/finally ブロックから脱出し、finally 実行後に指定オフセットに制御を移す。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+    <!-- 0x0F Misc / System -->
+    <section id="cat-0f" class="op-section" style="display:none;">
+      <h3>カテゴリ 0x0F: Misc / System（その他・デバッグ・ホスト連携）</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>カテゴリ</th>
+              <th>インデックス</th>
+              <th>Mnemonic</h3>
+              <th>オペランド</th>
+              <th>概要</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>0x0F</td>
+              <td>0x00</td>
+              <td>NOP</td>
+              <td>なし</td>
+              <td>何もしない命令。アラインメントやパッチ用の隙間として使用。</td>
+            </tr>
+            <tr>
+              <td>0x0F</td>
+              <td>0x01</td>
+              <td>BREAK</td>
+              <td>なし</td>
+              <td>デバッガが接続されている場合にブレークポイントを通知する（実装依存）。</td>
+            </tr>
+            <tr>
+              <td>0x0F</td>
+              <td>0x02</td>
+              <td>DEBUG_TRACE</td>
+              <td>トレース ID（uint16）</td>
+              <td>実装依存のトレースフックを呼び出す。ログなどに利用。</td>
+            </tr>
+            <tr>
+              <td>0x0F</td>
+              <td>0x03</td>
+              <td>HALT</td>
+              <td>終了コード（int32）</td>
+              <td>VM の実行を即座に停止し、ホストに終了コードを返す。</td>
+            </tr>
+            <tr>
+              <td>0x0F</td>
+              <td>0x04</td>
+              <td>ENTER_UNMANAGED</td>
+              <td>チャネル ID 等（実装依存）</td>
+              <td>ホスト環境のネイティブコード領域に入る前処理。WASM や FFI のセッション開始など。</td>
+            </tr>
+            <tr>
+              <td>0x0F</td>
+              <td>0x05</td>
+              <td>LEAVE_UNMANAGED</td>
+              <td>なし</td>
+              <td>ENTER_UNMANAGED とのペアで使用し、ネイティブセッションを終了する。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+
+  </main>
+</div>
+</body>
+</html>
+```

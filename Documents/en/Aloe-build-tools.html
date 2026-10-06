@@ -1,0 +1,740 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aloe Build Tool Specification (Draft, English Version)</title>
+  <meta name="edit-version" content="1" />
+  <meta name="edit-date" content="2025-12-04T19:00:00+09:00" />
+  <style>
+    :root {
+      color-scheme: light dark;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   "Hiragino Sans", "Yu Gothic", sans-serif;
+      line-height: 1.7;
+      color: #111827;
+      background: #f5f5f7;
+    }
+    .layout {
+      display: flex;
+      min-height: 100vh;
+    }
+    .sidebar {
+      width: 280px;
+      background: #111827;
+      color: #e5e7eb;
+      padding: 1.5rem 1.25rem 2.5rem;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      max-height: 100vh;
+      overflow-y: auto;
+    }
+    .sidebar h1 {
+      font-size: 1.1rem;
+      margin: 0 0 0.4rem;
+    }
+    .sidebar .subtitle {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-bottom: 1.4rem;
+    }
+    .sidebar h2 {
+      font-size: 0.85rem;
+      margin: 1.2rem 0 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #9ca3af;
+    }
+    .sidebar nav ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 0.9rem;
+    }
+    .sidebar nav li {
+      margin: 0.18rem 0;
+    }
+    .sidebar a {
+      color: inherit;
+      text-decoration: none;
+      display: block;
+      padding: 0.25rem 0.45rem;
+      border-radius: 0.35rem;
+    }
+    .sidebar a:hover {
+      background: #1f2937;
+    }
+    .chapter-index {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.75rem;
+      color: #9ca3af;
+      margin-right: 0.35rem;
+    }
+
+    .content {
+      flex: 1;
+      max-width: 1100px;
+      padding: 2rem 3rem 3rem;
+      margin: 0 auto;
+      background: #f9fafb;
+    }
+    h1, h2, h3, h4, h5 {
+      color: #111827;
+      margin-top: 1.6em;
+    }
+    h1 {
+      margin-top: 0;
+    }
+    p {
+      margin-top: 0.4em;
+      margin-bottom: 0.7em;
+    }
+    ul, ol {
+      padding-left: 1.4em;
+      margin-top: 0.2em;
+      margin-bottom: 0.7em;
+    }
+    pre, code {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas,
+                   "Ricty Diminished", monospace;
+      font-size: 0.9rem;
+    }
+    pre {
+      background: #1118270d;
+      padding: 0.8rem 1rem;
+      border-radius: 0.5rem;
+      overflow-x: auto;
+      border: 1px solid #e5e7eb;
+      margin: 0.9em 0;
+    }
+    hr {
+      margin: 2.2rem 0;
+      border: none;
+      border-top: 1px solid #e5e7eb;
+    }
+    .note {
+      font-size: 0.9rem;
+      color: #4b5563;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 999px;
+      background: #e5e7eb;
+      color: #374151;
+      margin-left: 0.4rem;
+    }
+    .badge-draft {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .cmd {
+      font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+      font-size: 0.85rem;
+      background: #1118270d;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.35rem;
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <aside class="sidebar">
+    <h1>Aloe Build Tool Spec</h1>
+    <div class="subtitle">
+      Draft • English • CLI / build flow specification<br>
+      (Package format specification is in a separate document)
+    </div>
+
+    <h2>Chapters</h2>
+    <nav>
+      <ul>
+        <li><a href="#ch0"><span class="chapter-index">0.</span>Overview and Positioning</a></li>
+        <li><a href="#ch1"><span class="chapter-index">1.</span>Basic Structure and Terminology</a></li>
+        <li><a href="#ch2"><span class="chapter-index">2.</span>Global Options</a></li>
+        <li><a href="#ch3"><span class="chapter-index">3.</span><code>compile</code> Command</a></li>
+        <li><a href="#ch4"><span class="chapter-index">4.</span><code>build</code> Command</a></li>
+        <li><a href="#ch5"><span class="chapter-index">5.</span><code>run</code> Command</a></li>
+        <li><a href="#ch6"><span class="chapter-index">6.</span><code>pack</code> Command</a></li>
+        <li><a href="#ch7"><span class="chapter-index">7.</span>Dependency Packages (<code>restore</code> / <code>install</code>)</a></li>
+        <li><a href="#ch8"><span class="chapter-index">8.</span><code>package-db</code> Subcommands</a></li>
+        <li><a href="#ch9"><span class="chapter-index">9.</span>Static Checks (<code>check</code> / <code>lint</code>)</a></li>
+        <li><a href="#appendix"><span class="chapter-index">A.</span>Editing Policy (for Generative AI)</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <h1 id="top">Aloe Build Tool Specification (Draft, English Version)</h1>
+    <p class="note">
+      This document defines the specification of the
+      <strong>official command line tool <code>aloe</code></strong> for building and running projects
+      using the Aloe language and AloeVM.<br>
+      The structures of the package formats themselves (<code>.abc</code> / <code>.meta.json</code> / <code>package-db.json</code>)
+      are defined in a separate document, the “Aloe Package Specification”. This document only refers to them.
+    </p>
+
+    <hr />
+
+    <h2 id="ch0">0. Overview and Positioning</h2>
+
+    <h3>0.1 Purpose</h3>
+    <ul>
+      <li>Define a standard CLI for building and running source code written in the Aloe language.</li>
+      <li>Provide stable command names and option semantics that can be used in common by multiple IDEs, editors, and CI systems.</li>
+      <li>Assuming <code>.meta.json</code> and <code>package-db.json</code> defined in the Package Specification,
+          clarify the build tool’s responsibilities for generating and updating them.</li>
+    </ul>
+
+    <h3>0.2 Scope</h3>
+    <p>This specification covers the following:</p>
+    <ul>
+      <li>Basic structure and global options of the <code>aloe</code> command</li>
+      <li>Command specifications for <code>compile</code> / <code>build</code> / <code>run</code> / <code>pack</code></li>
+      <li>Specifications for obtaining dependency packages (<code>restore</code> / <code>install</code>)</li>
+      <li>Specifications for operating on <code>package-db.json</code> via the <code>package-db</code> subcommands</li>
+      <li>The command framework for static checks (<code>check</code> / <code>lint</code>)</li>
+    </ul>
+    <p>The following are out of scope for this document:</p>
+    <ul>
+      <li>Syntax, type system, and execution semantics of the Aloe language
+        <ul>
+          <li>→ See the “Aloe Language Specification”.</li>
+        </ul>
+      </li>
+      <li>AloeVM bytecode format (AloeBC) and opcode specification
+        <ul>
+          <li>→ See the “AloeVM Specification”.</li>
+        </ul>
+      </li>
+      <li>JSON structures of <code>.meta.json</code> and <code>package-db.json</code>
+        <ul>
+          <li>→ See the “Aloe Package Specification”.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>0.3 Stability</h3>
+    <p>
+      This specification is a draft and may change based on implementation experience.<br />
+      However, for command names and options that are already widely used,
+      care should be taken to preserve backward compatibility as much as possible.
+    </p>
+
+    <hr />
+
+    <h2 id="ch1">1. Basic Structure and Terminology</h2>
+
+    <h3>1.1 Command Line Structure</h3>
+    <pre><code>aloe [global-options] &lt;command&gt; [command-options] [args...]
+</code></pre>
+    <ul>
+      <li><code>aloe</code>
+        <ul>
+          <li>The official build tool and launcher for Aloe.</li>
+        </ul>
+      </li>
+      <li><code>&lt;command&gt;</code>
+        <ul>
+          <li>The subcommand to execute, e.g. <code>compile</code>, <code>build</code>, <code>run</code>, etc.</li>
+        </ul>
+      </li>
+      <li>Global options
+        <ul>
+          <li>Options that can be used with all commands.</li>
+          <li>They may be placed either before or after the command name
+              (an implementation may restrict the order, but that is implementation-defined).</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>1.2 Typical Usage Scenarios</h3>
+    <ul>
+      <li>Compile a single file directly:
+        <pre><code>aloe compile main.aloe -o main.abc</code></pre>
+      </li>
+      <li>Build according to a project definition:
+        <pre><code>aloe build</code></pre>
+      </li>
+      <li>Build and then run:
+        <pre><code>aloe run src/Main.aloe --args "foo bar"</code></pre>
+      </li>
+      <li>Restore dependency packages:
+        <pre><code>aloe restore</code></pre>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch2">2. Global Options</h2>
+
+    <p>
+      Global options are options that can be used with all subcommands.
+      Some subcommands may ignore particular options, but this should not be treated as an error.
+    </p>
+
+    <h3>2.1 List</h3>
+    <ul>
+      <li><code>-h</code>, <code>--help</code>
+        <ul>
+          <li>Display help and exit.</li>
+          <li>If specified after a subcommand, it may display help specific to that command.</li>
+        </ul>
+      </li>
+      <li><code>--version</code>
+        <ul>
+          <li>Display the version of the Aloe CLI itself and exit.</li>
+          <li>The displayed value should preferably be consistent with <code>ALOE_VERSION</code>.</li>
+        </ul>
+      </li>
+      <li><code>-v</code>, <code>--verbose</code>
+        <ul>
+          <li>Output detailed logs to standard error.</li>
+          <li>Whether specifying it multiple times (e.g. <code>-vv</code>) further increases verbosity is implementation-defined.</li>
+        </ul>
+      </li>
+      <li><code>-q</code>, <code>--quiet</code>
+        <ul>
+          <li>Reduce output to the minimum.</li>
+          <li>If specified together with <code>--verbose</code>, which one takes precedence is implementation-defined,
+              but the behavior must be consistent.</li>
+        </ul>
+      </li>
+      <li><code>--no-color</code>
+        <ul>
+          <li>Disable colored output.</li>
+        </ul>
+      </li>
+      <li><code>--package-db &lt;path&gt;</code>
+        <ul>
+          <li>Explicitly specify the path to the <code>package-db.json</code> to use.</li>
+          <li>If omitted, an implementation-defined search path is used (current directory, standard user paths, etc.).</li>
+        </ul>
+      </li>
+      <li><code>--config &lt;path&gt;</code>
+        <ul>
+          <li>Path to the project configuration file (for example <code>aloe.config.json</code>).</li>
+          <li>Default values and the file format when omitted will be defined in future specifications.</li>
+        </ul>
+      </li>
+      <li><code>--working-dir &lt;path&gt;</code>
+        <ul>
+          <li>Specify the working directory (workspace root).</li>
+          <li>If omitted, the process’s current directory is used.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch3">3. <code>compile</code> Command</h2>
+
+    <h3>3.1 Overview</h3>
+    <p>
+      The <code>compile</code> command compiles one or more Aloe source files directly to
+      <code>.abc</code> and <code>.meta.json</code>.<br />
+      It is primarily intended for small samples and simple compilation scenarios
+      where no project file is prepared.
+    </p>
+
+    <h3>3.2 Syntax</h3>
+    <pre><code>aloe compile [options] &lt;input-files...&gt;
+</code></pre>
+
+    <h3>3.3 Options</h3>
+    <ul>
+      <li><code>-o</code>, <code>--out &lt;path&gt;</code>
+        <ul>
+          <li>Path to the output <code>.abc</code> file.</li>
+          <li>If omitted, it is automatically determined from the package name
+              (for example <code>myapp.core.abc</code>).</li>
+        </ul>
+      </li>
+      <li><code>--meta-out &lt;path&gt;</code>
+        <ul>
+          <li>Path to the output <code>.meta.json</code> file.</li>
+          <li>If omitted, <code>&lt;package&gt;.meta.json</code> is output in the same directory as the <code>.abc</code> file.</li>
+        </ul>
+      </li>
+      <li><code>--package-name &lt;name&gt;</code>
+        <ul>
+          <li>Package name (for example <code>myapp.core</code>).</li>
+          <li>Stored in <code>package.name</code> inside <code>.meta.json</code>.</li>
+        </ul>
+      </li>
+      <li><code>--package-version &lt;version&gt;</code>
+        <ul>
+          <li>Package version (for example <code>0.1.0</code>).</li>
+          <li>Stored in <code>package.version</code> inside <code>.meta.json</code>.</li>
+        </ul>
+      </li>
+      <li><code>--configuration &lt;config&gt;</code>
+        <ul>
+          <li>Build configuration (for example <code>Debug</code>, <code>Release</code>).</li>
+          <li>Stored in <code>package.build.configuration</code> inside <code>.meta.json</code>.</li>
+        </ul>
+      </li>
+      <li><code>--output-dir &lt;dir&gt;</code>
+        <ul>
+          <li>Specify the output directory for <code>.abc</code> and <code>.meta.json</code> in one go.</li>
+          <li>If <code>-o</code> / <code>--meta-out</code> are specified, they take precedence over <code>--output-dir</code>.</li>
+        </ul>
+      </li>
+      <li><code>-I</code>, <code>--import-dir &lt;dir&gt;</code>
+        <ul>
+          <li>Add a directory to search for dependency packages. May be specified multiple times.</li>
+          <li>How <code>.abc</code>, <code>.meta.json</code>, and <code>package-db.json</code> are handled within those directories
+              is implementation-defined, but must comply with the Package Specification.</li>
+        </ul>
+      </li>
+      <li><code>--no-package-db</code>
+        <ul>
+          <li>Do not search or reference any <code>package-db.json</code>.</li>
+          <li>Dependency resolution uses only information explicitly specified by <code>--import-dir</code> and so on.</li>
+        </ul>
+      </li>
+      <li><code>--emit-meta-only</code>
+        <ul>
+          <li>Generate only <code>.meta.json</code>, and do not output <code>.abc</code>.</li>
+        </ul>
+      </li>
+      <li><code>--emit-abc-only</code>
+        <ul>
+          <li>Generate only <code>.abc</code>, and do not output <code>.meta.json</code>.</li>
+          <li>From the perspective of tool integration, outputting <code>.meta.json</code> is generally recommended.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch4">4. <code>build</code> Command</h2>
+
+    <h3>4.1 Overview</h3>
+    <p>
+      The <code>build</code> command builds a set of Aloe source files according to
+      project and workspace definitions.<br />
+      It is intended to build multiple packages while resolving their dependencies.
+    </p>
+
+    <h3>4.2 Syntax</h3>
+    <pre><code>aloe build [options] [path/to/project]
+</code></pre>
+    <ul>
+      <li>If <code>path/to/project</code> is omitted, the project root is treated as the directory specified by
+          <code>--working-dir</code> or the current directory.</li>
+    </ul>
+
+    <h3>4.3 Options</h3>
+    <ul>
+      <li><code>--configuration &lt;config&gt;</code>
+        <ul>
+          <li>Build configuration (<code>Debug</code> / <code>Release</code>, etc.).</li>
+          <li>Overrides the configuration defined in the project configuration file.</li>
+        </ul>
+      </li>
+      <li><code>--no-deps</code>
+        <ul>
+          <li>Do not build dependency packages; only build the specified project.</li>
+        </ul>
+      </li>
+      <li><code>--force</code>
+        <ul>
+          <li>Ignore incremental build and always perform a full build.</li>
+        </ul>
+      </li>
+      <li><code>--out-dir &lt;dir&gt;</code>
+        <ul>
+          <li>Specify the output directory for build artifacts (<code>.abc</code>, <code>.meta.json</code>, etc.).</li>
+        </ul>
+      </li>
+      <li><code>--update-package-db</code>
+        <ul>
+          <li>After the build completes, automatically register/update information about built packages
+              in <code>package-db.json</code>.</li>
+          <li>If <code>--package-db</code> is specified, the file at that path is used as the update target.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch5">5. <code>run</code> Command</h2>
+
+    <h3>5.1 Overview</h3>
+    <p>
+      The <code>run</code> command builds the specified source file or project and then runs it on AloeVM.<br />
+      Implementations that directly execute already built <code>.abc</code> files are also allowed.
+    </p>
+
+    <h3>5.2 Syntax</h3>
+    <pre><code>aloe run [options] &lt;main-file.or.project&gt;
+</code></pre>
+
+    <h3>5.3 Options</h3>
+    <ul>
+      <li><code>--args "&lt;arg1 arg2 ...&gt;"</code>
+        <ul>
+          <li>Specify arguments to pass to the main function
+              (for example <code>function main(args: string[]): int</code>) separated by spaces.</li>
+          <li>Parsing and escaping of arguments depend on the execution platform (shell) of the implementation.</li>
+        </ul>
+      </li>
+      <li><code>--no-build</code>
+        <ul>
+          <li>Do not rebuild; run using existing build artifacts (<code>.abc</code>, etc.).</li>
+          <li>Behavior when no build artifacts exist (e.g. treating this as an error) is defined by implementation.</li>
+        </ul>
+      </li>
+      <li><code>--configuration &lt;config&gt;</code>
+        <ul>
+          <li>If building before execution, this specifies the build configuration (<code>Debug</code> / <code>Release</code>, etc.).</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch6">6. <code>pack</code> Command</h2>
+
+    <h3>6.1 Overview</h3>
+    <p>
+      The <code>pack</code> command creates a distributable package (archive) from built
+      <code>.abc</code>, <code>.meta.json</code>, and related files.<br />
+      The package format itself (for example <code>.zip</code>) is outside the scope of this specification;
+      only the minimal interface is defined here.
+    </p>
+
+    <h3>6.2 Syntax</h3>
+    <pre><code>aloe pack [options] [project-or-meta]
+</code></pre>
+
+    <h3>6.3 Options</h3>
+    <ul>
+      <li><code>--format &lt;fmt&gt;</code>
+        <ul>
+          <li>Package format, for example <code>zip</code>, <code>dir</code>.</li>
+          <li>The default is <code>zip</code>.</li>
+        </ul>
+      </li>
+      <li><code>--output &lt;path&gt;</code>
+        <ul>
+          <li>Path to the generated package file.</li>
+        </ul>
+      </li>
+      <li><code>--include-source</code>
+        <ul>
+          <li>Include the source code used for the build in the package.</li>
+        </ul>
+      </li>
+      <li><code>--no-meta</code>
+        <ul>
+          <li>Do not include <code>.meta.json</code> in the package.</li>
+          <li>From the perspective of tool integration and IDE support,
+              including <code>.meta.json</code> is generally recommended.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch7">7. Dependency Packages (<code>restore</code> / <code>install</code>)</h2>
+
+    <h3>7.1 <code>restore</code> Command</h3>
+    <p>
+      The <code>restore</code> command retrieves dependency packages declared in a project configuration in bulk.<br />
+      The concrete way of declaring dependencies (configuration file format, etc.) will be defined in future specifications.
+    </p>
+
+    <h4>7.1.1 Syntax</h4>
+    <pre><code>aloe restore [options] [project]
+</code></pre>
+
+    <h4>7.1.2 Options</h4>
+    <ul>
+      <li><code>--source &lt;url-or-path&gt;</code>
+        <ul>
+          <li>Package repository or local path from which to retrieve packages.</li>
+          <li>Whether multiple sources may be specified is left to implementation.</li>
+        </ul>
+      </li>
+      <li><code>--packages-dir &lt;dir&gt;</code>
+        <ul>
+          <li>Directory in which to install packages.</li>
+          <li>If omitted, an environment-specific default directory is used per user.</li>
+        </ul>
+      </li>
+      <li><code>--no-package-db-update</code>
+        <ul>
+          <li>Do not automatically update <code>package-db.json</code> after installation.</li>
+          <li>In this case, the user or another tool must update <code>package-db.json</code> separately.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>7.2 <code>install</code> Command</h3>
+    <p>
+      The <code>install</code> command installs a specific package individually.<br />
+      It is mainly intended for scenarios where a developer explicitly adds a package.
+    </p>
+
+    <h4>7.2.1 Syntax</h4>
+    <pre><code>aloe install [options] &lt;package&gt;[@version]
+</code></pre>
+
+    <h4>7.2.2 Options</h4>
+    <ul>
+      <li><code>--source &lt;url-or-path&gt;</code>
+        <ul>
+          <li>Package repository or local path from which to retrieve the package.</li>
+        </ul>
+      </li>
+      <li><code>--packages-dir &lt;dir&gt;</code>
+        <ul>
+          <li>Directory in which to install the package.</li>
+        </ul>
+      </li>
+      <li><code>--global</code>
+        <ul>
+          <li>Install into a user-wide global location.</li>
+          <li>The path of the global location is defined by the implementation.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch8">8. <code>package-db</code> Subcommands</h2>
+
+    <h3>8.1 Overview</h3>
+    <p>
+      The <code>package-db</code> subcommand group provides utilities to operate directly on
+      <code>package-db.json</code>, which is defined in the Package Specification.<br />
+      Only the basic interface is defined here; more detailed operational rules are left to implementation.
+    </p>
+
+    <h3>8.2 <code>list</code></h3>
+    <pre><code>aloe package-db list [options]
+</code></pre>
+    <ul>
+      <li><code>--name &lt;pattern&gt;</code>
+        <ul>
+          <li>Filter by package name.</li>
+          <li>The pattern matching semantics (prefix match, wildcard support, etc.) are implementation-defined.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>8.3 <code>add</code></h3>
+    <pre><code>aloe package-db add [options]
+</code></pre>
+    <ul>
+      <li><code>--name &lt;name&gt;</code>
+        <ul>
+          <li>Package name.</li>
+        </ul>
+      </li>
+      <li><code>--version &lt;version&gt;</code>
+        <ul>
+          <li>Package version.</li>
+        </ul>
+      </li>
+      <li><code>--abc &lt;path&gt;</code>
+        <ul>
+          <li>Path to the corresponding <code>.abc</code> file.</li>
+        </ul>
+      </li>
+      <li><code>--meta &lt;path&gt;</code>
+        <ul>
+          <li>Path to the corresponding <code>.meta.json</code> file.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <h3>8.4 <code>remove</code></h3>
+    <pre><code>aloe package-db remove [options]
+</code></pre>
+    <ul>
+      <li><code>--name &lt;name&gt;</code>
+        <ul>
+          <li>Package name.</li>
+        </ul>
+      </li>
+      <li><code>--version &lt;version&gt;</code>
+        <ul>
+          <li>Package version.</li>
+        </ul>
+      </li>
+    </ul>
+
+    <hr />
+
+    <h2 id="ch9">9. Static Checks (<code>check</code> / <code>lint</code>)</h2>
+
+    <h3>9.1 Overview</h3>
+    <p>
+      This chapter defines the command framework for static analysis and API compatibility checking.<br />
+      Concrete check contents and warning kinds will be added in future specifications.
+    </p>
+
+    <h3>9.2 <code>check</code></h3>
+    <pre><code>aloe check [options] [project]
+</code></pre>
+    <ul>
+      <li>Check for analysis errors based on the project definition and dependency packages.</li>
+      <li>The process’s return value (exit code) indicates whether errors occurred.</li>
+    </ul>
+
+    <h3>9.3 <code>lint</code></h3>
+    <pre><code>aloe lint [options] [paths...]
+</code></pre>
+    <ul>
+      <li>Check specified files for syntactic and stylistic problems.</li>
+      <li>At present, the specification for warning levels and rule sets is left undefined
+          and may be extended in the future.</li>
+    </ul>
+
+    <h3>9.4 API Difference Check (proposal)</h3>
+    <pre><code>aloe check --api-diff &lt;old-meta&gt; &lt;new-meta&gt;
+</code></pre>
+    <ul>
+      <li>Intended for checking whether there are breaking changes by comparing two <code>.meta.json</code> files.</li>
+      <li>Rules for judging what constitutes a breaking change will be defined and tuned together with
+          the Package Specification.</li>
+    </ul>
+
+    <hr />
+
+    <h2 id="appendix">Appendix: Editing Policy for Generative AI (Specific to This Specification)</h2>
+    <p class="note">
+      This section is an internal guideline for editing the Aloe Build Tool Specification with a generative AI.
+      It is not part of the normative specification itself.
+    </p>
+    <ul class="note">
+      <li>Treat this document as the canonical “Aloe Build Tool Specification”.</li>
+      <li>If an English or other language version is created in the future, its chapter structure and semantics
+          must match this version.</li>
+      <li><code>edit-version</code> is a counter dedicated to this specification, and is managed separately from
+          the Aloe Language Specification, AloeVM Specification, and Aloe Package Specification.</li>
+      <li>Only increment <code>edit-version</code> when making changes that alter the meaning of the specification text
+          (including command descriptions, options, and examples).</li>
+      <li>Always treat the latest HTML provided by the user as the canonical version, and apply only the minimal diff
+          necessary to that version.</li>
+      <li>The JSON structure of the package formats (<code>.meta.json</code> / <code>package-db.json</code>)
+          must always be defined in the “Aloe Package Specification” and must not be redundantly defined here.</li>
+      <li>Do not add options related to target switching (such as <code>--target</code>) to this specification for now.
+          If such options are to be added, do so only after agreeing with the user and revising the specification.</li>
+    </ul>
+
+  </main>
+</div>
+</body>
+</html>
