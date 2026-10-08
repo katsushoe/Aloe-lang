@@ -1,0 +1,13 @@
+{
+  "debug": false,
+  "logging": {
+    "enabled": true,
+    "consoleEnabled": true,
+    "fileEnabled": true,
+    "directory": "E:\\Aloe\\logs",
+    "fileName": "aloevm.log",
+    "includeTimestamp": true,
+    "minimumLevel": "Debug"
+  },
+  "dataDirectory": "E:\\Aloe\\data"
+}

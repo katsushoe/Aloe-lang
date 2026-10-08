@@ -34,6 +34,10 @@ namespace Aloe.CommonLib
         public static AloeValue FromString(string? value)
             => new AloeValue(EnumValueKind.String, value ?? string.Empty);
 
+        /// <summary>Create a stable heap ObjectId / Handle value.</summary>
+        public static AloeValue FromObject(long objectId)
+            => new AloeValue(EnumValueKind.Object, objectId);
+
         // ★ decimal 用ファクトリ
         public static AloeValue FromDecimal(decimal value)
             => new AloeValue(EnumValueKind.Decimal, value);
@@ -47,6 +51,7 @@ namespace Aloe.CommonLib
         public bool IsFloat => Kind == EnumValueKind.Float;
         public bool IsBool => Kind == EnumValueKind.Bool;
         public bool IsString => Kind == EnumValueKind.String;
+        public bool IsObject => Kind == EnumValueKind.Object;
 
         // ★ decimal 判定
         public bool IsDecimal => Kind == EnumValueKind.Decimal;
@@ -109,6 +114,17 @@ namespace Aloe.CommonLib
                     return (string)_value!;
 
                 throw new VmException($"AloeValue is not String (actual: {Kind}).");
+            }
+        }
+
+        public long AsObjectId
+        {
+            get
+            {
+                if (Kind == EnumValueKind.Object)
+                    return (long)_value!;
+
+                throw new VmException($"AloeValue is not Object (actual: {Kind}).");
             }
         }
 
@@ -225,6 +241,7 @@ namespace Aloe.CommonLib
                 EnumValueKind.Bool => AsBool ? "true" : "false",
                 EnumValueKind.String => AsString,
                 EnumValueKind.Decimal => AsDecimal.ToString(),   // ★ 追加
+                EnumValueKind.Object => $"object#{AsObjectId}",
                 _ => $"<{Kind}>"
             };
         }

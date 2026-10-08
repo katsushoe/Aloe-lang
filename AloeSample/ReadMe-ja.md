@@ -1,123 +1,66 @@
-# AloeSample 実行サンプル（AloeVM 最小実装デモ）
+﻿# AloeSample - Source-to-VM 実行サンプル
 
-このディレクトリには、AloeVM の最小実装と、それを使った **バイトコード実行サンプル** が含まれています。  
-ここでは `AloeSample/Program.cs` の内容に沿って、日本語の説明をまとめます。
 
-## サンプルの概要
+このサンプルは、現在実装されている Aloe の最小エンドツーエンド実行経路です。
 
-`Program.cs` では、次のような疑似コードに相当する処理を、  
-**手書きバイトコード** + **簡易ビルダ (`BytecodeBuilder`)** で構成し、AloeVM 上で実行しています。
-
-```csharp
-int i = 0;
-while (i < 5)
-{
-    print(i);
-    i = i + 1;
-}
-print("Done");
-```
-
-実行結果は次のようになります。
 
 ```text
-0
-1
-2
-3
-4
-Done
+Aloe source
+  -> AloeLexer
+  -> AloeCompiler（Parser + 直接 CodeGen）
+  -> Module / Instruction
+  -> AloeVm
+  -> process exit code
 ```
 
-## 構成ファイル
 
-- `Aloe.Runtime` 名前空間
-  - `AloeVm` : VM 本体（`switch (Opcode)` で命令を実装）
-  - `Opcode` : VM の命令種別（`Add`, `Sub`, `Jump`, `JumpIfFalse` など）
-  - `AloeValue` / `ValueKind` : VM 上で扱う値の表現（int / bool / string / null）
-  - `OperandStack` : オペランドスタック
-  - `Module` / `FunctionInfo` / `CallFrame` : バイトコードモジュールとコールフレーム
-  - `BytecodeReader` : バイトコードから `byte` / `int32` を読み出すユーティリティ
+## 現在対応している構文
 
-- `AloeSample/Program.cs`
-  - `Main` メソッド
-    - 定数テーブル（`List<AloeValue>`）を構築
-    - `BytecodeBuilder` を使って、while ループ + `print` 処理のバイトコードを構築
-    - `FunctionInfo` と `Module` を組み立て、`AloeVm` に渡して実行
-  - `BytecodeBuilder`
-    - `Emit(Opcode)` / `EmitInt32(int)` でバイト列を積み上げる
-    - `MarkLabel("name")` でラベル位置を記録
-    - `EmitJump(Opcode, "label")` でジャンプ命令を出力しつつ、後でオフセットをパッチ
-    - `ToArray()` 呼び出し時にラベルを解決し、相対ジャンプオフセットを書き込む
 
-## バイトコードの流れ（ざっくり）
+- `function main(args: string[]): int`
+- ユーザー定義 `function`（`int` / `string` / `bool` 引数、`int` / `string` / `bool` / `void` 戻り値）
+- 関数呼び出し、前方参照、再帰呼び出し
+- `var name = expr;`
+- `let name: int|string|bool = expr;`
+- ローカル変数参照と代入
+- `if / else if / else`
+- `while`
+- `break;` / `continue;`
+- `print(expr);`
+- `return expr;` / `return;`
+- `if` / `while` の内側からの早期 `return`
+- int / string / bool
+- `+ - * / %`
+- `== != < <= > >=`
+- `not`, `and`, `or`（`and / or` は短絡評価）
+- ブロックのレキシカルスコープ
 
-1. 定数テーブルを準備する
-   - `const[0] = 0`  （初期値 i）
-   - `const[1] = 5`  （ループ終了条件）
-   - `const[2] = 1`  （インクリメント値）
-   - `const[3] = "Done"` （最後に表示する文字列）
 
-2. ローカル変数
-   - `local[0] = i` として 1 個だけ確保
+非 `void` 関数は、到達可能なすべての経路で値を返す必要があります。`if / else` の全分岐が `return` する場合は末尾の `return` を省略できます。`void` 関数は到達可能な末尾に暗黙の `return` が入ります。現段階の definite-return 判定は保守的で、`while` 自体を「必ず return する」とはみなしません。
 
-3. バイトコードで表現している処理
 
-   - `i = 0;`
-     - `PushConst 0` → `StoreLocal 0`
+## サンプル
 
-   - ラベル `loop_start` をマーク
-
-   - ループ条件 `i < 5`
-     - `LoadLocal 0`
-     - `PushConst 1`
-     - `CmpLt`
-     - `JumpIfFalse loop_end`
-
-   - ループ本体
-     - `LoadLocal 0`
-     - `Print`
-     - `LoadLocal 0`
-     - `PushConst 2`
-     - `Add`
-     - `StoreLocal 0`
-
-   - `Jump loop_start`
-
-   - ラベル `loop_end` をマーク
-
-   - ループ終了後の処理
-     - `PushConst 3`
-     - `Print`
-     - `Halt`
-
-4. `BytecodeBuilder.ToArray()` 呼び出し時に、
-   - `loop_start` / `loop_end` の位置をもとに、
-   - `Jump` / `JumpIfFalse` の相対オフセットを自動的にパッチする。
-
-## ビルドと実行方法（例）
-
-1. プロジェクトを .NET コンソールアプリとして作成し、`Aloe.Runtime` 名前空間のソースと `AloeSample/Program.cs` を同じソリューションに追加します。
-2. ターゲットフレームワークは `.NET 8.0` などを想定しています。
-3. ビルド後、コンソールから実行すると、次の出力が得られます。
 
 ```text
-0
-1
-2
-3
-4
-Done
+dotnet run --project AloeSample -- AloeSample/hello.aloe
+dotnet run --project AloeSample -- AloeSample/sum.aloe
+dotnet run --project AloeSample -- AloeSample/fizzbuzz.aloe
+dotnet run --project AloeSample -- AloeSample/control-flow.aloe
+dotnet run --project AloeSample -- AloeSample/functions.aloe
 ```
 
-## 今後の拡張イメージ
 
-このサンプルはあくまで **「AloeVM 最小コア + while ループのテスト」** を目的としたものです。  
-今後は次のような拡張を想定しています。
+`control-flow.aloe` は `and / or / not` と `break / continue` を、`functions.aloe` は引数・戻り値・`void` 関数・前方参照・再帰呼び出し・早期 `return` を Source-to-VM で確認する E2E サンプルです。
 
-- 追加の Opcode（比較・論理演算・関数呼び出しなど）の実装
-- Aloe 言語のフロントエンドコンパイラから、この VM 向けバイトコードを自動生成
-- デバッグ用トレース出力（IP / スタック内容など）
-- 単体テストプロジェクトを追加し、Opcode ごとの挙動を検証
 
-まずはこのサンプルを足がかりに、AloeVM の命令セットと実行モデルを少しずつ広げていく想定です。
+## 現在の未対応範囲
+
+
+- `for / do / switch`
+- 値を返す関数呼び出しを式文として捨てる構文
+- 関数オーバーロード
+- class / struct / property
+- Object / CallBuffer / Tick
+- pipe / filter
+- AloeBC バイナリ直列化

@@ -1,9 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="edit-version" content="12" />
-  <meta name="edit-date" content="2026-10-06T08:33:38+09:00" />
+  <meta name="edit-version" content="27" />
+  <meta name="edit-date" content="2026-10-07T12:37:00+09:00" />
   <title>AloeVM Specification (Draft)</title>
   <style>
     * { box-sizing: border-box; }
@@ -523,9 +523,14 @@
 
       <h3>4.1 Slot-based heap layout</h3>
       <ul>
-        <li>The C# VM may manage the heap using size-class arenas such as 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024 bytes.</li>
-        <li>Heap Objects are identified by ObjectId / Handle and occupy contiguous slots in an arena.</li>
-        <li>Exact arena chunk sizes, free-list structures, and compaction strategies are implementation details.</li>
+        <li>A <strong>Heap Slot</strong> in the C# VM is fixed at <strong>8 bytes</strong> and is the minimum allocation unit and placement boundary for heap storage within a Bank.</li>
+        <li>An Object's occupied size is its actual data size rounded up to an 8-byte boundary. For example, an Object containing 20 bytes of actual data occupies 3 Heap Slots = 24 bytes, leaving the final 4 bytes as padding / unused space.</li>
+        <li>The C# VM may manage the heap using size-class arenas such as 8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024 bytes. A size class classifies Objects and is distinct from the Heap Slot size.</li>
+        <li>Each arena may be divided into <strong>Banks</strong>, which are the physical allocation and release units. A Bank is a contiguous region containing multiple Heap Slots.</li>
+        <li>Heap Objects are identified by ObjectId / Handle and occupy contiguous Heap Slots within a Bank. ObjectId / Handle is independent of the physical Bank / Heap Slot location.</li>
+        <li>Object starting positions within a Bank are always aligned to an 8-byte boundary. The Object table may represent physical location as a Bank plus Heap Slot index.</li>
+        <li>Exact Bank sizes, Heap Slot counts, and free-list structures are implementation details.</li>
+        <li>The <strong>Heap Slot</strong> defined in this section is distinct from local slots or value slots on the VM stack / call frame.</li>
       </ul>
 
 
@@ -535,7 +540,10 @@
         <li>Arena / slot position / object size / type metadata.</li>
         <li>Committed State plus Dirty Member / Volatile Value metadata required by the current Tick.</li>
         <li>Lifetime metadata including Reference Count, Reference Group Handle, Reference Dirty, and Destruction Candidate state.</li>
+        <li>In the current C# reference-VM prototype, class instance field values are kept as runtime metadata on the Object table entry. At least one physical Heap Slot (8 bytes) is reserved per field, and writes to Object Reference fields update the object's outgoing reference edges at the same time.</li>
+        <li>The prototype compiler lowers <code>new Type(args)</code> to Object allocation followed by a synchronous <code>construct(...)</code> call frame; the Object Reference is returned to the caller only after the constructor completes. <code>this.field</code> reads/writes inside constructors lower to internal Object-field runtime operations.</li>
         <li>A reference to or management metadata for the Instance CallBuffer.</li>
+        <li>In the current C# reference VM class subset, Object field values and class type-name metadata are stored in the Object table entry as instance state / type metadata. Getter-only public properties and private/protected instance methods execute synchronously as ordinary VM call frames, receiving the implicit <code>this</code> Object Reference as their first argument. No external instance-property setter is generated. Public async methods / CallBuffer execution remain a later implementation milestone.</li>
       </ul>
 
 
@@ -579,15 +587,57 @@
       </ul>
 
 
-      <h3>4.7 Allocation / compaction</h3>
+      <h3>4.7 Bank placement and evacuation</h3>
       <ul>
-        <li>Object allocation may use arena / slot storage selected by size class.</li>
-        <li>As long as ObjectId / Handle indirection is preserved, an implementation may perform moving optimizations such as sliding compaction.</li>
+        <li>Object allocation uses arena / Bank / slot storage selected by size class.</li>
+        <li>Objects belonging to the same Reference Group should, where practical, be placed in the same Bank or in a small number of Banks. This is a placement policy for improving Group-level reclamation and locality; a Reference Group is still allowed to span multiple Banks.</li>
+        <li>If every Object in a Bank is reclaimable and no Runtime Temporary Reference or CallBuffer Strong Reference keeps any Object in that Bank alive, the Bank may become a FreeBlock candidate without freeing its slots individually.</li>
+        <li>If a low-occupancy Bank is retained only by a small number of live Objects, those Objects may be <strong>evacuated</strong> to available slots in another Bank so that the source Bank becomes empty and can be released as a whole.</li>
+        <li>ObjectId / Handle remains unchanged across movement. Moving an Object updates only its Bank / slot location in the Object table, so references in other Objects or on VM stacks do not require bulk rewriting.</li>
+        <li>A high-occupancy Bank may be retained as-is or compacted in place instead of being evacuated.</li>
         <li>Physical-memory optimizations must not change observable Committed / Volatile State or Reference lifetime semantics.</li>
       </ul>
 
 
-      <h3>4.8 Memory management in the WASM implementation</h3>
+      <h3>4.8 Three GC phases</h3>
+      <p>The C# VM GC is divided into the following three phases at Tick boundaries.</p>
+      <ol>
+        <li><strong>Plan phase</strong>
+          <ul>
+            <li>Inspect Reference Groups, External References, Runtime Temporary References, Destruction Candidates, and Bank occupancy.</li>
+            <li>Select sweep targets, evacuation source Banks, destination Banks, and FreeBlock candidates.</li>
+            <li>The planner may prioritize plans that reclaim more Banks or bytes for less movement.</li>
+            <li>The Plan phase normally does not change physical Object locations.</li>
+          </ul>
+        </li>
+        <li><strong>Sweep / Move phase</strong>
+          <ul>
+            <li>According to the Plan, mark dead slots Available and move required live Objects to other Banks.</li>
+            <li>Update the Object table physical location after each Object move.</li>
+            <li>When the Tick movement budget is exhausted, Move processing may stop and the unfinished Plan may continue on a later Tick.</li>
+          </ul>
+        </li>
+        <li><strong>FreeBlock phase</strong>
+          <ul>
+            <li>After Sweep / Move, detach Banks / backing blocks containing no live Objects from the allocator and return their physical memory as a whole.</li>
+            <li>A Bank that still contains any live Object must not be freed as a block.</li>
+          </ul>
+        </li>
+      </ol>
+
+
+      <h3>4.9 Per-Tick GC budgets</h3>
+      <ul>
+        <li>GC must not move an unbounded amount of memory in a single Tick. Sweep / Move must have a finite per-Tick movement budget.</li>
+        <li>At minimum, either the number of moved Objects or the number of moved bytes is limited; an implementation may limit both.</li>
+        <li>For example, an implementation may cap movement at 256 Objects per Tick, but the concrete limits are implementation- and runtime-configuration-dependent.</li>
+        <li>The Plan phase may also use a budget such as scanned Banks, processed Objects, or elapsed work so that a large heap is not fully rescanned every Tick.</li>
+        <li>Evacuation may span multiple Ticks when a budget is reached. Handles for Objects already moved must remain valid during such intermediate states.</li>
+        <li>Releasing a completely dead Bank without moving Objects does not consume the Object movement budget.</li>
+      </ul>
+
+
+      <h3>4.10 Memory management in the WASM implementation</h3>
       <div class="note">
         A WASM-native implementation may delegate physical GC / allocation to the WASM execution environment.<br>
         It must still preserve Aloe's observable Object ownership, Committed / Volatile State, Strong References held by CallBuffers,
@@ -759,6 +809,18 @@ A | filter(F) | B;
         If needed, control-only instructions like <code>PRODUCER_START</code>, <code>PRODUCER_STOP</code>,
         <code>CONSUMER_START</code>, <code>CONSUMER_STOP</code> may be added in category 0x0A.
       </div>
+
+
+      <h3>5.5 Cooperative scheduler of the C# reference VM</h3>
+      <ul>
+        <li>The C# reference VM runs main and every bound filter as separate <strong>execution contexts</strong> inside a single VM thread. Each context owns its call frames and evaluation stack, which are saved and restored when the context is switched.</li>
+        <li>Runnable contexts are kept in a FIFO queue. A context runs for at most a fixed instruction quantum (currently 1024 instructions) and is then re-queued at the tail. A context is never queued twice.</li>
+        <li>A write to a full bounded pipe suspends the writer until a reader removes a value or the pipe is closed. A read from an empty, open pipe suspends the reader until a value arrives or the pipe is closed.</li>
+        <li>Returning from the outermost frame of a context completes only that context. It does not stop other contexts. The value left by main is the program result.</li>
+        <li>If no context is runnable while some context is still unfinished, the VM reports <code>Pipe scheduler deadlock</code> with the number of stalled contexts and the number of blocked readers / writers.</li>
+        <li>Property getters and the instance calls drained by <code>tick()</code> run synchronously inside a single SYSCALL and cannot be suspended. A pipe operation that would block inside such a call is a VM error. Non-blocking pipe operations are allowed there.</li>
+        <li>Frame locals and evaluation-stack values of suspended contexts are GC roots.</li>
+      </ul>
     </section>
 
 
@@ -848,6 +910,43 @@ A | filter(F) | B;
       </div>
       <p>The assumed endianness is <strong>little-endian</strong>.</p>
 
+      <h4>6.2.1 C# reference implementation 0.1 section profile</h4>
+      <div class="note">
+        The current C# reference implementation provides an <code>AloeBcCodec</code> prototype profile before the final TypeId-based encoding is completed.
+        It uses a fixed 10-byte header followed by self-describing sections. The purpose of this profile is to establish compiler/VM round-trip,
+        verifier integration, and format validation first; it is intended to converge on the canonical TypeId model described in section 6.4.
+      </div>
+      <pre><code>Header:
+  Magic        6 bytes "ALOEBC"
+  VersionMajor 1 byte  0
+  VersionMinor 1 byte  1
+  VersionBuild 1 byte  0
+  Flags        1 byte  0
+
+Section:
+  SectionId    u8
+  PayloadSize  i32 little-endian
+  Payload      byte[PayloadSize]
+</code></pre>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>SectionId</th><th>Name</th><th>C# 0.1 profile payload</th></tr></thead>
+          <tbody>
+            <tr><td><code>0x01</code></td><td>TYPE</td><td>Per-function type metadata. Typed functions store parameter types, all local-slot types, and an optional return type. Legacy FunctionInfo records store only parameter/local counts.</td></tr>
+            <tr><td><code>0x02</code></td><td>CONSTANT</td><td>Constant sequence. The current compiler subset stores <code>int</code>, <code>bool</code>, and UTF-8 <code>string</code> constants.</td></tr>
+            <tr><td><code>0x03</code></td><td>FUNCTION</td><td>Stores EntryPointIndex, function name, and EntryIp in the instruction array.</td></tr>
+            <tr><td><code>0x04</code></td><td>CODE</td><td>Stores instruction count and each instruction as <code>opcode:u16 + operand0:i32 + operand1:i32</code>.</td></tr>
+            <tr><td><code>0x80-0xFF</code></td><td>Custom / Extension</td><td>Unknown sections in this range may be skipped using PayloadSize.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li>Unknown core sections in <code>0x01-0x7F</code> are load errors.</li>
+        <li>Duplicate core sections, missing required sections, payload overruns, invalid UTF-8, and unknown opcode/value-kind values are load errors.</li>
+        <li>The deserialized <code>Module</code> must pass the AloeVM verifier before execution.</li>
+        <li>The current C# implementation stores <code>int</code> constants as signed 64-bit values to match <code>AloeValue</code>. The final language-level int width and canonical AloeBC representation will be re-frozen with the TypeId format.</li>
+      </ul>
+
 
       <h3>6.3 Constant pool (overview)</h3>
       <ul>
@@ -865,15 +964,22 @@ A | filter(F) | B;
       </ul>
 
 
-      <h3>6.4 Type table (overview)</h3>
+      <h3>6.4 Type table</h3>
+      <p>
+        AloeBC uses a unified <strong>TypeId</strong> space for primitive, compound, and function types.
+        Instructions and function signatures should refer to types through TypeId wherever practical.
+      </p>
       <ul>
-        <li>Assigns IDs to each Aloe type (class / struct / enum / bitfield enum / <code>pipe&lt;T&gt;</code>, etc.).</li>
-        <li>Enums / bitfield enums are flagged as <strong>int32 value types</strong> on the VM.</li>
-        <li>
-          The number of valid bits for a bitfield enum (0–31) may be stored as metadata
-          (e.g., for emitting warnings).
-        </li>
+        <li>Every Aloe type (primitive / class / struct / enum / bitfield enum / <code>pipe&lt;T&gt;</code> / function type, etc.) is assigned a TypeId.</li>
+        <li><code>pipe&lt;T&gt;</code> is represented as a compound type containing the element TypeId, rather than as an unparameterized <code>PIPE</code> tag. Therefore <code>pipe&lt;int&gt;</code> and <code>pipe&lt;string&gt;</code> are distinct types.</li>
+        <li>A function type stores its parameter TypeIds and an optional result TypeId; absence of a result represents <code>void</code>.</li>
+        <li>enum / bitfield enum use an <strong>int32 value representation</strong> at runtime while retaining their Aloe type identity through TypeId.</li>
+        <li>The number of valid bits for a bitfield enum (0–31) may be stored as metadata, for example to generate warnings.</li>
       </ul>
+      <div class="note">
+        The Type Table is the canonical type table for the entire AloeBC module, not merely a function-signature table.
+        This allows the verifier to validate <code>PIPE&lt;T&gt;</code>, locals, parameters, and results in one TypeId space.
+      </div>
 
 
       <h3>6.5 Function table and code section</h3>
@@ -963,6 +1069,33 @@ A | filter(F) | B;
         <li>The order of evaluation of <code>catch</code> blocks follows the order in the table.</li>
         <li>A <code>finally</code> block may have 0 or 1 entry for each <code>try</code> region.</li>
       </ul>
+      <h3>6.7 AloeBC verifier</h3>
+      <p>
+        AloeVM validates AloeBC before executing function code. Once code has passed validation, the VM does not need to
+        re-check types, local indexes, function indexes, or branch depths for every instruction (implementations may retain defensive checks).
+      </p>
+      <ul>
+        <li>Reject unknown opcodes and out-of-range constant, local, function, and TypeId references.</li>
+        <li>Reject operand-stack underflow and type mismatches. <code>int32</code> and <code>bool</code> remain distinct validation types even if an implementation uses the same physical representation.</li>
+        <li>Validate correct nesting of <code>BLOCK</code> / <code>LOOP</code> / <code>IF</code> / <code>ELSE</code> / <code>END</code>.</li>
+        <li>Validate that <code>BR</code> / <code>BR_IF</code> depth refers to an active control frame.</li>
+        <li>Structured blocks in v0.1 do not produce result values. At normal block termination and at a branch, the operand-stack height must match the target control frame's entry height.</li>
+        <li><code>CALL</code> pops parameter types and pushes the result type, if any, according to the callee function type.</li>
+        <li><code>pipe&lt;T&gt;</code> instructions validate the element type. Writing an int32 to <code>pipe&lt;string&gt;</code>, for example, is a validation error.</li>
+        <li>Every reachable termination path of a non-<code>void</code> function must return a value of the declared result type.</li>
+      </ul>
+      <p>
+        After an unconditional <code>BR</code> or <code>RET</code>, the verifier may use a WebAssembly-like polymorphic stack for unreachable code.
+        Structural validation of opcodes, indexes, and control nesting continues even in unreachable regions.
+      </p>
+
+      <h3>6.8 Validation errors and runtime traps</h3>
+      <ul>
+        <li><strong>Validation error</strong>: type mismatch, stack underflow, invalid index, invalid branch depth, malformed control nesting, and similar structural errors. The module is rejected before execution.</li>
+        <li><strong>Runtime trap / exception</strong>: division by zero, writing to a closed pipe, an invalid read from an empty pipe, host runtime failure, and similar state-dependent failures.</li>
+      </ul>
+
+
     </section>
 
 
@@ -996,7 +1129,7 @@ A | filter(F) | B;
         <li>
           Control flow
           <ul>
-            <li>JMP, JMP_IF_TRUE, JMP_IF_FALSE</li>
+            <li>BLOCK, LOOP, IF, ELSE, END, BR, BR_IF</li>
           </ul>
         </li>
         <li>
@@ -1086,7 +1219,7 @@ A | filter(F) | B;
             <tr>
               <td>0x05</td>
               <td>Control flow</td>
-              <td><code>JMP</code>, <code>JMP_IF_TRUE</code>, <code>JMP_IF_FALSE</code>, etc.</td>
+              <td><code>BLOCK</code>, <code>LOOP</code>, <code>IF</code>, <code>ELSE</code>, <code>END</code>, <code>BR</code>, <code>BR_IF</code></td>
             </tr>
             <tr>
               <td>0x06</td>
@@ -1137,22 +1270,28 @@ A | filter(F) | B;
       </p>
 
 
-      <h3>7.4 1:1 mapping policy to WASM</h3>
+      <h3>7.4 Structured control flow</h3>
+      <p>
+        AloeBC v0.1 uses WebAssembly-like <strong>structured control flow</strong> rather than arbitrary byte-offset jumps.
+      </p>
       <ul>
-        <li>
-          Basic arithmetic and comparison instructions should be mapped 1:1 to WASM instructions such as
-          <code>i32.add</code>, <code>i32.lt_s</code>, etc. whenever possible.
-        </li>
-        <li>Stack operations can be transformed straightforwardly as WASM is also a stack machine conceptually.</li>
-        <li>
-          Exception handling is expressed using either WASM’s exception-handling extension or a combination of error codes
-          and structured blocks.
-        </li>
-        <li>Pipes and filters are typically implemented using WASM <code>ref</code> types and host functions.</li>
+        <li><code>BLOCK</code> / <code>LOOP</code> / <code>IF</code> create control labels and are closed by <code>END</code>.</li>
+        <li><code>ELSE</code> corresponds to the nearest unfinished <code>IF</code>.</li>
+        <li><code>BR depth</code> / <code>BR_IF depth</code> use an unsigned nesting depth rather than a byte offset. The innermost active control label has depth 0.</li>
+        <li>When the target of <code>BR 0</code> is a <code>LOOP</code>, control returns to the beginning of the loop; for a <code>BLOCK</code> or <code>IF</code>, control continues after its matching <code>END</code>.</li>
+        <li>Arbitrary-address <code>JMP</code> / <code>JMP_IF_*</code> instructions are not part of the v0.1 core opcode set.</li>
+      </ul>
+
+      <h3>7.5 1:1 mapping policy to WASM</h3>
+      <ul>
+        <li><code>BLOCK</code>, <code>LOOP</code>, <code>IF</code>, <code>ELSE</code>, <code>END</code>, <code>BR</code>, and <code>BR_IF</code> map directly to their WASM counterparts.</li>
+        <li>Basic arithmetic and comparison instructions are mapped as directly as possible to WASM instructions such as <code>i32.add</code> and <code>i32.lt_s</code>.</li>
+        <li>Exception handling is represented using the WASM exception-handling extension, or a combination of error codes and structured blocks.</li>
+        <li>pipe / filter are lowered through WASM <code>ref</code> types plus runtime / host functions.</li>
       </ul>
 
 
-      <h3>7.5 Role of aloe2wasm</h3>
+      <h3>7.6 Role of aloe2wasm</h3>
       <ul>
         <li>
           In addition to the path “Aloe source → AloeBC → AloeVM execution”, there is a separate
@@ -1187,9 +1326,17 @@ A | filter(F) | B;
 
       <h3>8.2 public property and state visibility</h3>
       <ul>
-        <li>A public property getter invoked from another Object reads the target Object's Committed State.</li>
+        <li>An instance public property getter invoked from another Object reads the target Object's Committed State.</li>
         <li>The owner Object reads its latest Volatile State, falling back to Committed State for members without a Volatile value.</li>
-        <li>There is no public property setter.</li>
+        <li>An instance public property has no setter.</li>
+      </ul>
+
+      <h3>8.2.1 public static property</h3>
+      <ul>
+        <li>A public static property belongs to a type's static context rather than to an Object instance.</li>
+        <li>In <code>TypeName.Property</code>, TypeName is resolved as a type / static namespace rather than an Object Reference, so Object ownership and Volatile / Committed visibility rules do not apply.</li>
+        <li>Both getter and setter may be defined. Assignment <code>TypeName.Property = value;</code> invokes the setter synchronously and does not enqueue it in the Static CallBuffer.</li>
+        <li>Use a public static async method when an asynchronous static command is required.</li>
       </ul>
 
 
@@ -1197,6 +1344,9 @@ A | filter(F) | B;
       <ul>
         <li>Object-member writes update Volatile State directly during the Tick.</li>
         <li>An implementation may avoid copying the complete Object State and instead use Dirty Member + Volatile Value with lazy copy.</li>
+        <li>The current C# reference-VM prototype stores Committed fields plus a dirty per-field Volatile overlay on each Object-table entry. Self/internal field reads in async methods prefer the dirty Volatile value, while an external <code>public property</code> query reads Committed State even during the same Tick.</li>
+        <li>When an Object Reference field changes during a Tick, both the old Committed Reference and the new Volatile Reference remain strong edges until Tick Commit, aligning Query visibility with GC liveness.</li>
+        <li>After the Instance CallBuffer reaches quiescence, <code>tick()</code> promotes dirty Volatile fields to Committed State, updates the Reference Graph, and only then returns to main.</li>
         <li>After Tick Commit, Volatile State is discarded or reset.</li>
         <li><strong>The TaskChangeBuffer / Change Record model for field-change history is removed.</strong></li>
       </ul>
@@ -1205,6 +1355,8 @@ A | filter(F) | B;
       <h3>8.4 Instance CallBuffer</h3>
       <ul>
         <li>Each Object has a CallBuffer.</li>
+        <li>The current C# reference-VM prototype represents a public async instance-method invocation as a pending entry containing the target Object, function index, and argument values, and drains entries FIFO on a single VMThread inside <code>tick()</code>. Entries enqueued while draining are also processed in the same <code>tick()</code> until quiescence.</li>
+        <li>The target Object and Object Reference arguments of an unprocessed pending entry are protected from GC as Runtime Temporary Roots. This has the same liveness meaning as the future per-Object CallBuffer strong-reference metadata implementation.</li>
         <li>A public async method call from another Object is enqueued instead of being executed immediately.</li>
         <li>CallBuffer append is mutually exclusive and entries execute in recorded order.</li>
         <li>A CallBuffer entry holds its target Object and Object Reference arguments as Strong References until Call completion.</li>
@@ -1269,7 +1421,7 @@ Scheduler pending work == 0
         <li><code>main()</code> is the one-time Root Scope / Tick Driver and is outside CallBuffer execution and Quiescence checks.</li>
         <li>The set of Object References reachable directly or indirectly from main scope is the semantic Root.</li>
         <li><code>tick()</code> is callable only from main and may be implemented as a Runtime intrinsic or dedicated statement.</li>
-        <li><code>tick()</code> is a synchronous Barrier; when it returns, async work, Volatile Commit, reference processing, and GC have completed.</li>
+        <li><code>tick()</code> is a synchronous Barrier; when it returns, async work, Volatile Commit, Reference Graph / Reference Group / Reference Count updates, and Destruction Candidate evaluation have completed. GC Plan / Sweep / Move / FreeBlock are separated from <code>tick()</code>.</li>
         <li>When main returns, the program terminates and remaining Object Graph / Reference Group / CallBuffer state may be destroyed.</li>
       </ul>
 
@@ -1293,11 +1445,23 @@ Reference Count update
   ↓
 Destruction Candidate processing
   ↓
-GC
-  ↓
 tick() return
 </code></pre>
 
+      <h3>8.12.1 Explicit GC Runtime intrinsics</h3>
+      <ul>
+        <li><code>GC.debug</code> is a runtime-provided read/write <code>public static property&lt;bool&gt;</code> that may be read or changed from main. While true, the runtime emits GC diagnostics for Reference Graph / Plan / Sweep / Move / FreeBlock processing; false disables them. It is independent of VM instruction tracing and does not change liveness or GC budgets.</li>
+        <li>Where measurable, a GC work completion log includes <code>elapsedMs</code>, <code>heapUsedBytes</code>, and <code>heapReservedBytes</code>. The C# reference VM also reports <code>managedBytes</code> from <code>System.GC.GetTotalMemory(false)</code> as a host-memory reference value.</li>
+        <li><code>heapUsedBytes</code> is the total byte size of fixed Aloe Heap slots occupied by live Objects; <code>heapReservedBytes</code> is the total capacity of all currently allocated Banks.</li>
+        <li>If GC debug became true at least once during a program run, the C# reference VM emits <code>[PERF] Program end</code> when execution completes. Program <code>elapsedMs</code> covers entry-point execution only and excludes compilation; <code>gcElapsedMs</code> is cumulative GC work time during the same run.</li>
+        <li>For Host managed-heap diagnosis, the <code>[PERF]</code> summary may report <code>managedStartBytes</code> / <code>managedBytes</code> / <code>managedDeltaBytes</code>, the Host managed allocation delta <code>allocatedDeltaBytes</code> for the same program run, and .NET GC collection-count deltas <code>hostGcGen0</code> / <code>hostGcGen1</code> / <code>hostGcGen2</code>. These are Host diagnostics independent of Aloe Heap liveness, and diagnostics must not force a Host GC collection.</li>
+        <li>A REPL implementation may route GC diagnostic output to the current REPL session output.</li>
+        <li><code>GC.require()</code> is a Runtime intrinsic callable only from main. The VM refreshes Runtime Temporary References from the current stack / frame locals / CallBuffer state and advances one Plan / Sweep / Move / FreeBlock unit within the normal GC budget.</li>
+        <li>If <code>GC.require()</code> does not complete the Plan, the active Plan may continue in later GC work.</li>
+        <li><code>GC.finish()</code> is a blocking Runtime intrinsic callable only from main. If an active GC Plan exists, it runs synchronously until that currently requested GC cycle reaches PlanCompleted. If no active GC Plan exists, it is a no-op and must not start a new Plan or GC cycle.</li>
+        <li><code>GC.finish()</code> does not change Object / Reference Group liveness rules. To guarantee completion, an implementation may temporarily relax the normal moved-object / moved-byte budget only while this explicit operation is active.</li>
+        <li>The VM may initiate automatic GC equivalent to <code>GC.require()</code> at safe execution points in response to memory pressure or similar policy. The explicit API does not disable normal automatic reclamation.</li>
+      </ul>
 
       <h3>8.13 VMThread Pool and scheduling</h3>
       <ul>
@@ -1339,7 +1503,7 @@ tick() return
       <h3>9.1 Undecided items</h3>
       <ol>
         <li>Whether public property getters are restricted to side-effect-free read-only Queries.</li>
-        <li>Whether mutable global variables / mutable static fields are prohibited so synchronous functions / static methods remain stateless.</li>
+        <li>How shared state behind mutable globals / static fields and settable public static properties is synchronized across VMThreads.</li>
         <li>Thread Safety requirements for Host synchronous functions / Queries.</li>
         <li>Final constructor execution rules and prohibition of <code>this</code> escaping asynchronously before construction completes.</li>
         <li>Tick Failure / Volatile rollback / <code>tick()</code> exception propagation for unhandled async-method exceptions.</li>

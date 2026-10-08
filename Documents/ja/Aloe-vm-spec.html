@@ -1,9 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="edit-version" content="12" />
-  <meta name="edit-date" content="2026-10-06T08:33:38+09:00" />
+  <meta name="edit-version" content="27" />
+  <meta name="edit-date" content="2026-10-07T12:37:00+09:00" />
   <title>AloeVM 仕様書（ドラフト）</title>
   <style>
     * { box-sizing: border-box; }
@@ -555,9 +555,14 @@
 
       <h3>4.1 スロットベースのヒープレイアウト</h3>
       <ul>
-        <li>C# 実装 VM のヒープは、8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024 バイト等のサイズクラス別アリーナで管理できる。</li>
-        <li>ヒープ Object は ObjectId / Handle で識別し、アリーナ内の連続スロットを占有する。</li>
-        <li>アリーナの具体的なチャンクサイズ、フリーリスト、コンパクション戦略は実装詳細とする。</li>
+        <li>C# 実装 VM の <strong>Heap Slot</strong> は <strong>8 バイト固定</strong>とし、Bank 内のヒープ配置における最小割り当て単位かつ配置境界とする。</li>
+        <li>Object の占有サイズは実データサイズを 8 バイト単位に切り上げる。たとえば実データが 20 バイトの Object は 3 Heap Slot = 24 バイトを占有し、末尾 4 バイトは padding / unused 領域となる。</li>
+        <li>C# 実装 VM のヒープは、8 / 16 / 32 / 64 / 128 / 256 / 512 / 1024 バイト等のサイズクラス別アリーナで管理できる。size class は Object の分類であり、Heap Slot のサイズとは別概念とする。</li>
+        <li>各アリーナは、物理メモリの確保・返却単位である <strong>Bank</strong> に分割してよい。Bank は複数の Heap Slot を含む連続領域とする。</li>
+        <li>ヒープ Object は ObjectId / Handle で識別し、Bank 内の連続 Heap Slot を占有する。ObjectId / Handle は Object の物理 Bank / Heap Slot 位置とは独立である。</li>
+        <li>Bank 内の Object 開始位置は常に 8 バイト境界となる。Object table は物理位置を Bank と Heap Slot index で表現してよい。</li>
+        <li>Bank の具体的なサイズ、Heap Slot 数、free-list 構造は実装詳細とする。</li>
+        <li>本節の <strong>Heap Slot</strong> は、VM stack / call frame 上の local slot や value slot とは別の概念である。</li>
       </ul>
 
 
@@ -567,7 +572,10 @@
         <li>Arena / slot position / object size / type metadata。</li>
         <li>Committed State と、現在 Tick で必要な Dirty Member / Volatile Value metadata。</li>
         <li>Reference Count、Reference Group Handle、Reference Dirty、Destruction Candidate 等の寿命管理 metadata。</li>
+        <li>C# reference VM の現行 prototype では、class instance field 値を Object table entry の runtime metadata として保持する。field 1 個につき少なくとも 1 Heap Slot（8 byte）を物理占有量として予約し、Object Reference 型 field の書き換え時は outgoing reference edge を同時に更新する。</li>
+        <li>prototype compiler の <code>new Type(args)</code> は Object を先に確保し、同期 <code>construct(...)</code> を通常の VM call frame として実行してから Object Reference を caller に返す。constructor 中の <code>this.field</code> read/write は内部 Object field runtime operation に lower される。</li>
         <li>Instance CallBuffer への参照または管理情報。</li>
+        <li>C# reference VM の現在の class 実装では、Object field 値と class type name metadata は Object table entry の instance state / type metadata として保持する。getter-only public property と private/protected instance method は通常の VM call frame として同期実行し、暗黙の <code>this</code> Object Reference を第 1 引数として受け取る。外部 instance property setter は生成しない。public async method / CallBuffer 実行は後続実装とする。</li>
       </ul>
 
 
@@ -611,15 +619,57 @@
       </ul>
 
 
-      <h3>4.7 Allocation / compaction</h3>
+      <h3>4.7 Bank 配置と evacuation</h3>
       <ul>
-        <li>Object allocation は size class に応じた arena / slot を使用してよい。</li>
-        <li>ObjectId / Handle を介した間接参照を維持する限り、実装は sliding compaction 等の移動最適化を行ってよい。</li>
+        <li>Object allocation は size class に応じた arena / Bank / slot を使用する。</li>
+        <li>Reference Group に属する Object は、可能な範囲で同一 Bank または少数の Bank に集約する。これは Group 単位の回収とメモリ局所性を高めるための配置方針であり、Reference Group が複数 Bank にまたがること自体は禁止しない。</li>
+        <li>Bank 内の全 Object が破棄可能であり、Runtime Temporary Reference や CallBuffer による Strong Reference も存在しない場合、個々の slot を解放する代わりに Bank 全体を一括して FreeBlock 対象にできる。</li>
+        <li>一部の live Object のために低 occupancy Bank を保持する必要がある場合、live Object を空きのある別 Bank へ <strong>evacuation</strong> し、元 Bank を空にして一括解放してよい。</li>
+        <li>ObjectId / Handle は移動前後で不変とし、移動時は Object table の Bank / slot location を更新する。したがって参照元 Object や VM Stack 上の Handle を一括書き換えする必要はない。</li>
+        <li>高 occupancy Bank は無理に evacuation せず、そのまま保持するか Bank 内 compaction を行ってよい。</li>
         <li>物理メモリ配置最適化は、Committed / Volatile State と Reference lifetime の観測可能な意味を変えてはならない。</li>
       </ul>
 
 
-      <h3>4.8 WASM 実装時のメモリ管理</h3>
+      <h3>4.8 GC の 3 フェーズ</h3>
+      <p>C# VM の GC は、Tick 境界で次の 3 フェーズに分けて処理する。</p>
+      <ol>
+        <li><strong>Plan phase</strong>
+          <ul>
+            <li>Reference Group、External Reference、Runtime Temporary Reference、Destruction Candidate、Bank occupancy を確認する。</li>
+            <li>sweep 対象、evacuation 元 Bank、移動先 Bank、FreeBlock 候補を決定する。</li>
+            <li>少ない移動量で多くの Bank / byte を回収できる計画を優先してよい。</li>
+            <li>計画中は原則として Object の物理位置を変更しない。</li>
+          </ul>
+        </li>
+        <li><strong>Sweep / Move phase</strong>
+          <ul>
+            <li>Plan に従って dead slot を Available にし、必要な live Object を別 Bank へ移動する。</li>
+            <li>Object 移動ごとに Object table の物理 location を更新する。</li>
+            <li>Tick の移動予算に達した場合、その時点で Move を中断し、未完了の計画を次 Tick へ持ち越してよい。</li>
+          </ul>
+        </li>
+        <li><strong>FreeBlock phase</strong>
+          <ul>
+            <li>Sweep / Move 完了後、live Object が 0 になった Bank / backing block を allocator から切り離し、物理メモリを一括して返却する。</li>
+            <li>まだ live Object が残る Bank は FreeBlock してはならない。</li>
+          </ul>
+        </li>
+      </ol>
+
+
+      <h3>4.9 Tick ごとの GC budget</h3>
+      <ul>
+        <li>GC は 1 Tick 中に過大なメモリ移動を行ってはならない。Sweep / Move phase には必ず Tick ごとの有限な移動予算を設ける。</li>
+        <li>少なくとも移動 Object 数または移動 byte 数のいずれかを制限し、実装は両方を制限してよい。</li>
+        <li>たとえば 1 Tick あたり最大 256 Object の移動という上限を設定できるが、具体的な上限値は実装およびランタイム設定に依存する。</li>
+        <li>Plan phase 自体も巨大 heap を毎 Tick 全走査しないよう、走査 Bank 数・処理 Object 数・処理時間等の budget を持ってよい。</li>
+        <li>budget 到達により evacuation が複数 Tick にまたがってもよい。途中状態でも、すでに移動した Object の ObjectId / Handle は有効でなければならない。</li>
+        <li>完全に dead な Bank を一括解放できる場合、その処理は Object 移動 budget を消費しない。</li>
+      </ul>
+
+
+      <h3>4.10 WASM 実装時のメモリ管理</h3>
       <div class="note">
         WASM ネイティブ実装では物理 GC / allocation を WASM 実行環境へ委譲できる。<br>
         ただし Aloe の観測可能な意味として、Object ownership、Committed / Volatile State、CallBuffer による Strong Reference、
@@ -778,6 +828,18 @@ A | filter(F) | B;
         必要に応じて、<code>PRODUCER_START</code>, <code>PRODUCER_STOP</code>, <code>CONSUMER_START</code>, <code>CONSUMER_STOP</code> のような
         制御専用命令を 0x0A カテゴリ内に追加してもよい。
       </div>
+
+
+      <h3>5.5 C# 版 AloeVM の協調スケジューラ</h3>
+      <ul>
+        <li>C# 版 AloeVM は、main とバインドされた各 filter を 1 本の VM スレッド内の別々の<strong>実行コンテキスト</strong>として実行する。各コンテキストは自身のコールフレームと評価スタックを持ち、切り替え時に保存・復元される。</li>
+        <li>実行可能なコンテキストは FIFO キューで管理する。1 回の実行は一定の命令数（現在 1024 命令）までとし、その後キュー末尾へ戻す。同じコンテキストを重複してキューへ入れない。</li>
+        <li>満杯の bounded pipe への書き込みは、読み取りで空きができるか pipe が close されるまで書き込み側を待機させる。空で close されていない pipe からの読み取りは、値が届くか close されるまで読み取り側を待機させる。</li>
+        <li>コンテキストの最外フレームからの return は、そのコンテキストだけを完了させる。他のコンテキストは停止しない。main が残した値がプログラムの戻り値となる。</li>
+        <li>未完了のコンテキストが残っているのに実行可能なコンテキストがない場合、VM は未完了数と読み取り待ち・書き込み待ちの件数を含む <code>Pipe scheduler deadlock</code> エラーを報告する。</li>
+        <li>プロパティ getter と <code>tick()</code> が処理するインスタンス呼び出しは、1 つの SYSCALL 内で同期的に実行され、中断できない。この中で待機が必要になる pipe 操作は VM エラーとする。待機を伴わない pipe 操作は許可する。</li>
+        <li>待機中のコンテキストが持つフレームローカルと評価スタックの値は GC ルートとして扱う。</li>
+      </ul>
     </section>
 
 
@@ -867,6 +929,44 @@ A | filter(F) | B;
       </div>
       <p>エンディアンは <strong>リトルエンディアン</strong> を前提とする。</p>
 
+      <h4>6.2.1 C# リファレンス実装の 0.1 セクションプロファイル</h4>
+      <div class="note">
+        現行 C# リファレンス実装の <code>AloeBcCodec</code> は、最終的な TypeId ベース形式へ移行する前段階として、
+        10 byte の固定ヘッダに続けて自己記述的な section を並べる 0.1 プロトタイププロファイルを実装する。
+        このプロファイルは C# VM / compiler 間の round-trip と verifier 接続を先に成立させるための実装プロファイルであり、
+        下記 6.4 の完全な TypeId 形式へ段階的に統合する。
+      </div>
+      <pre><code>Header:
+  Magic        6 byte  "ALOEBC"
+  VersionMajor 1 byte  0
+  VersionMinor 1 byte  1
+  VersionBuild 1 byte  0
+  Flags        1 byte  0
+
+Section:
+  SectionId    u8
+  PayloadSize  i32 little-endian
+  Payload      byte[PayloadSize]
+</code></pre>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>SectionId</th><th>名前</th><th>C# 0.1 プロファイルの内容</th></tr></thead>
+          <tbody>
+            <tr><td><code>0x01</code></td><td>TYPE</td><td>関数ごとの型メタデータ。型付き関数では引数型、全 local slot 型、戻り値型を保持する。旧 FunctionInfo は parameter/local count のみを保持する。</td></tr>
+            <tr><td><code>0x02</code></td><td>CONSTANT</td><td>定数列。現行 compiler subset では <code>int</code>、<code>bool</code>、UTF-8 <code>string</code> を格納する。</td></tr>
+            <tr><td><code>0x03</code></td><td>FUNCTION</td><td>EntryPointIndex、関数名、命令配列中の EntryIp を格納する。</td></tr>
+            <tr><td><code>0x04</code></td><td>CODE</td><td>命令数と、各命令の <code>opcode:u16 + operand0:i32 + operand1:i32</code> を格納する。</td></tr>
+            <tr><td><code>0x80-0xFF</code></td><td>Custom / Extension</td><td>未知の場合でも PayloadSize により読み飛ばしてよい。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li><code>0x01-0x7F</code> の未知 core section はロードエラーとする。</li>
+        <li>同一 core section の重複、必須 section 欠落、payload 境界超過、無効 UTF-8、未知 opcode / value kind はロードエラーとする。</li>
+        <li>デシリアライズ後の <code>Module</code> は AloeVM 実行前に verifier を通過しなければならない。</li>
+        <li>現行 C# 実装の <code>int</code> 定数は <code>AloeValue</code> の内部表現に合わせて signed 64-bit で保存する。言語仕様上の最終 int 幅と AloeBC 正規表現は TypeId 形式確定時に再固定する。</li>
+      </ul>
+
 
       <h3>6.3 定数プール（概要）</h3>
       <ul>
@@ -883,12 +983,22 @@ A | filter(F) | B;
       </ul>
 
 
-      <h3>6.4 型テーブル（概要）</h3>
+      <h3>6.4 型テーブル</h3>
+      <p>
+        AloeBC の型情報は、プリミティブ型・複合型・関数型を含めて <strong>TypeId</strong> で一元参照する。
+        命令や関数シグネチャが型を必要とする場合は、可能な限り TypeId を使用する。
+      </p>
       <ul>
-        <li>各 Aloe 型（class / struct / enum / bitfield enum / pipe&lt;T&gt; など）に ID を割り当てる。</li>
-        <li>enum / bitfield enum は VM 上では <strong>int32 値型</strong> としてフラグ付けされる。</li>
+        <li>各 Aloe 型（primitive / class / struct / enum / bitfield enum / <code>pipe&lt;T&gt;</code> / function type など）に TypeId を割り当てる。</li>
+        <li><code>pipe&lt;T&gt;</code> は単なる <code>PIPE</code> タグではなく、要素型の TypeId を保持する複合型として表現する。したがって <code>pipe&lt;int&gt;</code> と <code>pipe&lt;string&gt;</code> は異なる型である。</li>
+        <li>関数型は引数 TypeId 列と戻り値 TypeId（<code>void</code> の場合は戻り値なし）を保持する。</li>
+        <li>enum / bitfield enum は VM 上では <strong>int32 値型</strong> として表現するが、TypeId 上は元の Aloe 型を識別できる。</li>
         <li>bitfield enum の有効ビット数（0～31）はメタ情報として保持してもよい（警告発生などに利用）。</li>
       </ul>
+      <div class="note">
+        Type Table は「関数シグネチャ専用表」ではなく、AloeBC 全体の型を表す正規の型表とする。
+        これにより verifier は <code>PIPE&lt;T&gt;</code>、ローカル、引数、戻り値を同じ TypeId 空間で検証できる。
+      </div>
 
 
       <h3>6.5 関数テーブル・コードセクション</h3>
@@ -976,6 +1086,32 @@ A | filter(F) | B;
         <li><code>catch</code> の評価順序はテーブル内の並び順に従う。</li>
         <li><code>finally</code> ブロックは、同じ <code>try</code> 範囲に対して 0 または 1 個のエントリを持つことができる。</li>
       </ul>
+
+      <h3>6.7 AloeBC verifier</h3>
+      <p>
+        AloeVM は関数コードを実行する前に AloeBC を検証する。検証済みコードでは、VM は各命令ごとに
+        型・ローカル index・関数 index・branch depth を再検証する必要はない（実装上の defensive check は許可する）。
+      </p>
+      <ul>
+        <li>未知 opcode、範囲外の constant / local / function / TypeId を拒否する。</li>
+        <li>オペランドスタックの underflow と型不一致を拒否する。<code>int32</code> と <code>bool</code> は実装表現が同じでも型として区別する。</li>
+        <li><code>BLOCK</code> / <code>LOOP</code> / <code>IF</code> / <code>ELSE</code> / <code>END</code> のネストが正しいことを検証する。</li>
+        <li><code>BR</code> / <code>BR_IF</code> の branch depth が現在の control stack 内に収まることを検証する。</li>
+        <li>v0.1 の structured block は結果値を持たない。block / loop / if の正常終了時および branch 時には、オペランドスタック高さが対象 control frame の開始時と一致しなければならない。</li>
+        <li><code>CALL</code> は callee の関数型に従い、引数型を pop し、戻り値があればその型を push する。</li>
+        <li><code>pipe&lt;T&gt;</code> 命令は要素型まで検証する。たとえば <code>pipe&lt;string&gt;</code> への int32 書き込みは validation error とする。</li>
+        <li>非 <code>void</code> 関数は、到達可能なすべての終了経路で正しい戻り値を返さなければならない。</li>
+      </ul>
+      <p>
+        <code>BR</code> または <code>RET</code> 後の到達不能領域では、WebAssembly と同様にスタックを polymorphic として扱ってよい。
+        ただし opcode、index、control structure 自体の構造検証は継続する。
+      </p>
+
+      <h3>6.8 validation error と runtime trap</h3>
+      <ul>
+        <li><strong>validation error</strong>: 型不一致、stack underflow、不正 index、不正 branch depth、壊れた control nesting など。実行開始前に拒否する。</li>
+        <li><strong>runtime trap / exception</strong>: 0 除算、closed pipe への write、空 pipe に対する不正な read、host runtime failure など。bytecode 自体は構造上正しいため実行時に処理する。</li>
+      </ul>
     </section>
 
 
@@ -1005,7 +1141,7 @@ A | filter(F) | B;
         </li>
         <li>制御フロー命令
           <ul>
-            <li>JMP, JMP_IF_TRUE, JMP_IF_FALSE</li>
+            <li>BLOCK, LOOP, IF, ELSE, END, BR, BR_IF</li>
           </ul>
         </li>
         <li>関数呼び出し命令
@@ -1088,7 +1224,7 @@ A | filter(F) | B;
             <tr>
               <td>0x05</td>
               <td>制御フロー命令</td>
-              <td><code>JMP</code>, <code>JMP_IF_TRUE</code>, <code>JMP_IF_FALSE</code> など</td>
+              <td><code>BLOCK</code>, <code>LOOP</code>, <code>IF</code>, <code>ELSE</code>, <code>END</code>, <code>BR</code>, <code>BR_IF</code></td>
             </tr>
             <tr>
               <td>0x06</td>
@@ -1139,16 +1275,29 @@ A | filter(F) | B;
       </p>
 
 
-      <h3>7.4 WASM への 1:1 マッピング方針</h3>
+      <h3>7.4 Structured control flow</h3>
+      <p>
+        AloeBC v0.1 の制御フローは、任意 byte offset への <code>JMP</code> ではなく、WebAssembly と同系統の
+        <strong>structured control flow</strong> を採用する。
+      </p>
       <ul>
+        <li><code>BLOCK</code> / <code>LOOP</code> / <code>IF</code> は control label を作成し、<code>END</code> で閉じる。</li>
+        <li><code>ELSE</code> は直前の未完了 <code>IF</code> に対応する。</li>
+        <li><code>BR depth</code> / <code>BR_IF depth</code> は byte offset ではなく、現在位置から何段外側の control label を対象にするかを unsigned depth で指定する。最内側を depth 0 とする。</li>
+        <li><code>BR 0</code> の対象が <code>LOOP</code> の場合は loop 先頭へ戻り、<code>BLOCK</code> / <code>IF</code> の場合は対応する <code>END</code> の直後へ移る。</li>
+        <li>任意アドレス分岐命令 <code>JMP</code> / <code>JMP_IF_*</code> は v0.1 core opcode として定義しない。</li>
+      </ul>
+
+      <h3>7.5 WASM への 1:1 マッピング方針</h3>
+      <ul>
+        <li><code>BLOCK</code>, <code>LOOP</code>, <code>IF</code>, <code>ELSE</code>, <code>END</code>, <code>BR</code>, <code>BR_IF</code> は WASM の対応命令へ直接的にマッピングする。</li>
         <li>基本算術・比較命令は、可能な限り WASM の <code>i32.add</code>, <code>i32.lt_s</code> などへ 1:1 でマッピングする。</li>
-        <li>スタック操作も WASM のスタックマシンと概念的に一致するため、ほぼそのまま変換可能。</li>
-        <li>例外処理は、WASM の exception handling 拡張またはエラーコード + ブロック構造の組み合わせで表現する。</li>
-        <li>pipe / filter は、WASM の <code>ref</code> 型＋ホスト関数を用いて実装されることが多い。</li>
+        <li>例外処理は、WASM の exception handling 拡張またはエラーコード + structured block の組み合わせで表現する。</li>
+        <li>pipe / filter は、WASM の <code>ref</code> 型＋ runtime / host function を用いて lowering する。</li>
       </ul>
 
 
-      <h3>7.5 aloe2wasm の役割</h3>
+      <h3>7.6 aloe2wasm の役割</h3>
       <ul>
         <li>Aloe ソース → AloeBC → AloeVM 実行 という経路とは別に、
           <ul>
@@ -1182,9 +1331,17 @@ A | filter(F) | B;
 
       <h3>8.2 public property と状態可視性</h3>
       <ul>
-        <li>外部 Object から public property getter を実行した場合、対象 Object の Committed State を読む。</li>
+        <li>外部 Object から instance public property getter を実行した場合、対象 Object の Committed State を読む。</li>
         <li>Object 自身は最新の Volatile State を読み、Volatile 値が無い member は Committed 値を読む。</li>
-        <li>public property setter は存在しない。</li>
+        <li>instance public property setter は存在しない。</li>
+      </ul>
+
+      <h3>8.2.1 public static property</h3>
+      <ul>
+        <li>public static property は Object instance ではなく type の static context に属する。</li>
+        <li><code>TypeName.Property</code> の TypeName は Object Reference ではなく型 / static 名前空間として解決するため、Object ownership / Volatile / Committed の状態可視性規則は適用しない。</li>
+        <li>getter と setter を定義でき、setter は <code>TypeName.Property = value;</code> により同期実行する。Static CallBuffer には enqueue しない。</li>
+        <li>非同期の static command が必要な場合は public static async method を使用する。</li>
       </ul>
 
 
@@ -1192,6 +1349,9 @@ A | filter(F) | B;
       <ul>
         <li>Object member の Write は Tick 中に Volatile State を直接更新する。</li>
         <li>実装は全 Object State を copy せず、Dirty Member + Volatile Value の Lazy Copy を使用してよい。</li>
+        <li>C# reference VM の現行 prototype は Object table entry ごとに Committed field と dirty な Volatile field overlay を保持する。async method 内の self/internal field read は dirty な Volatile 値を優先し、外部 <code>public property</code> query は同 Tick 中でも Committed 値を読む。</li>
+        <li>Object Reference 型 field を Tick 中に変更した場合、旧 Committed Reference と新 Volatile Reference の両方を Tick Commit まで strong edge として保持する。これにより同 Tick 内の Query 可視性と GC liveness を一致させる。</li>
+        <li><code>tick()</code> は Instance CallBuffer が Quiescence に到達した後に dirty Volatile fields を Committed State へ昇格し、その後 Reference Graph を更新して main へ戻る。</li>
         <li>Tick Commit 後、Volatile State を破棄または reset する。</li>
         <li><strong>Field 変更履歴を記録する TaskChangeBuffer / Change Record 方式は廃止する。</strong></li>
       </ul>
@@ -1200,6 +1360,8 @@ A | filter(F) | B;
       <h3>8.4 Instance CallBuffer</h3>
       <ul>
         <li>各 Object は CallBuffer を持つ。</li>
+        <li>C# reference VM の現行 prototype は public async instance method を対象 Object と function index、引数列からなる pending entry として保持し、<code>tick()</code> 内で FIFO 順に単一 VMThread 上で drain する。処理中に新たに enqueue された entry も同じ <code>tick()</code> で Quiescence まで処理する。</li>
+        <li>pending entry の target Object と Object Reference 引数は、entry が未処理の間 Runtime Temporary Root として GC から保護する。これは将来の per-Object CallBuffer strong-reference metadata 実装と同じ生存意味を持つ。</li>
         <li>外部 Object からの public async method call は即時実行せず CallBuffer に enqueue する。</li>
         <li>CallBuffer 追加は排他制御し、Buffer entry は記録順に実行する。</li>
         <li>CallBuffer entry は target Object と Object Reference argument を Call 完了まで Strong Reference として保持する。</li>
@@ -1264,7 +1426,7 @@ Scheduler pending work == 0
         <li><code>main()</code> はプログラム開始時に一度実行される Root Scope / Tick Driver であり、CallBuffer と Quiescence の対象外とする。</li>
         <li>main scope から直接または間接的に参照可能な Object Reference 集合を言語意味論上の Root とする。</li>
         <li><code>tick()</code> は main からのみ呼び出せる Runtime intrinsic または専用 statement とする。</li>
-        <li><code>tick()</code> は同期 Barrier であり、return 時には async 処理、Volatile Commit、参照処理、GC が完了している。</li>
+        <li><code>tick()</code> は同期 Barrier であり、return 時には async 処理、Volatile Commit、Reference Graph / Reference Group / Reference Count 更新、Destruction Candidate 判定が完了している。GC Plan / Sweep / Move / FreeBlock は <code>tick()</code> から分離する。</li>
         <li>main が return するとプログラムを終了し、残存 Object Graph / Reference Group / CallBuffer は破棄可能とする。</li>
       </ul>
 
@@ -1288,11 +1450,24 @@ Reference Count update
   ↓
 Destruction Candidate processing
   ↓
-GC
-  ↓
 tick() return
 </code></pre>
 
+      <h3>8.12.1 明示 GC Runtime intrinsic</h3>
+      <ul>
+        <li><code>GC.debug</code> は Runtime が提供する読み書き可能な <code>public static property&lt;bool&gt;</code> とし、main から参照 / 変更できる。true の間は Reference Graph / Plan / Sweep / Move / FreeBlock 等の GC 診断ログを出力し、false で停止する。VM instruction trace の有効状態とは独立し、GC の生存判定や budget を変更しない。</li>
+        <li>GC work の完了ログには計測可能な範囲で <code>elapsedMs</code>、<code>heapUsedBytes</code>、<code>heapReservedBytes</code> を含める。C# reference VM は参考値として <code>System.GC.GetTotalMemory(false)</code> による <code>managedBytes</code> も出力する。</li>
+        <li>C# reference VM の GC debug は <code>[GC] Timing:</code> として <code>referenceGraphMs</code> / <code>planMs</code> / <code>sweepMs</code> / <code>moveMs</code> / <code>freeBlockMs</code> / <code>totalMs</code> を個別に出力し、cold-start や特定 phase のコストを判別できるようにする。</li>
+        <li><code>heapUsedBytes</code> は現在 live な Aloe Object が占有する固定長 Heap Slot の合計 byte 数、<code>heapReservedBytes</code> は現在確保されている全 Bank の容量合計とする。</li>
+        <li>program 実行中に GC debug が一度でも true になった場合、C# reference VM は program 終了時に <code>[PERF] Program end</code> を出力する。<code>elapsedMs</code> は VM entry point 実行開始から終了までとし compile 時間を含めない。<code>gcElapsedMs</code> は同一 program run 中に実行した GC work の累積時間とする。</li>
+        <li><code>[PERF]</code> summary は Host managed heap の切り分け用に <code>managedStartBytes</code> / <code>managedBytes</code> / <code>managedDeltaBytes</code>、同一 program run 中の Host managed allocation 増分 <code>allocatedDeltaBytes</code>、および .NET GC collection 回数差分 <code>hostGcGen0</code> / <code>hostGcGen1</code> / <code>hostGcGen2</code> を出力してよい。これらは Aloe Heap の生存判定とは独立した Host 診断値であり、診断のために Host GC を強制実行してはならない。</li>
+        <li>REPL 実装は GC 診断ログの出力先を REPL セッション出力へ接続してよい。</li>
+        <li><code>GC.require()</code> は main からのみ呼び出せる Runtime intrinsic とする。VM は現在の stack / frame local / CallBuffer 等から Runtime Temporary Reference を更新し、通常の GC budget 内で 1 回の Plan / Sweep / Move / FreeBlock work を進める。</li>
+        <li><code>GC.require()</code> で Plan が完了しない場合、active Plan を後続の GC work に持ち越してよい。</li>
+        <li><code>GC.finish()</code> は main からのみ呼び出せる blocking Runtime intrinsic とする。active GC Plan が存在する場合、その現在要求された GC cycle が PlanCompleted になるまで同期的に処理する。active GC Plan が存在しない場合は no-op とし、新しい Plan / GC cycle を開始してはならない。</li>
+        <li><code>GC.finish()</code> は Object / Reference Group の生存判定規則を変更しない。完了を保証するため、実装はこの明示操作中だけ通常の移動 Object 数 / byte 数 budget を一時的に緩和してよい。</li>
+        <li>VM は memory pressure 等に応じ、安全な実行点で <code>GC.require()</code> 相当の自動 GC を開始してよい。明示 API は通常の自動回収を無効化しない。</li>
+      </ul>
 
       <h3>8.13 VMThread Pool と Scheduling</h3>
       <ul>
@@ -1334,7 +1509,7 @@ tick() return
       <h3>9.1 まだ決まっていない事項</h3>
       <ol>
         <li>public property getter を副作用なしの Read-only Query に制限するか。</li>
-        <li>mutable global variable / mutable static field を禁止し、同期 function / static method を stateless に限定するか。</li>
+        <li>一般の mutable global variable / mutable static field と settable public static property の共有状態を VMThread 間でどう同期するか。</li>
         <li>Host synchronous function / Query の Thread Safety 要件。</li>
         <li>constructor の正式な実行方式と constructor 完了前の <code>this</code> の async 流出禁止。</li>
         <li>async method 未処理例外時の Tick Failure / Volatile rollback / <code>tick()</code> 例外伝播。</li>

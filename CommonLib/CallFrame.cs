@@ -1,7 +1,32 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace Aloe.CommonLib
 {
+    public enum ControlFrameKind
+    {
+        Block,
+        Loop,
+        If,
+    }
+
+    /// <summary>Runtime state for one active structured-control label.</summary>
+    public sealed class ControlFrame
+    {
+        public ControlFrame(ControlFrameKind kind, int startIp, int endIp, int elseIp = -1)
+        {
+            Kind = kind;
+            StartIp = startIp;
+            EndIp = endIp;
+            ElseIp = elseIp;
+        }
+
+        public ControlFrameKind Kind { get; }
+        public int StartIp { get; }
+        public int EndIp { get; }
+        public int ElseIp { get; }
+    }
+
     /// <summary>
     /// 単一関数呼び出しの実行コンテキスト。
     /// - Module       : 実行中モジュール
@@ -26,6 +51,9 @@ namespace Aloe.CommonLib
 
         /// <summary>ローカル変数スロット。</summary>
         public AloeValue[] Locals { get; }
+
+        /// <summary>Structured control flow のアクティブなラベルスタック。</summary>
+        public Stack<ControlFrame> ControlStack { get; } = new();
 
         /// <summary>ローカル変数の数。</summary>
         public int LocalCount => Locals.Length;

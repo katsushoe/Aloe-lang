@@ -1,32 +1,55 @@
 ﻿using System;
 using Aloe.CommonLib;
-using Aloe.CommonLib.Constants;
 using Aloe.CommonLib.Exceptions;
 
 namespace Aloe.RuntimeLib.OpCommand
 {
-    /// <summary>
-    /// 無条件ジャンプ命令。
-    ///
-    /// IP をオペランドで指定された位置に書き換える。
-    /// </summary>
-    public sealed class JumpCommand : IOpcodeCommand
+    public sealed class BlockCommand : IOpcodeCommand
+    {
+        public void Execute(AloeVm vm, CallFrame frame, in Instruction instruction)
+            => vm.EnterControl(frame, ControlFrameKind.Block, frame.Ip);
+    }
+
+    public sealed class LoopCommand : IOpcodeCommand
+    {
+        public void Execute(AloeVm vm, CallFrame frame, in Instruction instruction)
+            => vm.EnterControl(frame, ControlFrameKind.Loop, frame.Ip);
+    }
+
+    public sealed class IfCommand : IOpcodeCommand
     {
         public void Execute(AloeVm vm, CallFrame frame, in Instruction instruction)
         {
-            if (vm == null) throw new ArgumentNullException(nameof(vm));
-            if (frame == null) throw new ArgumentNullException(nameof(frame));
-
-            var target = instruction.Operand;
-
-            if (target < 0)
+            var cond = vm.Pop();
+            bool value;
+            try
             {
-                throw new VmException($"Jump: invalid jump target {target}.");
+                value = cond.AsBool;
+            }
+            catch (VmException ex)
+            {
+                throw new VmException($"IF expects Bool condition, but got {cond.Kind}.", ex);
             }
 
-            // Run ループ側で Ip++ 済みを想定しているので、
-            // ここでは絶対 IP として上書きする。
-            frame.Ip = target;
+            vm.EnterIf(frame, frame.Ip, value);
         }
+    }
+
+    public sealed class ElseCommand : IOpcodeCommand
+    {
+        public void Execute(AloeVm vm, CallFrame frame, in Instruction instruction)
+            => vm.EnterElse(frame, frame.Ip);
+    }
+
+    public sealed class EndCommand : IOpcodeCommand
+    {
+        public void Execute(AloeVm vm, CallFrame frame, in Instruction instruction)
+            => vm.LeaveControl(frame);
+    }
+
+    public sealed class BrCommand : IOpcodeCommand
+    {
+        public void Execute(AloeVm vm, CallFrame frame, in Instruction instruction)
+            => vm.Branch(frame, instruction.Operand0);
     }
 }

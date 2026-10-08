@@ -209,7 +209,7 @@
 
 
   <main class="content">
-    <h2>AloeVM Instruction Set (Complete Table v0.2)</h2>
+    <h2>AloeVM Instruction Set (Complete Table v0.3)</h2>
 
 
     <div class="note">
@@ -707,64 +707,21 @@
 
     <!-- 0x05 Control Flow -->
     <section id="cat-05" class="op-section" style="display:none;">
-      <h3>Category 0x05: Control Flow</h3>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Category</th>
-              <th>Index</th>
-              <th>Mnemonic</th>
-              <th>Operand</th>
-              <th>Description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>0x05</td>
-              <td>0x00</td>
-              <td>JMP</td>
-              <td>Relative offset (int32)</td>
-              <td>Unconditional branch. Adds the specified offset to the instruction pointer.</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x01</td>
-              <td>JMP_IF_TRUE</td>
-              <td>Relative offset (int32)</td>
-              <td>Pops a bool from the stack. If it is true, branches by the specified offset.</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x02</td>
-              <td>JMP_IF_FALSE</td>
-              <td>Relative offset (int32)</td>
-              <td>Pops a bool from the stack. If it is false, branches by the specified offset.</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x03</td>
-              <td>JMP_SWITCH</td>
-              <td>Table index / branch table (implementation dependent)</td>
-              <td>Uses an integer value from the stack as an index into a branch table and jumps to the corresponding label.</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x04</td>
-              <td>JMP_IF_ZERO</td>
-              <td>Relative offset (int32)</td>
-              <td>Pops an integer value and branches if the value is 0.</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x05</td>
-              <td>JMP_IF_NONZERO</td>
-              <td>Relative offset (int32)</td>
-              <td>Pops an integer value and branches if the value is not 0.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <h3>Category 0x05: Control Flow (structured control flow)</h3>
+      <div class="note">AloeBC v0.1 does not use arbitrary byte-offset jumps. It uses WebAssembly-like structured control flow. For <code>BR</code> / <code>BR_IF</code>, the innermost active control label has depth 0.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Category</th><th>Index</th><th>Mnemonic</th><th>Operand</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>0x05</td><td>0x00</td><td>BLOCK</td><td>None (v0.1)</td><td>Begins a structured block that can be used as a branch-exit target. v0.1 blocks have no result value.</td></tr>
+          <tr><td>0x05</td><td>0x01</td><td>LOOP</td><td>None (v0.1)</td><td>Begins a structured loop. A branch to this label transfers control to the beginning of the loop body.</td></tr>
+          <tr><td>0x05</td><td>0x02</td><td>IF</td><td>None</td><td>Pops a bool. If true, executes the then body; if false, control moves to ELSE or END.</td></tr>
+          <tr><td>0x05</td><td>0x03</td><td>ELSE</td><td>None</td><td>Begins the else body of the nearest unfinished IF.</td></tr>
+          <tr><td>0x05</td><td>0x04</td><td>END</td><td>None</td><td>Closes the innermost BLOCK / LOOP / IF (or function body).</td></tr>
+          <tr><td>0x05</td><td>0x05</td><td>BR</td><td>Label depth (uint16)</td><td>Unconditionally branches to the control label at the specified depth. LOOP targets its beginning; BLOCK / IF targets the point after END.</td></tr>
+          <tr><td>0x05</td><td>0x06</td><td>BR_IF</td><td>Label depth (uint16)</td><td>Pops a bool and branches to the specified control label only when the value is true.</td></tr>
+          <tr><td>0x05</td><td>0x07</td><td>BR_TABLE</td><td>Branch table</td><td>Structured multi-way branch selected by an integer value. Exact encoding is reserved and is not required by the v0.1 core implementation.</td></tr>
+        </tbody>
+      </table></div>
     </section>
 
 

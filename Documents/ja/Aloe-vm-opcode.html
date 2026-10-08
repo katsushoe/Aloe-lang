@@ -209,7 +209,7 @@
 
 
   <main class="content">
-    <h2>AloeVM 命令セット（完全表 v0.2）</h2>
+    <h2>AloeVM 命令セット（完全表 v0.3）</h2>
 
 
     <div class="note">
@@ -707,64 +707,21 @@
 
     <!-- 0x05 Control Flow -->
     <section id="cat-05" class="op-section" style="display:none;">
-      <h3>カテゴリ 0x05: Control Flow（制御フロー）</h3>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>カテゴリ</th>
-              <th>インデックス</th>
-              <th>Mnemonic</th>
-              <th>オペランド</th>
-              <th>概要</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>0x05</td>
-              <td>0x00</td>
-              <td>JMP</td>
-              <td>相対オフセット int32</td>
-              <td>指定オフセットだけ命令ポインタを移動する（無条件分岐）。</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x01</td>
-              <td>JMP_IF_TRUE</td>
-              <td>相対オフセット int32</td>
-              <td>スタックトップの bool が true の場合のみ分岐し、値はスタックから取り除かれる。</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x02</td>
-              <td>JMP_IF_FALSE</td>
-              <td>相対オフセット int32</td>
-              <td>スタックトップの bool が false の場合のみ分岐し、値はスタックから取り除かれる。</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x03</td>
-              <td>JMP_SWITCH</td>
-              <td>テーブル index / 分岐テーブル（実装依存）</td>
-              <td>スタックトップの整数値をもとに、分岐テーブルで指定されたラベルへジャンプする。</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x04</td>
-              <td>JMP_IF_ZERO</td>
-              <td>相対オフセット int32</td>
-              <td>スタックトップの整数値が 0 の場合に分岐する。</td>
-            </tr>
-            <tr>
-              <td>0x05</td>
-              <td>0x05</td>
-              <td>JMP_IF_NONZERO</td>
-              <td>相対オフセット int32</td>
-              <td>スタックトップの整数値が 0 でない場合に分岐する。</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <h3>カテゴリ 0x05: Control Flow（structured control flow）</h3>
+      <div class="note">AloeBC v0.1 は任意 byte offset への JMP を採用せず、WebAssembly と同系統の structured control flow を使用する。<code>BR</code> / <code>BR_IF</code> の depth は最内側の control label を 0 とする。</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>カテゴリ</th><th>インデックス</th><th>Mnemonic</th><th>オペランド</th><th>概要</th></tr></thead>
+        <tbody>
+          <tr><td>0x05</td><td>0x00</td><td>BLOCK</td><td>なし（v0.1）</td><td>分岐脱出先となる structured block を開始する。v0.1 では block result を持たない。</td></tr>
+          <tr><td>0x05</td><td>0x01</td><td>LOOP</td><td>なし（v0.1）</td><td>structured loop を開始する。この label への BR は loop body 先頭へ戻る。</td></tr>
+          <tr><td>0x05</td><td>0x02</td><td>IF</td><td>なし</td><td>bool を pop し、true の場合に then body を実行する。false の場合は ELSE または END へ進む。</td></tr>
+          <tr><td>0x05</td><td>0x03</td><td>ELSE</td><td>なし</td><td>直前の未完了 IF の else body を開始する。</td></tr>
+          <tr><td>0x05</td><td>0x04</td><td>END</td><td>なし</td><td>最内側の BLOCK / LOOP / IF（または function body）を閉じる。</td></tr>
+          <tr><td>0x05</td><td>0x05</td><td>BR</td><td>label depth (uint16)</td><td>指定 depth の control label へ無条件分岐する。LOOP なら先頭、BLOCK / IF なら END の直後が対象。</td></tr>
+          <tr><td>0x05</td><td>0x06</td><td>BR_IF</td><td>label depth (uint16)</td><td>bool を pop し、true の場合のみ指定 depth の control label へ分岐する。</td></tr>
+          <tr><td>0x05</td><td>0x07</td><td>BR_TABLE</td><td>branch table</td><td>整数 selector に基づく structured multi-way branch。詳細 encoding は予約扱いで、v0.1 core 実装では未必須。</td></tr>
+        </tbody>
+      </table></div>
     </section>
 
 

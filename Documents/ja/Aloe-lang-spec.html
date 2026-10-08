@@ -1,10 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="59">
-  <meta name="edit-date" content="2026-10-06T09:21:26+09:00">
+  <meta name="edit-version" content="66">
+  <meta name="edit-date" content="2026-10-07T01:35:59+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -54,6 +54,8 @@
     }
 
 
+
+
     .content {
       flex: 1;
       max-width: 1100px;
@@ -87,10 +89,14 @@
 <div class="layout">
 
 
+
+
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 59)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 66)</div>
+
+
 
 
     <h2>Chapters</h2>
@@ -120,6 +126,8 @@
     </nav>
 
 
+
+
     <h2>Key Section</h2>
     <nav>
       <ul>
@@ -137,12 +145,14 @@
   </aside>
 
 
+
+
   <!-- 本文 -->
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 59<br>
-      edit-date: 2026-10-06T09:21:26+09:00</p>
+      edit-version: 66<br>
+      edit-date: 2026-10-07T01:35:59+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -155,7 +165,11 @@
     </p>
 
 
+
+
     <hr>
+
+
 
 
     <h2 id="ch0">0. Overview（概要）</h2>
@@ -201,14 +215,22 @@
     </ul>
 
 
+
+
     <hr>
+
+
 
 
     <h2 id="ch1">1. Basic Syntax（基本文法）</h2>
 
 
+
+
     <h3>1.1 Comments（コメント）</h3>
 <pre><code>// single-line comment
+
+
 
 
 /* multi-line
@@ -228,6 +250,8 @@
     </ul>
 
 
+
+
     <h3>1.2 Identifiers（識別子）</h3>
     <ul>
       <li>使用可能文字：英字 (A-Z, a-z)、数字 (0-9)、アンダースコア <code>_</code></li>
@@ -237,6 +261,8 @@
       <li><code>_</code> 単独は識別子として使用できない。<code>_name</code> や <code>foo_bar</code> のように他の文字と組み合わせた識別子内のアンダースコアは使用できる。</li>
       <li>ユニコード文字も使用できる（空白や区切り記号などは除外）。</li>
     </ul>
+
+
 
 
     <h3>1.3 Keywords（キーワード）</h3>
@@ -278,6 +304,7 @@ match
 method
 namespace
 new
+not
 object
 options
 or
@@ -320,6 +347,8 @@ catch_else
     </ul>
 
 
+
+
     <h3>1.4 Literals（リテラル）</h3>
     <ul>
       <li>整数リテラル：<code>10</code>, <code>0</code>, <code>-5</code>, <code>0x1A</code>, <code>0b1010</code> など</li>
@@ -338,6 +367,8 @@ catch_else
     </ul>
 
 
+
+
     <h3>1.5 Statement terminator（文の終端）</h3>
 <pre><code>var x = 10;
 x = x + 1;
@@ -349,12 +380,16 @@ print(x);
     </ul>
 
 
+
+
     <h3>1.6 Whitespace（空白）</h3>
     <ul>
       <li>スペース、タブ、改行はトークン区切りとして扱われる。</li>
       <li>連続する空白は 1 つの区切りとみなされる。</li>
       <li>インデントに意味はない（Python とは異なる）。</li>
     </ul>
+
+
 
 
     <h3>1.7 Case sensitivity（大文字小文字）</h3>
@@ -364,10 +399,16 @@ print(x);
     </ul>
 
 
+
+
     <hr>
 
 
+
+
     <h2 id="ch2">2. Type System（型システム）</h2>
+
+
 
 
     <h3>2.1 Primitive types（プリミティブ型）</h3>
@@ -389,6 +430,8 @@ print(x);
     </p>
 
 
+
+
     <h3>2.2 Composite / user-defined types（合成型 / ユーザー定義型）</h3>
     <ul>
       <li>配列：<code>T[]</code></li>
@@ -396,13 +439,14 @@ print(x);
       <li>セット：<code>T{}</code></li>
       <li>マップ：<code>map&lt;T&gt;</code> または <code>map&lt;K/V&gt;</code></li>
       <li><code>struct</code></li>
-      <li><code>class</code></li>
-      <li><code>enum</code>, <code>bitfield enum</code></li>
+      <li><code>class</code></li>      <li><code>enum</code>, <code>bitfield enum</code></li>
       <li>非同期タスク：<code>task</code></li>
       <li>万能参照型：<code>object</code></li>
       <li>パイプ：<code>pipe&lt;T&gt;</code>（18章参照）</li>
       <li>結果型：<code>Result&lt;T&gt;</code>（18章参照）</li>
     </ul>
+
+
 
 
     <h3>2.3 Value types / reference types（値型 / 参照型）</h3>
@@ -424,6 +468,8 @@ print(x);
     </ul>
 
 
+
+
     <h4 id="string-value-semantics">2.3.1 string 値型の観測可能な意味（固定）</h4>
     <ul>
       <li><strong>代入は値コピーとして観測される。</strong> 実装は内部共有などの最適化を行ってよいが、その有無は仕様上観測できない。</li>
@@ -432,6 +478,8 @@ print(x);
       <li><strong>値型に対する破棄は言語仕様として持たない。</strong></li>
       <li><code>object</code> へ代入する場合、string は常に <code>String</code> box object に boxing される（2.4参照）。</li>
     </ul>
+
+
 
 
     <h4>object 型（万能参照型）</h4>
@@ -444,6 +492,8 @@ print(x);
     </ul>
 
 
+
+
     <h4>Struct restrictions and copying（struct の制約とコピー）</h4>
     <ul>
       <li>struct のフィールドにはプリミティブ型と他の struct のみを持てる。</li>
@@ -453,11 +503,15 @@ print(x);
     </ul>
 
 
+
+
     <h4>Class vs struct（class と struct）</h4>
     <ul>
       <li>class は struct をフィールドとして持てる。</li>
       <li>class インスタンスを別変数に代入すると参照がコピーされる（オブジェクト本体は共有）。</li>
     </ul>
+
+
 
 
     <h3 id="boxing-unboxing">2.4 boxing / unboxing（box object と ToXxx の正準名）</h3>
@@ -476,11 +530,15 @@ print(x);
     </ul>
 
 
+
+
     <h4>2.4.0 boxing の正準規則（固定）</h4>
     <ul>
       <li><strong>プリミティブ値（string を含む）を <code>object</code> に代入する場合、必ず対応する box object に boxing する。</strong></li>
       <li>box object を <code>object</code> に代入する場合は、その参照を保持する（再 boxing はしない）。</li>
     </ul>
+
+
 
 
     <ul>
@@ -495,10 +553,14 @@ print(x);
     </ul>
 
 
+
+
     <h4>2.4.1 角（変換の禁止）</h4>
     <ul>
       <li><strong>型変換は行わない。</strong> 例えば数値型同士の変換や文字列のパースなどは、<code>as</code> / 暗黙 unbox キャストの範囲では行わない（失敗として扱う）。</li>
     </ul>
+
+
 
 
     <h4>2.4.2 Parse / TryParse（文字列から数値への導線）</h4>
@@ -514,6 +576,8 @@ print(x);
     </ul>
 
 
+
+
     <h5>2.4.2.1 共通ルール（受け付ける文字列）</h5>
     <ul>
       <li>入力は <code>string</code> とする。</li>
@@ -526,6 +590,8 @@ print(x);
     </ul>
 
 
+
+
     <h5>2.4.2.2 Integer / Byte の書式</h5>
     <ul>
       <li>10進：<code>[+|-]?[0-9]+</code></li>
@@ -536,12 +602,16 @@ print(x);
     </ul>
 
 
+
+
     <h5>2.4.2.3 Float の書式</h5>
     <ul>
       <li>十進小数：<code>[+|-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)</code></li>
       <li>指数部（任意）：上記に続けて <code>[e|E][+|-]?[0-9]+</code> を許可する。</li>
       <li>オーバーフロー/アンダーフローは例外（Parse）または失敗（TryParse）とする（3.5参照）。</li>
     </ul>
+
+
 
 
     <h5>2.4.2.4 Decimal の書式</h5>
@@ -552,6 +622,8 @@ print(x);
     </ul>
 
 
+
+
     <h5>2.4.2.5 Parse と TryParse の戻り</h5>
     <ul>
       <li><code>Parse</code> は成功時に値を返し、失敗時に例外を投げる。</li>
@@ -560,10 +632,16 @@ print(x);
     </ul>
 
 
+
+
     <hr>
 
 
+
+
     <h2 id="ch3">3. Numbers &amp; Conversions（数値と暗黙変換）</h2>
+
+
 
 
     <h3>3.1 int and float</h3>
@@ -579,12 +657,16 @@ print(x);
     </ul>
 
 
+
+
     <h3>3.2 decimal</h3>
     <ul>
       <li><code>decimal</code> は高精度な 10 進数。</li>
       <li><code>int</code> / <code>float</code> と混在する式は、必要に応じて <code>decimal</code> に昇格しうる。</li>
       <li>オーバーフロー / アンダーフロー / 精度問題は <code>OverflowException</code> として扱う。</li>
     </ul>
+
+
 
 
     <h3>3.3 enum and int</h3>
@@ -594,6 +676,8 @@ print(x);
       <li>enum と数値型の混在式はコンパイルエラー（bitfield enum のビット演算を除く）。</li>
       <li>内部表現としては enum / bitfield enum はすべて int32。</li>
     </ul>
+
+
 
 
     <h3>3.4 byte and char</h3>
@@ -615,6 +699,8 @@ print(x);
     </ul>
 
 
+
+
     <h3>3.5 NaN / Infinity</h3>
     <ul>
       <li><strong>NaN / Infinity は概念として存在しない。</strong></li>
@@ -623,10 +709,16 @@ print(x);
     </ul>
 
 
+
+
     <hr>
 
 
+
+
     <h2 id="ch4">4. Blocks &amp; Scope（ブロックとスコープ）</h2>
+
+
 
 
     <p>ブロックは <code>{</code> と <code>}</code> で区切られ、各ブロックが新しいスコープを導入する。</p>
@@ -637,6 +729,8 @@ print(x);
       <li>任意の <code>{ ... }</code> ブロック</li>
       <li><code>using</code> ブロック（4.4参照）</li>
     </ul>
+
+
 
 
     <h3>4.1 Static (lexical) scope and shadowing（静的スコープとシャドウイング）</h3>
@@ -654,6 +748,8 @@ print(x);
       <li>内側ブロックで同名変数を宣言すると、外側の変数をシャドウする。</li>
       <li>フィールド名とローカル変数名がぶつかった場合、ローカル変数が優先される。フィールドは <code>this.</code> で参照する。</li>
     </ul>
+
+
 
 
     <h3 id="with-blocks">4.2 with-blocks（メンバー省略記法）</h3>
@@ -680,11 +776,15 @@ print(x);
     </ul>
 
 
+
+
     <h4 id="with-targets">4.2.1 with 対象と評価（target を 1 回だけ評価して保持）</h4>
     <p>
       <code>with (target)</code> の target は式であり、<strong>ブロック開始時に 1 回だけ評価して保持</strong>する。<br>
       ブロック内の <code>.Member</code> は、保持した target へのメンバーアクセスに展開する。
     </p>
+
+
 
 
     <h5>4.2.1.1 target の評価回数（固定）</h5>
@@ -693,6 +793,8 @@ print(x);
       <li>評価結果は内部的に保持され、ブロック内で繰り返し利用される。</li>
       <li>target 式を再評価する構文は存在しない。</li>
     </ul>
+
+
 
 
     <h5>4.2.1.2 target の型制約（プリミティブ禁止、構造体/コンテナ/参照型許可）</h5>
@@ -708,6 +810,8 @@ print(x);
     </p>
 
 
+
+
     <h5>4.2.1.3 フィールドチェーン target の評価順（左から右）</h5>
     <p>
       target がフィールドチェーン（例：<code>a.b.c</code>）の場合、<code>with</code> は <strong>左から右</strong>に評価する。<br>
@@ -718,12 +822,16 @@ print(x);
     </ul>
 
 
+
+
     <h5>4.2.1.4 ロック/timeout/特別な例外扱いは行わない（固定）</h5>
     <ul>
       <li><code>with</code> はピン止め（ロック）を行わない。</li>
       <li><code>timeout(...)</code> は <code>with</code> の構文として存在しない。</li>
       <li><code>with</code> には <code>catch</code> を付ける特例はない（例外処理は通常の <code>try/catch</code> を用いる）。</li>
     </ul>
+
+
 
 
     <h4 id="with-type">4.2.2 Type-based with（class / struct / enum の static / 列挙子ショートカット）</h4>
@@ -761,6 +869,8 @@ print(x);
     </p>
 
 
+
+
     <h3 id="name-resolution">4.3 名前解決の正式ルール（曖昧ならコンパイルエラー）</h3>
     <p>
       Aloe は「曖昧ならコンパイルエラー」を原則とし、名前解決の探索順を次のように固定する。
@@ -791,6 +901,8 @@ print(x);
     </ul>
 
 
+
+
     <h3 id="capture-blocks">4.4 using ブロック（Dispose の確定呼び出し）</h3>
     <p>
       <code>using</code> は、ブロック終了時に対象オブジェクトの <code>Dispose()</code> を確定的に呼び出す構文である。<br>
@@ -806,6 +918,8 @@ print(x);
 </code></pre>
 
 
+
+
     <ul>
       <li><code>using (x = E) { ... }</code> の <code>E</code> は 1 回だけ評価され、結果が <code>x</code> に束縛される。</li>
       <li><code>using</code> ブロックを抜けるとき（正常終了・例外伝播のいずれでも）、<code>x.Dispose()</code> が 1 回だけ呼ばれる。</li>
@@ -814,10 +928,16 @@ print(x);
     </ul>
 
 
+
+
     <hr>
 
 
+
+
     <h2 id="ch5">5. Variables &amp; Constants（変数と定数）</h2>
+
+
 
 
     <h3>5.1 var（型推論。初期化必須）</h3>
@@ -839,9 +959,13 @@ var fb  = new FizzBuzz();
     </ul>
 
 
+
+
 <pre><code>function SomeFunc(): object {
     return 123;      // boxing: Integer
 }
+
+
 
 
 function main(args: string[]): int {
@@ -853,6 +977,8 @@ function main(args: string[]): int {
 </code></pre>
 
 
+
+
     <h3>5.2 let（明示的な型。初期化必須）</h3>
 <pre><code>let i: int = 10;
 let f: float = 10.5;
@@ -860,6 +986,8 @@ let d: decimal = 10.12345678901234567890:d;
 let s: string = "Hello, Aloe!";
 let c: char = 'A';
 let b: byte = 255;
+
+
 
 
 let arr: int[] = [1, 2, 3];
@@ -872,6 +1000,8 @@ let mp : map&lt;string/int&gt; = ["key": 10];
       <li><strong><code>let</code> も初期化が必須</strong>である。</li>
       <li><code>let x: T;</code> はコンパイルエラー。</li>
     </ul>
+
+
 
 
     <h3 id="implicit-unbox-cast">5.2.2 暗黙 unbox キャスト（非消費）</h3>
@@ -908,11 +1038,15 @@ let i: int = o;        // OK（暗黙 unbox キャスト） == (o as int)
     </ul>
 
 
+
+
     <h3>5.2.3 推奨（as / 暗黙 unbox）</h3>
     <ul>
       <li>失敗を分岐で扱いたい場合は <code>as P ifnot ...</code> を推奨する。</li>
       <li>短く書きたい場合は暗黙 unbox キャストを許可するが、失敗時は例外となる。</li>
     </ul>
+
+
 
 
     <h3>5.3 Constants（const）</h3>
@@ -926,7 +1060,11 @@ const AppName: string = "Aloe VM";
     </ul>
 
 
+
+
     <hr>
+
+
 
 
     <h2 id="ch6">6. Fields（フィールド宣言）</h2>
@@ -934,6 +1072,8 @@ const AppName: string = "Aloe VM";
 <pre><code>class Sample {
     private field count: int = 0;
     readonly field id: int;
+
+
 
 
     construct(id: int) {
@@ -953,14 +1093,20 @@ const AppName: string = "Aloe VM";
     <hr><h2 id="ch7">7. Class / Struct / Interface / Trait</h2>
 
 
+
+
     <h3>7.1 class</h3>
 <pre><code>class Player {
     private hp: int;
 
 
+
+
     construct(hp: int) {
         this.hp = hp;
     }
+
+
 
 
     public property HP: int {
@@ -970,9 +1116,13 @@ const AppName: string = "Aloe VM";
     }
 
 
+
+
     public async method damage(amount: int): void {
         hp -= amount;
     }
+
+
 
 
     private method calculateDamage(value: int): int {
@@ -989,17 +1139,41 @@ const AppName: string = "Aloe VM";
     </ul>
 
 
-    <h4>7.1.1 public property</h4>
+
+
+    <h4>7.1.1 public property（instance）</h4>
     <ul>
-      <li><code>public property</code> は外部 Object から同期的に状態を取得するための Query とする。</li>
-      <li>public property setter は存在しない。<code>player.HP = 100;</code> のような外部代入構文はコンパイルエラーとする。</li>
+      <li><code>public property</code> は Object instance の状態を外部 Object から同期的に取得するための Query とする。</li>
+      <li>instance の public property setter は存在しない。<code>player.HP = 100;</code> のような外部代入構文はコンパイルエラーとする。</li>
       <li>外部 Object から getter を実行した場合、対象 Object の <strong>Committed State</strong> を参照する。</li>
       <li>対象 Object 自身が member variable を読む場合は、現在 Tick の最新 <strong>Volatile State</strong> を参照し、Volatile 値が無ければ Committed 値を参照する。</li>
       <li>public property getter の副作用をどこまで許可するかは未決事項であり、Read-only Query に制限する案を検討する。</li>
     </ul>
 
 
-    <h4>7.1.2 public / private / protected instance method</h4>
+
+
+    <h4>7.1.2 public static property</h4>
+    <ul>
+      <li><code>public static property</code> は型の static context に属し、特定の Object instance には属さない。</li>
+      <li><code>TypeName.Property</code> の <code>TypeName</code> は型 / static 名前空間として解決し、Object Reference として評価しない。このため Object ownership / Volatile / Committed の規則は適用しない。</li>
+      <li>public static property は getter に加えて setter を定義できる。代入 <code>TypeName.Property = value;</code> は setter を同期的に実行する。</li>
+      <li>static property setter は Static CallBuffer へ enqueue しない。非同期 command が必要な場合は <code>public static async method</code> を使用する。</li>
+      <li>setter accessor 内では代入値を暗黙の <code>value</code> として参照できる。</li>
+    </ul>
+<pre><code>public static property score: int {
+    get { return scoreValue; }
+    set { scoreValue = value; }
+}
+
+Game.score = 100;
+var score = Game.score;
+</code></pre>
+
+
+
+
+    <h4>7.1.3 public / private / protected instance method</h4>
     <ul>
       <li>外部から呼び出せる public instance method は必ず <code>async</code> とする。</li>
       <li><code>public async method</code> の戻り値は必ず <code>void</code> とし、Task&lt;T&gt; / Future&lt;T&gt; / Promise&lt;T&gt; / await / continuation は導入しない。</li>
@@ -1009,7 +1183,9 @@ const AppName: string = "Aloe VM";
     </ul>
 
 
-    <h4>7.1.3 static method</h4>
+
+
+    <h4>7.1.4 static method</h4>
     <ul>
       <li>通常の static method は同期実行し、戻り値を持つことができる。</li>
       <li><code>public static async method</code> を定義でき、その戻り値は必ず <code>void</code> とする。</li>
@@ -1017,7 +1193,9 @@ const AppName: string = "Aloe VM";
     </ul>
 
 
-    <h4>7.1.4 constructor</h4>
+
+
+    <h4>7.1.5 constructor</h4>
     <ul>
       <li><code>new</code> に伴う constructor は同期実行し、Object を完全初期化した後に Object Reference を caller へ返す案を推奨する。</li>
       <li>constructor は CallBuffer を経由しない。</li>
@@ -1025,10 +1203,14 @@ const AppName: string = "Aloe VM";
     </ul>
 
 
+
+
     <h3>7.2 struct</h3>
 <pre><code>struct Point {
     field x: int;
     field y: int;
+
+
 
 
     construct(x: int, y: int) {
@@ -1045,6 +1227,8 @@ const AppName: string = "Aloe VM";
     </ul>
 
 
+
+
     <h4>Struct layout annotations: @StructLayout / @FieldOffset</h4>
     <p>
       Aloe は、struct のメモリレイアウトを指定するための注釈（アノテーション）を提供する。<br>
@@ -1055,6 +1239,8 @@ const AppName: string = "Aloe VM";
       <li><code>@FieldOffset(n)</code> はフィールドのオフセット（バイト）を指定する。</li>
       <li>注釈の有無にかかわらず、通常の struct の観測可能な意味（値コピー等）は変わらない。</li>
     </ul>
+
+
 
 
     <h5>7.2.1 @StructLayout</h5>
@@ -1072,6 +1258,8 @@ struct Header {
     field b: byte;
 }
 </code></pre>
+
+
 
 
     <h5>7.2.2 @FieldOffset（Explicit レイアウト）</h5>
@@ -1093,11 +1281,15 @@ struct Pixel {
     </ul>
 
 
+
+
     <h5>7.2.3 相互運用上の注意</h5>
     <ul>
       <li>レイアウト注釈は ABI の一部となり得るため、安定性が要求される場合は explicit を推奨する。</li>
       <li>実装が異なる環境（WASM 等）ではアラインメント・パディング規則が異なり得るため、相互運用を前提とする場合はフィールドサイズとオフセットを明示する。</li>
     </ul>
+
+
 
 
     <h3>7.3 Inheritance and sealed</h3>
@@ -1106,9 +1298,13 @@ struct Pixel {
 }
 
 
+
+
 class Derived extends Base {
     method bar(): void { }
 }
+
+
 
 
 sealed class FinalDerived extends Base {
@@ -1116,10 +1312,14 @@ sealed class FinalDerived extends Base {
 </code></pre>
 
 
+
+
     <h3>7.4 interface</h3>
 <pre><code>interface ILogger {
     method log(msg: string): void;
 }
+
+
 
 
 class ConsoleLogger implements ILogger {
@@ -1130,6 +1330,8 @@ class ConsoleLogger implements ILogger {
 </code></pre>
 
 
+
+
     <h3>7.5 trait</h3>
 <pre><code>trait Trait_A {
     method hello(): void {
@@ -1137,6 +1339,8 @@ class ConsoleLogger implements ILogger {
     }
 }
 </code></pre>
+
+
 
 
     <p>
@@ -1151,10 +1355,16 @@ class ConsoleLogger implements ILogger {
     </ul>
 
 
+
+
     <hr>
 
 
+
+
     <h2 id="ch8">8. using &amp; Dispose</h2>
+
+
 
 
     <h3>8.1 Dispose の基本</h3>
@@ -1169,10 +1379,14 @@ class ConsoleLogger implements ILogger {
     </ul>
 
 
+
+
 <pre><code>var r = OpenReader("file.txt");
 r.Dispose();
 r.ReadLine();     // throws ObjectDisposedException
 </code></pre>
+
+
 
 
     <h3>8.2 using ブロック（Dispose の確定呼び出し）</h3>
@@ -1182,6 +1396,8 @@ r.ReadLine();     // throws ObjectDisposedException
     </p>
 
 
+
+
     <h3>8.3 Dispose の冪等性</h3>
     <ul>
       <li><code>Dispose()</code> を複数回呼んだ場合の挙動は実装依存とする。</li>
@@ -1189,7 +1405,11 @@ r.ReadLine();     // throws ObjectDisposedException
     </ul>
 
 
+
+
     <hr>
+
+
 
 
     <h2 id="ch9">9. is Operator（is 演算子）</h2>
@@ -1199,6 +1419,8 @@ r.ReadLine();     // throws ObjectDisposedException
 
 if (obj is ILogger) {
 }
+
+
 
 
 if (obj is Trait_A) {
@@ -1213,10 +1435,16 @@ if (obj is Trait_A) {
     </ul>
 
 
+
+
     <hr>
 
 
+
+
     <h2 id="ch10">10. Collections（配列 / リスト / セット / マップ）</h2>
+
+
 
 
     <h3>10.1 Arrays (T[])</h3>
@@ -1225,16 +1453,22 @@ var matrix: float[][] = [[1.0, 2.0], [3.0, 4.0]];
 </code></pre>
 
 
+
+
     <h3>10.2 Lists (T())</h3>
 <pre><code>var lst: int() = (1, 2, 3);
 var objLst: FizzBuzz() = (new FizzBuzz(), new FizzBuzz());
 </code></pre>
 
 
+
+
     <h3>10.3 Sets (T{})</h3>
 <pre><code>var st: int{} = {1, 2, 3};
 var structSt: Point{} = {Point { x:0, y:0 }, Point { x:1, y:1 }};
 </code></pre>
+
+
 
 
     <h3>10.4 Maps (map&lt;K/V&gt;)</h3>
@@ -1244,10 +1478,16 @@ var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()
 </code></pre>
 
 
+
+
     <hr>
 
 
+
+
     <h2 id="ch11">11. enum and bitfield enum</h2>
+
+
 
 
     <h3>11.1 Normal enum</h3>
@@ -1263,6 +1503,8 @@ var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()
     </ul>
 
 
+
+
     <h3>11.2 bitfield enum</h3>
 <pre><code>bitfield enum LogFlags {
     None = 1 &lt;&lt; 0,
@@ -1272,7 +1514,11 @@ var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()
 </code></pre>
 
 
+
+
     <hr>
+
+
 
 
     <h2 id="ch12">12. main Block（エントリポイント）</h2>
@@ -1281,18 +1527,26 @@ var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()
     var game = new Game();
 
 
+
+
     while (true) {
         input.update();
         game.update(input);
 
 
+
+
         tick();
+
+
 
 
         if (input.EscapePressed) {
             break;
         }
     }
+
+
 
 
     return 0;
@@ -1303,7 +1557,12 @@ var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()
       <li>main の生存中に main scope から直接または間接的に参照可能な Object Reference 集合を、言語意味論上の Root とする。</li>
       <li>main 自身は Tick 処理、CallBuffer 実行、Tick Quiescence 判定の対象外であり、Tick を駆動する。</li>
       <li><code>tick()</code> は main からのみ呼び出せる Runtime intrinsic または専用 statement とし、同期 Barrier として動作する。</li>
-      <li><code>tick()</code> が return した時点で、現在 Tick の async 処理、Volatile Commit、参照処理、GC 処理は完了している。</li>
+      <li><code>tick()</code> が return した時点で、現在 Tick の async 処理、Volatile Commit、Reference Graph / Reference Group / Reference Count 更新、Destruction Candidate 判定は完了している。物理 GC 処理は <code>tick()</code> の責務に含めない。</li>
+      <li><code>GC.debug</code> は main から読み書きできる Runtime 組み込みの <code>public static property&lt;bool&gt;</code> とし、GC の Reference Graph / Plan / Sweep / Move / FreeBlock ログを有効または無効にする。VM 命令トレースの有効状態や GC の生存判定には影響しない。</li>
+      <li><code>GC.debug = true</code> の診断中は、各 GC work の実行時間と Aloe Heap 使用量をログへ出力してよい。少なくとも GC 終了ログには <code>elapsedMs</code>、live Object slot の <code>heapUsedBytes</code>、確保済み Bank 全体の <code>heapReservedBytes</code> を含める。診断時は <code>ReferenceGraph</code> / <code>Plan</code> / <code>Sweep</code> / <code>Move</code> / <code>FreeBlock</code> の各 phase 時間と total を個別に出力してよい。Host managed memory を取得可能な実装では参考値 <code>managedBytes</code> を併記してよい。</li>
+      <li>1 回の program 実行中に GC debug が一度でも有効化された場合、program 終了時に <code>[PERF]</code> summary を出力してよい。summary は program 実行時間 <code>elapsedMs</code>、その実行中の累積 GC 時間 <code>gcElapsedMs</code>、終了時の memory metrics を含む。compile 時間は program 実行時間に含めない。</li>
+      <li><code>GC.require()</code> は main からのみ呼び出せる Runtime intrinsic とし、通常の GC budget を守って 1 回の GC work を明示的に要求する。Plan が未完了の場合は後続の GC work へ持ち越してよい。</li>
+      <li><code>GC.finish()</code> は main からのみ呼び出せる Runtime intrinsic とし、現在要求されている未完了 GC cycle を同期的に完了させる。active GC Plan が存在しない場合は no-op とし、新しい GC cycle を開始してはならない。生存判定は変更せず、明示的な blocking operation として通常の移動 budget を一時的に超えて処理してよい。</li>
       <li>main が return するとプログラムを終了し、残存 Object Graph / Reference Group / CallBuffer は破棄可能とする。</li>
       <li>main の引数・戻り値形式は既存エントリポイント規則に従う。本節は実行コンテキストと Tick 駆動の意味論を追加する。</li>
     </ul>
@@ -1315,7 +1574,11 @@ var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()
     </p>
 
 
+
+
     <hr>
+
+
 
 
     <h2 id="ch14">14. swap Keyword（swap キーワード）</h2>
@@ -1327,10 +1590,16 @@ print(b);
 </code></pre>
 
 
+
+
     <hr>
 
 
+
+
     <h2 id="ch15">15. Operators（演算子）</h2>
+
+
 
 
     <h3>15.1 as 演算子と ifnot（キャストと代替）</h3>
@@ -1339,6 +1608,8 @@ print(b);
       <code>as</code> は失敗時に <code>InvalidCastException</code> を投げる。<code>ifnot</code> により代替値、または <code>throw</code> を指定できる。
     </p>
 <pre><code>let o: object = 123;                   // boxing: Integer
+
+
 
 
 let i1: int = o as int;                // OK（unboxing）。失敗時は InvalidCastException
@@ -1360,6 +1631,8 @@ let i3: int = o as int ifnot throw;    // 失敗時は InvalidCastException（�
     </ul>
 
 
+
+
     <h3>15.2 演算子一覧（算術 / 比較 / 論理 / ビット）</h3>
     <p>
       Aloe の主要な演算子は次の通りである。型付けにより不正な組み合わせはコンパイルエラーとなる。
@@ -1374,6 +1647,8 @@ let i3: int = o as int ifnot throw;    // 失敗時は InvalidCastException（�
     </ul>
 
 
+
+
     <h3>15.3 演算子優先順位（概要）</h3>
     <p>
       優先順位は一般的な言語と同様に「単項 &gt; 乗除 &gt; 加減 &gt; シフト &gt; 比較 &gt; 等価 &gt; ビット &gt; 論理 &gt; 代入」の順とする。<br>
@@ -1381,7 +1656,11 @@ let i3: int = o as int ifnot throw;    // 失敗時は InvalidCastException（�
     </p>
 
 
+
+
     <hr>
+
+
 
 
     <h2 id="ch16">16. Exceptions（例外）</h2>
@@ -1392,6 +1671,8 @@ catch (e) {
 finally {
 }
 </code></pre>
+
+
 
 
     <h3>16.1 標準例外の概要</h3>
@@ -1425,6 +1706,8 @@ finally {
     </ul>
 
 
+
+
     <h3>16.2 catch の型注釈（一般機構）</h3>
     <p>
       <code>catch</code> は例外変数に型注釈を付けられる。型は例外型でなければならない。
@@ -1448,7 +1731,11 @@ finally {
 </code></pre>
 
 
+
+
     <hr>
+
+
 
 
     <h2 id="ch17">17. Modules / namespace / import</h2>
@@ -1458,13 +1745,19 @@ finally {
     </p>
 
 
+
+
     <h3>17.1 namespace（名前空間）</h3>
 <pre><code>namespace MyApp.Core;
+
+
 
 
 function Foo(): int {
     return 1;
 }
+
+
 
 
 class Bar {
@@ -1475,6 +1768,8 @@ class Bar {
       <li><code>namespace</code> を省略した場合、そのファイルはグローバル名前空間に属する。</li>
       <li>同一 namespace に属するトップレベル宣言は互いに参照できる（4.3 の規則に従う）。</li>
     </ul>
+
+
 
 
     <h3>17.2 import（導入）</h3>
@@ -1488,11 +1783,15 @@ import MyApp.Utils;
     </ul>
 
 
+
+
     <h3>17.3 アクセス修飾と公開範囲</h3>
     <ul>
       <li>トップレベル宣言はデフォルトで public として扱ってよい（実装依存）。</li>
       <li>class の変数 member は public にできない。外部公開には public property を使用する。</li>
-      <li>public property は getter による同期 Query であり、public setter は存在しない。</li>
+      <li>instance の public property は getter による同期 Query であり、setter は存在しない。</li>
+      <li>public static property は static context に属し、getter と setter を定義できる。setter は同期実行する。</li>
+      <li><code>TypeName.StaticProperty</code> の TypeName は Object ではなく型 / static 名前空間として解決する。</li>
       <li>外部から呼び出せる public instance method は <code>public async method ... : void</code> とする。</li>
       <li>private / protected instance method は同期実行でき、戻り値を持てる。</li>
       <li>通常 static method は同期実行でき、<code>public static async method</code> は void の fire-and-forget command とする。</li>
@@ -1500,11 +1799,15 @@ import MyApp.Utils;
     </ul><hr>
 
 
+
+
     <h2 id="ch18">18. Pipes &amp; Filters（パイプとフィルタ）</h2>
     <p>
       Aloe は <code>pipe&lt;T&gt;</code> と <code>filter(...)</code> を用いて、
       サーバ / CLI / Web アプリなどのストリーミング処理を構成する。
     </p>
+
+
 
 
     <h3>18.1 pipe&lt;T&gt; の基本</h3>
@@ -1520,6 +1823,8 @@ import MyApp.Utils;
     </ul>
 
 
+
+
     <h3>18.1.1 filter の概要</h3>
     <p>
       <code>filter</code> は pipe を入力として受け取り、処理結果の pipe を返す処理単位である。<br>
@@ -1532,6 +1837,8 @@ import MyApp.Utils;
 </code></pre>
 
 
+
+
     <h3>18.2 Result&lt;T&gt; と ROP の原則</h3>
     <ul>
       <li><strong>Result に丸めるのは原則としてパイプ（filter / producer / consumer）の中である。</strong></li>
@@ -1541,11 +1848,15 @@ import MyApp.Utils;
     </ul>
 
 
+
+
     <h4 id="result-error-model">18.2.1 Result&lt;T&gt; と Error（失敗情報の規格）</h4>
     <p>
       <code>Result&lt;T&gt;</code> は、成功（Ok）または失敗（Err）のいずれかを表す結果型である。<br>
       失敗（Err）の内容は <code>Error</code> によって表現される。
     </p>
+
+
 
 
     <h5>18.2.1.1 Result&lt;T&gt; の意味（直和型）</h5>
@@ -1555,6 +1866,8 @@ import MyApp.Utils;
       <li>誤った状態での取り出し（例：Ok から error を取り出す等）は <code>InvalidOperationException</code> とする。</li>
       <li><code>Result&lt;T&gt;</code> の内部表現（フィールド構成、最適化、割当方式）は実装依存とする。ただし上記の意味は観測可能な仕様として固定する。</li>
     </ul>
+
+
 
 
     <h5>18.2.1.2 Error（失敗の内容）</h5>
@@ -1568,11 +1881,15 @@ import MyApp.Utils;
     </ul>
 
 
+
+
     <h5>18.2.1.3 cause 必須規則（例外を捕捉して Err を返す場合）</h5>
     <ul>
       <li><strong>例外を catch して Result の Err に変換する場合、<code>cause</code> を必ず設定しなければならない。</strong></li>
       <li>この規則により、例外由来の失敗が原因情報を失わないことを保証する。</li>
     </ul>
+
+
 
 
 <pre><code>try {
@@ -1585,6 +1902,8 @@ catch (e) {
 </code></pre>
 
 
+
+
     <h5>18.2.1.4 エラーコードのドメイン定義</h5>
     <ul>
       <li>エラーコードは <code>string</code> とし、ドメイン（namespace / module / library）ごとに定数として定義してよい。</li>
@@ -1593,11 +1912,14 @@ catch (e) {
     </ul>
 
 
+
+
     <h3>18.7 コレクションに対するテンプレート map</h3>
     <p>
       テンプレ map の禁止事項は基本コンパイルエラーとする（静的に検出できる限り）。
-    </p>
-    <hr>
+    </p>    <hr>
+
+
 
 
     <h2 id="ch19">19. Object / Tick / CallBuffer Runtime Model</h2>
@@ -1606,6 +1928,8 @@ catch (e) {
       <strong>public async method + CallBuffer</strong> を通して受け取る。
       Tick 中の内部更新は Volatile State として保持し、Tick 終了時に Committed State へ確定する。
     </p>
+
+
 
 
     <h3>19.1 Object ownership と状態可視性</h3>
@@ -1618,6 +1942,8 @@ catch (e) {
     </ul>
 
 
+
+
     <h3>19.2 Volatile State と Tick Commit</h3>
     <ul>
       <li>Object の member variable 変更は Tick 中に Committed State へ直接反映せず、Volatile State を更新する。</li>
@@ -1625,6 +1951,8 @@ catch (e) {
       <li>Tick 終了時に Volatile → Committed として確定し、Commit 後に Volatile State を破棄または reset する。</li>
       <li>従来の Field 変更用 TaskChangeBuffer / Change Record（SET / ADD / SUB 等）方式は廃止する。</li>
     </ul>
+
+
 
 
     <h3>19.3 Instance / Static CallBuffer</h3>
@@ -1636,12 +1964,16 @@ catch (e) {
     </ul>
 
 
+
+
     <h3>19.4 self call / 同期呼び出し</h3>
     <ul>
       <li>実行時に <code>targetObject == currentObject</code> なら self call とし、その場で同期実行する。</li>
       <li>private / protected instance method、通常 function、通常 static method は同期実行でき、戻り値を持てる。</li>
       <li>Host 状態を同期的に問い合わせる static Query（例: Keyboard.isDown）を提供できるが、Host 側の Thread Safety は未決事項とする。</li>
     </ul>
+
+
 
 
     <h3>19.5 async CallGraph</h3>
@@ -1652,6 +1984,8 @@ catch (e) {
       <li>interface / virtual / override 等の動的 dispatch では、静的に到達可能なすべての call 先候補を含める。</li>
       <li>循環検出には SCC 等を使用でき、必要に応じて最終 link 時にも検証する。</li>
     </ul>
+
+
 
 
     <h3>19.6 Tick Quiescence</h3>
@@ -1669,6 +2003,8 @@ Scheduler pending work == 0
       <li>通常の CallBuffer entry は次 Tick へ持ち越さない。</li>
       <li>Tick 中に新規 Call が追加された場合、Quiescence には到達していない。</li>
     </ul>
+
+
 
 
     <h3>19.7 tick() 処理順</h3>
@@ -1690,11 +2026,22 @@ Reference Count update
   ↓
 Destruction Candidate processing
   ↓
-GC
-  ↓
 tick() return
 </code></pre>
+
+    <h3>19.7.1 明示 GC 制御</h3>
+    <ul>
+      <li><code>GC.debug</code> は Runtime が提供する読み書き可能な <code>public static property&lt;bool&gt;</code> とする。<code>GC.debug = true;</code> で GC 診断ログを有効化し、<code>false</code> で無効化する。<code>var enabled = GC.debug;</code> のように現在値も取得でき、VM 命令トレースとは独立する。</li>
+      <li>GC 診断ログは phase 情報に加えて、GC work ごとの <code>elapsedMs</code> と memory metrics（<code>heapUsedBytes</code> / <code>heapReservedBytes</code>、実装可能なら <code>managedBytes</code>）を含めてよい。GC debug が program 中に一度でも有効化された実行では、program 終了時に <code>[PERF] Program end</code> summary として program 実行時間と累積 GC 時間を出力してよい。</li>
+      <li>REPL は GC 診断出力を現在のセッション出力へ接続してよく、<code>GC.debug = true;</code> の後に <code>GC.require()</code> / <code>GC.finish()</code> を実行すると GC phase ログを対話的に確認できる。</li>
+      <li><code>GC.require()</code> は Runtime Temporary Reference を更新した安全な状態で、通常 budget 内の GC Plan / Sweep / Move / FreeBlock を 1 回進める。</li>
+      <li><code>GC.finish()</code> は現在要求された未完了 GC cycle が完了するまで同期的に GC を進める。active GC Plan が無い場合は何もせず return し、新規 Plan を作成しない。回収可能性そのものは <code>GC.require()</code> と同じ規則で判定する。</li>
+      <li>VM は安全な実行点で自動 GC を要求してよく、通常プログラムが明示 API を呼ぶことをメモリ回収の必須条件とはしない。</li>
+      <li><code>tick()</code> は参照状態の確定までを担当し、GC の Plan / Sweep / Move / FreeBlock は担当しない。</li>
+    </ul>
     <p>VM Tick と Game Render Frame / VSYNC / Renderer / GPU は別概念とする。</p>
+
+
 
 
     <h3>19.8 Object Reference member</h3>
@@ -1704,6 +2051,8 @@ tick() return
       <li>Committed Reference と Volatile Reference が異なる場合、Tick 終了までは両方の参照対象を生存させる。</li>
       <li>Commit 後に Volatile Reference を新しい Committed Reference とし、旧 Committed Reference を release する。</li>
     </ul>
+
+
 
 
     <h3>19.9 Reference Counting と Reference Group</h3>
@@ -1717,6 +2066,8 @@ tick() return
     </ul>
 
 
+
+
     <h3>19.10 Destruction Candidate と Runtime Temporary Reference</h3>
     <ul>
       <li>Reference Count 0 の Object / Reference Group は即 free せず Destruction Candidate として mark し、Tick 終了処理で安全確認後に destroy する。</li>
@@ -1726,6 +2077,8 @@ tick() return
     </ul>
 
 
+
+
     <h3>19.11 async 戻り値モデル</h3>
     <p>
       async call は完全な fire-and-forget Command とし、Future / Promise / Task&lt;T&gt; / await / async return value は導入しない。
@@ -1733,10 +2086,12 @@ tick() return
     </p>
 
 
+
+
     <h3>19.12 未決事項</h3>
     <ol>
       <li>public property getter の副作用を禁止し Read-only Query に限定するか。</li>
-      <li>mutable global variable / mutable static field を禁止し、同期 function / static method を stateless に限定するか。</li>
+      <li>一般の mutable global variable / mutable static field と、setter を持つ public static property の内部状態をどの範囲まで許可し、VMThread 間の同期規則をどう定義するか。</li>
       <li>Host synchronous Query の Thread Safety 要件。</li>
       <li>constructor の正式な実行方式と、constructor 完了前の <code>this</code> の外部 async call への流出禁止。</li>
       <li>async method の未処理例外を Tick Failure とし、Volatile State を Commit せず <code>tick()</code> から main へ throw するか。</li>
@@ -1749,6 +2104,8 @@ tick() return
       <li>Tick 中に生成・破棄される Object の可視性・寿命。</li>
       <li>Audio / Network / File / Renderer 等の Host 副作用を Tick Commit 後まで遅延するか。</li>
     </ol>
+
+
 
 
     <h3>19.13 コアモデル</h3>
@@ -1774,7 +2131,11 @@ main() へ return
 </code></pre>
 
 
+
+
     <hr>
+
+
 
 
     <h2 id="editor-notes">Appendix: 生成AI 向け編集ポリシー（仕様書本文ではない）</h2>
@@ -1790,6 +2151,8 @@ main() へ return
       ・もし直前の HTML が手元で再現できなくなった場合や、どこまでが最新かわからなくなった場合は、編集を続けず、必ずユーザーに確認する。<br>
       ・HTML 内に絵文字や外字を使用しない。日本語文字は第一水準・第二水準までとする。<br>
     </p>
+
+
 
 
   </main>

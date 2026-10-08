@@ -1,4 +1,6 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
+using Aloe.CommonLib.Constants;
 
 namespace Aloe.CommonLib
 {
@@ -27,6 +29,18 @@ namespace Aloe.CommonLib
         /// <summary>ローカル変数スロット数。</summary>
         public int LocalCount { get; }
 
+        /// <summary>型付きシグネチャを持つか。false の場合 verifier は構造検証のみ行う。</summary>
+        public bool HasTypeMetadata { get; }
+
+        /// <summary>引数型。HasTypeMetadata=false の場合は空。</summary>
+        public IReadOnlyList<EnumValueKind> ParameterTypes { get; }
+
+        /// <summary>全ローカルスロット型（引数スロットを含む）。</summary>
+        public IReadOnlyList<EnumValueKind> LocalTypes { get; }
+
+        /// <summary>戻り値型。null は void。HasTypeMetadata=false の場合は未指定。</summary>
+        public EnumValueKind? ReturnType { get; }
+
         public FunctionInfo(
             string name,
             int entryIp,
@@ -44,6 +58,31 @@ namespace Aloe.CommonLib
             EntryIp = entryIp;
             ParameterCount = parameterCount;
             LocalCount = localCount;
+            HasTypeMetadata = false;
+            ParameterTypes = Array.Empty<EnumValueKind>();
+            LocalTypes = Array.Empty<EnumValueKind>();
+            ReturnType = null;
+        }
+
+        public FunctionInfo(
+            string name,
+            int entryIp,
+            IReadOnlyList<EnumValueKind> parameterTypes,
+            IReadOnlyList<EnumValueKind> localTypes,
+            EnumValueKind? returnType)
+        {
+            if (entryIp < 0) throw new ArgumentOutOfRangeException(nameof(entryIp));
+            ParameterTypes = parameterTypes ?? throw new ArgumentNullException(nameof(parameterTypes));
+            LocalTypes = localTypes ?? throw new ArgumentNullException(nameof(localTypes));
+            if (LocalTypes.Count < ParameterTypes.Count)
+                throw new ArgumentException("LocalTypes must include all parameter slots.", nameof(localTypes));
+
+            Name = name ?? string.Empty;
+            EntryIp = entryIp;
+            ParameterCount = ParameterTypes.Count;
+            LocalCount = LocalTypes.Count;
+            HasTypeMetadata = true;
+            ReturnType = returnType;
         }
     }
 }

@@ -1,0 +1,73 @@
+<PageTitle>Aloe REPL</PageTitle>
+
+<main class="shell">
+    <header>
+        <h1>Aloe REPL</h1>
+        <p>C# / WebAssembly interactive Aloe environment</p>
+    </header>
+
+    <section class="terminal">
+        <pre class="transcript">@Transcript</pre>
+    </section>
+
+    <section class="editor">
+        <label for="repl-input">Aloe input</label>
+        <textarea id="repl-input" @bind="Input" rows="8" spellcheck="false"></textarea>
+        <div class="buttons">
+            <button @onclick="Run">Run</button>
+            <button class="secondary" @onclick="Reset">Reset session</button>
+            <button class="secondary" @onclick="ClearTranscript">Clear output</button>
+        </div>
+    </section>
+
+    <details>
+        <summary>Example</summary>
+        <pre>var sum = 0;
+let i: int = 1;
+while (i &lt; 11) {
+    sum = sum + i;
+    i = i + 1;
+}
+sum</pre>
+    </details>
+</main>
+
+@code {
+    private readonly AloeReplSession _session = new();
+    private string Input { get; set; } = string.Empty;
+    private string Transcript { get; set; } = "Aloe REPL (WASM)\nType :help for commands.\n\n";
+
+    private void Run()
+    {
+        var submission = Input.Trim();
+        if (submission.Length == 0)
+            return;
+
+        Transcript += "> " + submission + "\n";
+        var result = _session.Submit(submission);
+
+        if (!string.IsNullOrEmpty(result.Output))
+            Transcript += result.Output;
+
+        if (!result.Success && !string.IsNullOrEmpty(result.Error))
+            Transcript += "error: " + result.Error + "\n";
+
+        if (result.ExitRequested)
+            Transcript += "Browser session remains available; use Reset session to clear it.\n";
+
+        Transcript += "\n";
+        Input = string.Empty;
+    }
+
+    private void Reset()
+    {
+        _session.Reset();
+        Transcript += "Session reset.\n\n";
+        Input = string.Empty;
+    }
+
+    private void ClearTranscript()
+    {
+        Transcript = string.Empty;
+    }
+}

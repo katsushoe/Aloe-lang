@@ -1,0 +1,17 @@
+<Project>
+  <PropertyGroup Condition="'$(OS)' == 'Windows_NT'">
+    <AloeConfigDir>$(AloeInstallRoot)\config</AloeConfigDir>
+    <AloeLogsDir>$(AloeInstallRoot)\logs</AloeLogsDir>
+    <AloeDataDir>$(AloeInstallRoot)\data</AloeDataDir>
+  </PropertyGroup>
+
+  <Target Name="PrepareAloeInstallLayout" AfterTargets="Build" Condition="'$(OS)' == 'Windows_NT'">
+    <MakeDir Directories="$(AloeInstallRoot)\bin;$(AloeConfigDir);$(AloeLogsDir);$(AloeDataDir)" />
+    <ItemGroup>
+      <AloeConfigFile Include="$(MSBuildThisFileDirectory)aloevm.json" Condition="Exists('$(MSBuildThisFileDirectory)aloevm.json')" />
+      <AloeConfigFile Include="$(MSBuildThisFileDirectory)aloec.json" Condition="Exists('$(MSBuildThisFileDirectory)aloec.json')" />
+      <AloeConfigFile Include="$(MSBuildThisFileDirectory)aloe2wasm.json" Condition="Exists('$(MSBuildThisFileDirectory)aloe2wasm.json')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(AloeConfigFile)" DestinationFolder="$(AloeConfigDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

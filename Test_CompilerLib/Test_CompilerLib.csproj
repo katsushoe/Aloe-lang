@@ -1,15 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <AssemblyName>Aloe.CompilerLib.Tests</AssemblyName>
     <RootNamespace>Aloe.CompilerLib.Tests</RootNamespace>
   </PropertyGroup>
+
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4">
@@ -25,13 +28,19 @@
     <PackageReference Include="NUnit3TestAdapter" Version="5.2.0" />
   </ItemGroup>
 
+
   <ItemGroup>
     <ProjectReference Include="..\CommonLib\CommonLib.csproj" />
     <ProjectReference Include="..\CompilerLib\CompilerLib.csproj" />
+    <ProjectReference Include="..\RuntimeLib\RuntimeLib.csproj" />
+    <ProjectReference Include="..\Aloe2WasmLib\Aloe2WasmLib.csproj" />
+    <ProjectReference Include="..\AloeRepl.Core\AloeRepl.Core.csproj" />
   </ItemGroup>
+
 
   <ItemGroup>
     <Using Include="NUnit.Framework" />
   </ItemGroup>
+
 
 </Project>

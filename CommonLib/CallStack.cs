@@ -97,6 +97,12 @@ namespace Aloe.CommonLib
             return true;
         }
 
+        /// <summary>GC root scanning 用に、現在の全フレームを top-to-bottom で列挙する。</summary>
+        public IEnumerable<CallFrame> EnumerateFrames()
+        {
+            return _frames;
+        }
+
         /// <summary>スタックをすべてクリアする。</summary>
         public void Clear()
         {

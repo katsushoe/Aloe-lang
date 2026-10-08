@@ -21,3 +21,13 @@ Documents/obj/
 
 Documents/TODO.md
 
+
+logs/
+
+# Build outputs of all projects
+[Bb]in/
+[Oo]bj/
+
+# Local files kept out of version control
+aloe-src-latest.zip
+Test_CompilerLib/HostSyscallTests.cs.__new2

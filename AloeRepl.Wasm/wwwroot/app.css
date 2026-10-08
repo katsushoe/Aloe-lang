@@ -1,0 +1,76 @@
+:root {
+    color-scheme: light dark;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+body {
+    margin: 0;
+    background: #111318;
+    color: #e8e8e8;
+}
+
+.shell {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+header h1 {
+    margin-bottom: 4px;
+}
+
+header p {
+    margin-top: 0;
+    color: #aeb7c4;
+}
+
+.terminal,
+.editor,
+details {
+    margin-top: 20px;
+}
+
+.transcript,
+textarea,
+details pre {
+    box-sizing: border-box;
+    width: 100%;
+    background: #090b0f;
+    color: #d9f7dc;
+    border: 1px solid #303744;
+    border-radius: 8px;
+    padding: 14px;
+    overflow: auto;
+}
+
+.transcript {
+    min-height: 260px;
+    white-space: pre-wrap;
+}
+
+textarea {
+    margin-top: 8px;
+    resize: vertical;
+}
+
+.buttons {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+button {
+    border: 0;
+    border-radius: 6px;
+    padding: 9px 16px;
+    font: inherit;
+    cursor: pointer;
+    background: #54b769;
+    color: #08130a;
+}
+
+button.secondary {
+    background: #303744;
+    color: #e8e8e8;
+}

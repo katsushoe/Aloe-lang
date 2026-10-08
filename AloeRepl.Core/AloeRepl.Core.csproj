@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Aloe.Repl</RootNamespace>
+    <AssemblyName>Aloe.Repl</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CompilerLib\CompilerLib.csproj" />
+    <ProjectReference Include="..\RuntimeLib\RuntimeLib.csproj" />
+  </ItemGroup>
+</Project>

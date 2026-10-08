@@ -1,0 +1,5 @@
+﻿function main(args: string[]): int {
+    print("Hello from source file");
+    print((10 + 2) * 3);
+    return 0;
+}

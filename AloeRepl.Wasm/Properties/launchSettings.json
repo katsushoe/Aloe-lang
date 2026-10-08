@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "AloeRepl.Wasm": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:10829;http://localhost:10830"
+    }
+  }
+}

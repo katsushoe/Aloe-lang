@@ -13,12 +13,10 @@ namespace Aloe.RuntimeLib.OpCommand
             // 今のフレームを落とす
             vm.CallStack.Pop();
 
-            // もうフレームがなければ VM を停止
-            if (vm.CallStack.IsEmpty)
-            {
-                vm.RequestHalt();
-                return;
-            }
+            // コールスタックが空になった場合も停止要求は出さない。
+            // スケジューラは空のコールスタックを「この実行コンテキストの完了」として扱う。
+            // ここで RequestHalt() すると、filter の return が main など
+            // 他のコンテキストまで停止させてしまう。
 
             // 呼び出し元へ戻るケースをちゃんとやりたければ、
             // ここで return 値の push などを追加する。

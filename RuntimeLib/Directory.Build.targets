@@ -1,0 +1,8 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)../Directory.Build.targets"
+          Condition="Exists('$(MSBuildThisFileDirectory)../Directory.Build.targets')" />
+
+  <ItemGroup>
+    <Compile Remove="HostSyscallRegistry.cs" />
+  </ItemGroup>
+</Project>

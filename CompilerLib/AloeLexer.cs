@@ -2,8 +2,15 @@
 using System.Collections.Generic;
 using System.Text;
 
+
 namespace Aloe.CompilerLib.Lexer
 {
+    public sealed class AloeLexerException : Exception
+    {
+        public AloeLexerException(string message) : base(message) { }
+    }
+
+
     /// <summary>
     /// トークン種別
     /// </summary>
@@ -13,6 +20,7 @@ namespace Aloe.CompilerLib.Lexer
         Identifier,
         Keyword,
 
+
         // リテラル
         IntegerLiteral,
         FloatLiteral,
@@ -21,6 +29,7 @@ namespace Aloe.CompilerLib.Lexer
         CharLiteral,
         BoolLiteral,
         NullLiteral,
+
 
         // 記号・演算子
         LParen,         // (
@@ -56,8 +65,10 @@ namespace Aloe.CompilerLib.Lexer
         ShiftRight,     // >>
         Tilde,          // ~
 
+
         EndOfFile
     }
+
 
     /// <summary>
     /// 1 トークン
@@ -70,6 +81,7 @@ namespace Aloe.CompilerLib.Lexer
         public int Line { get; }
         public int Column { get; }
 
+
         public AloeToken(TokenKind kind, string lexeme, int position, int line, int column)
         {
             Kind = kind;
@@ -79,9 +91,11 @@ namespace Aloe.CompilerLib.Lexer
             Column = column;
         }
 
+
         public override string ToString()
             => $"{Kind} \"{Lexeme}\" (line {Line}, col {Column})";
     }
+
 
     /// <summary>
     /// Aloe 言語の字句解析器（static Parse）。
@@ -91,6 +105,7 @@ namespace Aloe.CompilerLib.Lexer
         private static readonly HashSet<string> _keywords = new(StringComparer.Ordinal)
         {
             "abstract",
+            "and",
             "as",
             "async",
             "bitfield",
@@ -110,6 +125,7 @@ namespace Aloe.CompilerLib.Lexer
             "field",
             "finally",
             "for",
+            "function",
             "if",
             "import",
             "implements",
@@ -121,7 +137,9 @@ namespace Aloe.CompilerLib.Lexer
             "method",
             "namespace",
             "new",
+            "not",
             "null",
+            "or",
             "private",
             "protected",
             "public",
@@ -146,6 +164,7 @@ namespace Aloe.CompilerLib.Lexer
             "yield",
         };
 
+
         /// <summary>
         /// 与えられたソースコードを字句解析し、トークン列を返す。
         /// 最後に EndOfFile トークンを含む。
@@ -154,8 +173,10 @@ namespace Aloe.CompilerLib.Lexer
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
 
+
             var state = new LexerState(source);
             var tokens = new List<AloeToken>();
+
 
             AloeToken token;
             do
@@ -164,19 +185,24 @@ namespace Aloe.CompilerLib.Lexer
                 tokens.Add(token);
             } while (token.Kind != TokenKind.EndOfFile);
 
+
             return tokens;
         }
 
+
         // ---------------- LexerState 本体 ----------------
+
 
         private sealed class LexerState
         {
             private readonly string _text;
             private readonly int _length;
 
+
             private int _pos;
             private int _line;
             private int _column;
+
 
             public LexerState(string text)
             {
@@ -187,9 +213,11 @@ namespace Aloe.CompilerLib.Lexer
                 _column = 1;
             }
 
+
             public AloeToken NextToken()
             {
                 SkipWhitespaceAndComments();
+
 
                 if (IsAtEnd())
                 {
@@ -197,10 +225,12 @@ namespace Aloe.CompilerLib.Lexer
                     return new AloeToken(TokenKind.EndOfFile, string.Empty, _pos, _line, _column);
                 }
 
+
                 int startPos = _pos;
                 int startLine = _line;
                 int startColumn = _column;
                 char c = Peek();
+
 
                 // 識別子 or キーワード
                 if (IsIdentifierStart(c))
@@ -208,11 +238,13 @@ namespace Aloe.CompilerLib.Lexer
                     return ReadIdentifierOrKeyword(startPos, startLine, startColumn);
                 }
 
+
                 // 数値（負数もここでまとめて扱う: -5, -0xFF など）
                 if (char.IsDigit(c) || (c == '-' && IsStartOfNumber()))
                 {
                     return ReadNumber(startPos, startLine, startColumn);
                 }
+
 
                 // 文字列
                 if (c == '"')
@@ -220,19 +252,24 @@ namespace Aloe.CompilerLib.Lexer
                     return ReadStringLiteral(startPos, startLine, startColumn);
                 }
 
+
                 // 文字
                 if (c == '\'')
                 {
                     return ReadCharLiteral(startPos, startLine, startColumn);
                 }
 
+
                 // 記号・演算子
                 return ReadSymbol(startPos, startLine, startColumn);
             }
 
+
             // ---------- 基本ヘルパ ----------
 
+
             private bool IsAtEnd() => _pos >= _length;
+
 
             private char Peek(int offset = 0)
             {
@@ -240,10 +277,12 @@ namespace Aloe.CompilerLib.Lexer
                 return index < _length ? _text[index] : '\0';
             }
 
+
             private char Advance()
             {
                 char c = _pos < _length ? _text[_pos] : '\0';
                 _pos++;
+
 
                 if (c == '\n')
                 {
@@ -255,14 +294,17 @@ namespace Aloe.CompilerLib.Lexer
                     _column++;
                 }
 
+
                 return c;
             }
+
 
             private void SkipWhitespaceAndComments()
             {
                 while (!IsAtEnd())
                 {
                     char c = Peek();
+
 
                     // 空白類
                     if (char.IsWhiteSpace(c))
@@ -271,10 +313,12 @@ namespace Aloe.CompilerLib.Lexer
                         continue;
                     }
 
+
                     // コメント
                     if (c == '/')
                     {
                         char n = Peek(1);
+
 
                         // 行コメント //
                         if (n == '/')
@@ -287,6 +331,7 @@ namespace Aloe.CompilerLib.Lexer
                             }
                             continue;
                         }
+
 
                         // ブロックコメント /* ... */
                         if (n == '*')
@@ -306,38 +351,54 @@ namespace Aloe.CompilerLib.Lexer
                         }
                     }
 
+
                     break;
                 }
             }
+
 
             private AloeToken MakeToken(TokenKind kind, string lexeme, int startPos, int line, int column)
             {
                 return new AloeToken(kind, lexeme, startPos, line, column);
             }
 
+
             // ---------- 識別子 / キーワード ----------
+
 
             private static bool IsIdentifierStart(char c)
             {
                 return char.IsLetter(c) || c == '_';
             }
 
+
             private static bool IsIdentifierPart(char c)
             {
                 return char.IsLetterOrDigit(c) || c == '_';
             }
+
 
             private AloeToken ReadIdentifierOrKeyword(int startPos, int startLine, int startColumn)
             {
                 var sb = new StringBuilder();
                 sb.Append(Advance()); // 先頭
 
+
                 while (!IsAtEnd() && IsIdentifierPart(Peek()))
                 {
                     sb.Append(Advance());
                 }
 
+
                 string lexeme = sb.ToString();
+
+
+                if (lexeme == "_")
+                {
+                    throw new AloeLexerException(
+                        $"Standalone '_' is not a valid identifier (line {startLine}, col {startColumn}).");
+                }
+
 
                 // true/false/null は専用のリテラル種別
                 if (lexeme == "true" || lexeme == "false")
@@ -349,15 +410,19 @@ namespace Aloe.CompilerLib.Lexer
                     return MakeToken(TokenKind.NullLiteral, lexeme, startPos, startLine, startColumn);
                 }
 
+
                 if (_keywords.Contains(lexeme))
                 {
                     return MakeToken(TokenKind.Keyword, lexeme, startPos, startLine, startColumn);
                 }
 
+
                 return MakeToken(TokenKind.Identifier, lexeme, startPos, startLine, startColumn);
             }
 
+
             // ---------- 数値 ----------
+
 
             /// <summary>
             /// 現在位置が '-' で、直後が数字(or 0x/0b) の場合に true。
@@ -367,8 +432,10 @@ namespace Aloe.CompilerLib.Lexer
             {
                 if (Peek() != '-') return false;
 
+
                 char next = Peek(1);
                 if (char.IsDigit(next)) return true;
+
 
                 // -0xFF / -0b1010 など
                 if (next == '0')
@@ -380,18 +447,22 @@ namespace Aloe.CompilerLib.Lexer
                     }
                 }
 
+
                 return false;
             }
+
 
             private AloeToken ReadNumber(int startPos, int startLine, int startColumn)
             {
                 var sb = new StringBuilder();
+
 
                 // 符号（-のみ想定、+ は現状リテラルとして使わない）
                 if (Peek() == '-')
                 {
                     sb.Append(Advance());
                 }
+
 
                 // 16進・2進チェック
                 if (Peek() == '0' && (Peek(1) == 'x' || Peek(1) == 'X' || Peek(1) == 'b' || Peek(1) == 'B'))
@@ -400,8 +471,10 @@ namespace Aloe.CompilerLib.Lexer
                     char baseChar = Advance();
                     sb.Append(baseChar);
 
+
                     bool isHex = baseChar == 'x' || baseChar == 'X';
                     bool isBin = baseChar == 'b' || baseChar == 'B';
+
 
                     if (isHex)
                     {
@@ -418,18 +491,22 @@ namespace Aloe.CompilerLib.Lexer
                         }
                     }
 
+
                     string lexemeHexBin = sb.ToString();
                     return MakeToken(TokenKind.IntegerLiteral, lexemeHexBin, startPos, startLine, startColumn);
                 }
 
+
                 // 10進数 or 小数 or decimal
                 bool hasDot = false;
+
 
                 // 整数部
                 while (char.IsDigit(Peek()))
                 {
                     sb.Append(Advance());
                 }
+
 
                 // 小数点
                 if (Peek() == '.' && char.IsDigit(Peek(1)))
@@ -442,6 +519,7 @@ namespace Aloe.CompilerLib.Lexer
                     }
                 }
 
+
                 // decimal サフィックス (:d / :D)
                 if (Peek() == ':' && (Peek(1) == 'd' || Peek(1) == 'D'))
                 {
@@ -450,6 +528,7 @@ namespace Aloe.CompilerLib.Lexer
                     string lexemeDec = sb.ToString();
                     return MakeToken(TokenKind.DecimalLiteral, lexemeDec, startPos, startLine, startColumn);
                 }
+
 
                 string lexeme = sb.ToString();
                 if (hasDot)
@@ -462,6 +541,7 @@ namespace Aloe.CompilerLib.Lexer
                 }
             }
 
+
             private static bool IsHexDigit(char c)
             {
                 return char.IsDigit(c)
@@ -469,7 +549,9 @@ namespace Aloe.CompilerLib.Lexer
                        || (c >= 'A' && c <= 'F');
             }
 
+
             // ---------- 文字列 / 文字 ----------
+
 
             private AloeToken ReadStringLiteral(int startPos, int startLine, int startColumn)
             {
@@ -477,12 +559,12 @@ namespace Aloe.CompilerLib.Lexer
                 char quote = Advance(); // '"'
                 sb.Append(quote);
 
-                bool terminated = false;
 
                 while (!IsAtEnd())
                 {
                     char c = Advance();
                     sb.Append(c);
+
 
                     if (c == '\\')
                     {
@@ -495,11 +577,14 @@ namespace Aloe.CompilerLib.Lexer
                         continue;
                     }
 
+
                     if (c == quote)
                     {
-                        terminated = true;
+
+
                         break;
                     }
+
 
                     if (c == '\n')
                     {
@@ -507,11 +592,13 @@ namespace Aloe.CompilerLib.Lexer
                     }
                 }
 
+
                 string text = sb.ToString();
-                // terminated が false でも Lexer 的にはいったん StringLiteral として返し、
+                // 文字列終端の妥当性は Lexer では確定せず StringLiteral として返し、
                 // エラー扱いはパーサ側に任せる。
                 return MakeToken(TokenKind.StringLiteral, text, startPos, startLine, startColumn);
             }
+
 
             private AloeToken ReadCharLiteral(int startPos, int startLine, int startColumn)
             {
@@ -519,13 +606,16 @@ namespace Aloe.CompilerLib.Lexer
                 char quote = Advance(); // '\''
                 sb.Append(quote);
 
+
                 if (IsAtEnd())
                 {
                     return MakeToken(TokenKind.CharLiteral, sb.ToString(), startPos, startLine, startColumn);
                 }
 
+
                 char c = Advance();
                 sb.Append(c);
+
 
                 if (c == '\\')
                 {
@@ -536,21 +626,26 @@ namespace Aloe.CompilerLib.Lexer
                     }
                 }
 
+
                 if (!IsAtEnd())
                 {
                     char end = Advance();
                     sb.Append(end);
                 }
 
+
                 string text = sb.ToString();
                 return MakeToken(TokenKind.CharLiteral, text, startPos, startLine, startColumn);
             }
 
+
             // ---------- 記号 / 演算子 ----------
+
 
             private AloeToken ReadSymbol(int startPos, int startLine, int startColumn)
             {
                 char c = Advance();
+
 
                 switch (c)
                 {
@@ -577,21 +672,27 @@ namespace Aloe.CompilerLib.Lexer
                     case '?':
                         return MakeToken(TokenKind.Question, "?", startPos, startLine, startColumn);
 
+
                     case '+':
                         return MakeToken(TokenKind.Plus, "+", startPos, startLine, startColumn);
+
 
                     case '-':
                         // ここに来るのは「IsStartOfNumber() が false の '-'」なので、二項 Minus として扱う
                         return MakeToken(TokenKind.Minus, "-", startPos, startLine, startColumn);
 
+
                     case '*':
                         return MakeToken(TokenKind.Star, "*", startPos, startLine, startColumn);
+
 
                     case '%':
                         return MakeToken(TokenKind.Percent, "%", startPos, startLine, startColumn);
 
+
                     case '/':
                         return MakeToken(TokenKind.Slash, "/", startPos, startLine, startColumn);
+
 
                     case '=':
                         if (Peek() == '=')
@@ -601,6 +702,7 @@ namespace Aloe.CompilerLib.Lexer
                         }
                         return MakeToken(TokenKind.Assign, "=", startPos, startLine, startColumn);
 
+
                     case '!':
                         if (Peek() == '=')
                         {
@@ -608,6 +710,7 @@ namespace Aloe.CompilerLib.Lexer
                             return MakeToken(TokenKind.BangEqual, "!=", startPos, startLine, startColumn);
                         }
                         return MakeToken(TokenKind.Bang, "!", startPos, startLine, startColumn);
+
 
                     case '<':
                         if (Peek() == '=')
@@ -622,6 +725,7 @@ namespace Aloe.CompilerLib.Lexer
                         }
                         return MakeToken(TokenKind.Less, "<", startPos, startLine, startColumn);
 
+
                     case '>':
                         if (Peek() == '=')
                         {
@@ -635,6 +739,7 @@ namespace Aloe.CompilerLib.Lexer
                         }
                         return MakeToken(TokenKind.Greater, ">", startPos, startLine, startColumn);
 
+
                     case '&':
                         if (Peek() == '&')
                         {
@@ -642,6 +747,7 @@ namespace Aloe.CompilerLib.Lexer
                             return MakeToken(TokenKind.AmpAmp, "&&", startPos, startLine, startColumn);
                         }
                         return MakeToken(TokenKind.Ampersand, "&", startPos, startLine, startColumn);
+
 
                     case '|':
                         if (Peek() == '|')
@@ -651,11 +757,14 @@ namespace Aloe.CompilerLib.Lexer
                         }
                         return MakeToken(TokenKind.Pipe, "|", startPos, startLine, startColumn);
 
+
                     case '^':
                         return MakeToken(TokenKind.Caret, "^", startPos, startLine, startColumn);
 
+
                     case '~':
                         return MakeToken(TokenKind.Tilde, "~", startPos, startLine, startColumn);
+
 
                     default:
                         // 不明な文字はとりあえず単一トークンとして返す（エラーは上位で扱う）

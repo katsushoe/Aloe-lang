@@ -1,0 +1,46 @@
+﻿function add(a: int, b: int): int {
+    return a + b;
+}
+
+
+function factorial(n: int): int {
+    if (n <= 1) {
+        return 1;
+    }
+
+
+    return n * factorial(n + -1);
+}
+
+
+function classify(value: int): int {
+    if (value < 0) {
+        return -1;
+    } else if (value == 0) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
+
+function announce(value: string): void {
+    if (value == "") {
+        return;
+    }
+
+
+    print(value);
+}
+
+
+function main(args: string[]): int {
+    announce("user functions");
+    announce("");
+    print(add(20, 22));
+    print(factorial(5));
+    print(classify(-3));
+    print(classify(0));
+    print(classify(9));
+    return 0;
+}
