@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="66">
-  <meta name="edit-date" content="2026-10-07T01:35:59+09:00">
+  <meta name="edit-version" content="67">
+  <meta name="edit-date" content="2026-10-11T03:21:31+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -662,7 +662,8 @@ print(x);
     <h3>3.2 decimal</h3>
     <ul>
       <li><code>decimal</code> は高精度な 10 進数。</li>
-      <li><code>int</code> / <code>float</code> と混在する式は、必要に応じて <code>decimal</code> に昇格しうる。</li>
+      <li><code>int</code> との混在式は <code>decimal</code> に昇格する。暗黙変換の精度規則を定めていないため、<code>decimal</code> と <code>float</code> の混在はコンパイルエラーとする。</li>
+      <li>現行コンパイラーは decimal の <code>+</code>、<code>-</code>、<code>*</code>、<code>/</code>、<code>%</code> と数値比較をサポートする。<code>int</code> と混在する演算結果も <code>decimal</code> となる。</li>
       <li>オーバーフロー / アンダーフロー / 精度問題は <code>OverflowException</code> として扱う。</li>
     </ul>
 
@@ -1190,6 +1191,7 @@ var score = Game.score;
       <li>通常の static method は同期実行し、戻り値を持つことができる。</li>
       <li><code>public static async method</code> を定義でき、その戻り値は必ず <code>void</code> とする。</li>
       <li>public static async method は class / type ごとの Static CallBuffer を使用する。</li>
+      <li>C# reference VM は type ごとの FIFO queue を処理し、同じ type 内の call を逐次実行する。異なる type は VMThread pool で並列実行でき、処理中に追加された call も Quiescence まで Tick 内で処理する。</li>
     </ul>
 
 
@@ -1496,9 +1498,19 @@ var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()
     Green,
     Blue
 }
+enum Code {
+    Zero,          // 0
+    First = 10,
+    Next,          // 11
+    Alias = 10,
+    Negative = -2
+}
 </code></pre>
     <ul>
       <li>内部表現は常に int32。</li>
+      <li>明示値は符号付き int32 範囲の整数リテラル（10進、16進、2進、符号は1つまで）を指定できる。定数式や別メンバーの参照は現在のコンパイラでは未対応。</li>
+      <li>最初の省略値は 0。以後の省略値は直前の値 + 1 とし、int32 範囲を超える場合はコンパイルエラー。明示値で自動採番を再設定できる。</li>
+      <li>異なるメンバー名に同じ値を指定でき、同じ enum 型内では等しい値として比較される。値が同じでも別の enum 型や整数との暗黙の混用は認めない。</li>
       <li>enum 型も型ベース with の対象となり、<code>with (Color) { Red; }</code> などで列挙子に短縮アクセスできる。</li>
     </ul>
 
@@ -1638,7 +1650,7 @@ let i3: int = o as int ifnot throw;    // 失敗時は InvalidCastException（�
       Aloe の主要な演算子は次の通りである。型付けにより不正な組み合わせはコンパイルエラーとなる。
     </p>
     <ul>
-      <li>算術：<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code></li>
+      <li>算術：<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>。<code>%</code> は <code>int</code>、<code>float</code>、<code>decimal</code> に対応する。<code>int</code>/<code>float</code> 混在は <code>float</code> に、<code>decimal</code>/<code>int</code> 混在は <code>decimal</code> に昇格する。</li>
       <li>単項：<code>+x</code>, <code>-x</code>, <code>not x</code></li>
       <li>比較：<code>==</code>, <code>!=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></li>
       <li>論理：<code>and</code>, <code>or</code>（短絡評価）</li>
@@ -1959,8 +1971,8 @@ catch (e) {
     <ul>
       <li>各 Object は Instance CallBuffer を持ち、外部 Object からの public async method call は即時実行せず enqueue する。</li>
       <li>CallBuffer への追加は排他制御し、記録順に実行する。</li>
-      <li>複数 VMThread が同時に lock を競合する場合は OS scheduling により順序が変わり得るため、現在は Race Free を保証するが完全 Replay Determinism は保証しない。</li>
-      <li>public static async method は class / type ごとの Static CallBuffer を使用し、同一 Tick 終了までに実行する。</li>
+      <li>C# reference VM は同じ target Object 宛ての call を逐次実行し、Heap 操作を同期する。異なる Object は並列実行でき、順序は決定的でない。共有 Object 参照を介したアクセスには prototype が強制しない所有権規約が必要である。</li>
+      <li>public static async method は class / type ごとの Static CallBuffer を使用し、drain 中に追加された call を含め同一 Tick 終了までに実行する。</li>
     </ul>
 
 

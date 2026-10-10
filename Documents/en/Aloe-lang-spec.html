@@ -550,7 +550,8 @@ print(x);
     <h3>3.2 decimal</h3>
     <ul>
       <li><code>decimal</code> is a high-precision decimal number.</li>
-      <li>Mixed expressions with <code>int</code> / <code>float</code> may promote to <code>decimal</code> as needed.</li>
+      <li>Mixed expressions with <code>int</code> promote to <code>decimal</code>. Mixing <code>decimal</code> and <code>float</code> is a compile error because no implicit precision policy is defined.</li>
+      <li>The current compiler subset supports decimal <code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>, <code>%</code>, and numeric comparisons. Mixing with <code>int</code> keeps a <code>decimal</code> result.</li>
       <li>Overflow / underflow / precision issues are treated as <code>OverflowException</code>.</li>
     </ul>
 
@@ -593,7 +594,8 @@ print(x);
     <h3>3.5 NaN / Infinity</h3>
     <ul>
       <li>Numeric overflow/underflow are handled as exceptions, not NaN/Infinity.</li>
-      <li><code>ZeroDivisionException</code> is thrown for division by 0 / 0.0.</li>
+      <li><code>ZeroDivisionException</code> is thrown for division or modulo by 0 / 0.0.</li>
+      <li>The modulo operator accepts <code>int</code>, <code>float</code>, and <code>decimal</code> operands. <code>int</code>/<code>float</code> pairs promote to <code>float</code> when either operand is <code>float</code>; <code>decimal</code>/<code>int</code> pairs promote to <code>decimal</code>.</li>
     </ul>
 
 
@@ -985,6 +987,7 @@ var score = Game.score;
       <li>Ordinary static methods execute synchronously and may return values.</li>
       <li>A <code>public static async method</code> may be defined and must return <code>void</code>.</li>
       <li>A public static async method uses a Static CallBuffer owned by its class / type.</li>
+      <li>The C# reference VM processes each type's queue FIFO and serializes calls for that type; different types may run in parallel on the VMThread pool. Tick waits for calls enqueued during processing to reach quiescence.</li>
     </ul>
 
 
@@ -1569,8 +1572,8 @@ finally {
     <ul>
       <li>Each Object has an Instance CallBuffer. A public async method call from another Object is enqueued rather than executed immediately.</li>
       <li>Appending to CallBuffer is mutually exclusive, and entries execute in recorded order.</li>
-      <li>When multiple VMThreads compete for the lock, OS scheduling may change lock-acquisition order. The current specification guarantees Race Freedom, not complete Replay Determinism.</li>
-      <li>A public static async method uses a Static CallBuffer owned by its class / type and is executed before the current Tick ends.</li>
+      <li>The C# reference VM serializes calls for the same target Object and synchronizes Heap operations. Different Objects may run concurrently and their order is not deterministic; accesses through shared Object references require an ownership discipline that the prototype does not enforce.</li>
+      <li>A public static async method uses a Static CallBuffer owned by its class / type and is executed before the current Tick ends, including calls enqueued while draining.</li>
     </ul>
 
 

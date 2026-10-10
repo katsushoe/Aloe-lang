@@ -63,6 +63,12 @@ namespace Aloe.CommonLib.Constants
         /// <summary>Bind a filter function between an input and output pipe.</summary>
         PipeBindFilter = 18,
 
+        /// <summary>Enqueue a public static async method call for its declaring type.</summary>
+        StaticAsyncEnqueue = 19,
+
+        /// <summary>Enqueue a public async instance call resolved from the target object's runtime type. Pops a dispatch descriptor constant index and argument count.</summary>
+        InstanceVirtualAsyncEnqueue = 20,
+
         // 将来拡張:
         // WriteStderr = 2,
         // GetTime     = 3,

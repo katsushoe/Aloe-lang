@@ -170,6 +170,19 @@ namespace Aloe.CommonLib
                     case EnumValueKind.Int:
                         writer.Write(value.AsInt);
                         break;
+                    case EnumValueKind.Byte:
+                        writer.Write(value.AsByte);
+                        break;
+                    case EnumValueKind.Char:
+                        writer.Write((ushort)value.AsChar);
+                        break;
+                    case EnumValueKind.Float:
+                        writer.Write((float)value.AsFloat);
+                        break;
+                    case EnumValueKind.Decimal:
+                        foreach (var bit in decimal.GetBits(value.AsDecimal))
+                            writer.Write(bit);
+                        break;
                     case EnumValueKind.Bool:
                         writer.Write(value.AsBool ? (byte)1 : (byte)0);
                         break;
@@ -240,6 +253,10 @@ namespace Aloe.CommonLib
                 constants.Add(kind switch
                 {
                     EnumValueKind.Int => AloeValue.FromInt(ReadInt64(reader, "int constant")),
+                    EnumValueKind.Byte => AloeValue.FromByte(ReadByte(reader, "byte constant")),
+                    EnumValueKind.Char => AloeValue.FromChar((char)ReadUInt16(reader, "char constant")),
+                    EnumValueKind.Float => AloeValue.FromFloat(ReadFloat32(reader)),
+                    EnumValueKind.Decimal => ReadDecimalConstant(reader),
                     EnumValueKind.Bool => AloeValue.FromBool(ReadByte(reader, "bool constant") switch
                     {
                         0 => false,
@@ -252,6 +269,33 @@ namespace Aloe.CommonLib
             }
             RequirePayloadConsumed(ms, "CONSTANT");
             return constants;
+        }
+
+        private static AloeValue ReadDecimalConstant(BinaryReader reader)
+        {
+            var bits = new int[4];
+            for (var i = 0; i < bits.Length; i++)
+                bits[i] = ReadInt32(reader, "decimal constant bits");
+            try
+            {
+                return AloeValue.FromDecimal(new decimal(bits));
+            }
+            catch (ArgumentException ex)
+            {
+                throw new VmException("Invalid decimal constant in AloeBC.", ex);
+            }
+        }
+
+        private static float ReadFloat32(BinaryReader reader)
+        {
+            try
+            {
+                return reader.ReadSingle();
+            }
+            catch (EndOfStreamException ex)
+            {
+                throw new VmException("Unexpected end of AloeBC while reading float32 constant.", ex);
+            }
         }
 
         private static FunctionSectionData ReadFunctionSection(byte[] payload)

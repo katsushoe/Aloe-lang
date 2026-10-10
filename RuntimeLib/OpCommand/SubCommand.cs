@@ -22,6 +22,10 @@ namespace Aloe.RuntimeLib.OpCommand
             {
                 result = left - right;
             }
+            catch (OverflowException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 // 型不一致などで落ちたときに VM 例外にラップ

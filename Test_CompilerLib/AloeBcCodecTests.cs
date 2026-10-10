@@ -64,5 +64,25 @@ namespace Aloe.CompilerLib.Tests
             Assert.That(restored.Constants[0].AsString, Is.EqualTo("Aloe"));
             Assert.That(restored.Constants[1].AsBool, Is.True);
         }
+
+        [Test]
+        public void RoundTrip_PreservesFloat32ConstantExactly()
+        {
+            const double sourceValue = 1.2345678901234567;
+            var expected = (double)(float)sourceValue;
+            var module = new Module(
+                new[] { AloeValue.FromFloat(expected) },
+                new[] { new Instruction(EnumOpcode.PushConst, 0), new Instruction(EnumOpcode.Return) },
+                new[] { new FunctionInfo("main", 0, Array.Empty<EnumValueKind>(), Array.Empty<EnumValueKind>(), EnumValueKind.Float) },
+                0);
+
+            var restored = AloeBcCodec.Read(AloeBcCodec.Write(module));
+            Assert.That(restored.Constants[0].Kind, Is.EqualTo(EnumValueKind.Float));
+            Assert.That(BitConverter.SingleToInt32Bits((float)restored.Constants[0].AsFloat), Is.EqualTo(BitConverter.SingleToInt32Bits((float)expected)));
+
+            var vm = new AloeVm(restored);
+            vm.RunFromEntryPoint();
+            Assert.That(BitConverter.SingleToInt32Bits((float)vm.Pop().AsFloat), Is.EqualTo(BitConverter.SingleToInt32Bits((float)expected)));
+        }
     }
 }

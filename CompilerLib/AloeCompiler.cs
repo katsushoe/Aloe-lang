@@ -33,7 +33,7 @@ namespace Aloe.CompilerLib
     ///   public async instance methods queued until tick()
     ///   synchronous user-function calls and recursion
     ///   return expr; / return; for void functions, including nested early return
-    ///   int/string/bool literals and local reads
+    ///   int/float/string/bool literals and local reads
     ///   + - * / %
     ///   == != < <= > >=
     ///   not / and / or (short-circuit)
@@ -50,6 +50,11 @@ namespace Aloe.CompilerLib
         private enum ExprType
         {
             Int,
+            Byte,
+            Char,
+            Enum,
+            Float,
+            Decimal,
             String,
             Bool,
             Object,
@@ -58,6 +63,7 @@ namespace Aloe.CompilerLib
 
 
         private sealed record LocalInfo(int Slot, ExprType Type, string? ClassName = null);
+        private sealed record WithContext(string TypeName, int? InstanceSlot = null);
 
 
         private sealed record ParameterSignature(AloeToken Name, ExprType Type, string? ClassName = null);
@@ -75,7 +81,10 @@ namespace Aloe.CompilerLib
             bool IsConstructor = false,
             string? ReturnClassName = null,
             bool IsPublicAsync = false,
-            bool IsPropertyGetter = false);
+            bool IsPublicStaticAsync = false,
+            bool IsStaticMethod = false,
+            bool IsPropertyGetter = false,
+            bool IsVirtual = false);
 
 
         private sealed record FieldSignature(string Name, int Index, ExprType Type, string? ClassName = null);
@@ -102,11 +111,19 @@ namespace Aloe.CompilerLib
 
         private sealed class ClassSignature
         {
-            public ClassSignature(string name) => Name = name;
+            public ClassSignature(string name, string? baseClassName, bool isSealed)
+            {
+                Name = name;
+                BaseClassName = baseClassName;
+                IsSealed = isSealed;
+            }
             public string Name { get; }
+            public string? BaseClassName { get; }
+            public bool IsSealed { get; }
             public List<FieldSignature> Fields { get; } = new();
             public List<PropertySignature> Properties { get; } = new();
             public List<MethodSignature> Methods { get; } = new();
+            public List<MethodSignature> StaticAsyncMethods { get; } = new();
             public FunctionSignature? Constructor { get; set; }
         }
 
@@ -132,11 +149,14 @@ namespace Aloe.CompilerLib
             private readonly List<Instruction> _code = new();
             private readonly Stack<Dictionary<string, LocalInfo>> _scopes = new();
             private readonly Stack<LoopContext> _loops = new();
+            private readonly Stack<IReadOnlyList<WithContext>> _typeWithScopes = new();
             private readonly List<FunctionSignature> _functions = new();
             private readonly Dictionary<string, FunctionSignature> _functionByName =
                 new(StringComparer.Ordinal);
             private readonly HashSet<string> _classNames = new(StringComparer.Ordinal);
             private readonly Dictionary<string, ClassSignature> _classes = new(StringComparer.Ordinal);
+            private readonly Dictionary<string, Dictionary<string, int>> _enumMembers = new(StringComparer.Ordinal);
+            private readonly Dictionary<int, int> _enumEndPositions = new();
             private readonly Dictionary<int, HashSet<int>> _asyncCallEdges = new();
             private readonly Dictionary<string, FilterSignature> _filterByName =
                 new(StringComparer.Ordinal);
@@ -177,13 +197,14 @@ namespace Aloe.CompilerLib
                     _currentFunction = function;
                     _scopes.Clear();
                     _loops.Clear();
+                    _typeWithScopes.Clear();
 
 
                     var entryIp = _code.Count;
 
 
                     EnterScope();
-                    if (function.DeclaringClass != null)
+                    if (function.DeclaringClass != null && !function.IsStaticMethod)
                         DeclareImplicitLocal("this", ExprType.Object, function.DeclaringClass);
                     foreach (var parameter in function.Parameters)
                         DeclareLocal(parameter.Name, parameter.Type, parameter.ClassName);
@@ -225,7 +246,7 @@ namespace Aloe.CompilerLib
                     functionInfos[function.Index] = new FunctionInfo(
                         name: function.Name,
                         entryIp: entryIp,
-                        parameterCount: function.Parameters.Count + (function.DeclaringClass != null ? 1 : 0),
+                        parameterCount: function.Parameters.Count + (function.DeclaringClass != null && !function.IsStaticMethod ? 1 : 0),
                         localCount: _nextLocalSlot);
                 }
 
@@ -248,8 +269,12 @@ namespace Aloe.CompilerLib
                 _functionByName.Clear();
                 _classNames.Clear();
                 _classes.Clear();
+                _enumMembers.Clear();
+                _enumEndPositions.Clear();
                 _asyncCallEdges.Clear();
                 _filterByName.Clear();
+
+                CollectEnumSignatures();
 
 
                 var position = 0;
@@ -260,6 +285,14 @@ namespace Aloe.CompilerLib
                 {
                     var topLevelToken = TokenAt(position);
 
+                    if (string.Equals(topLevelToken.Lexeme, "enum", StringComparison.Ordinal))
+                    {
+                        if (!_enumEndPositions.TryGetValue(position, out var enumEnd))
+                            throw Error(topLevelToken, "Invalid enum declaration.");
+                        position = enumEnd;
+                        continue;
+                    }
+
                     if (string.Equals(topLevelToken.Lexeme, "filter", StringComparison.Ordinal))
                     {
                         CollectFilterSignature(ref position);
@@ -268,7 +301,15 @@ namespace Aloe.CompilerLib
 
                     if (string.Equals(topLevelToken.Lexeme, "class", StringComparison.Ordinal))
                     {
-                        CollectClassSignature(ref position);
+                        CollectClassSignature(ref position, isSealed: false);
+                        continue;
+                    }
+
+                    if (string.Equals(topLevelToken.Lexeme, "sealed", StringComparison.Ordinal) &&
+                        string.Equals(TokenAt(position + 1).Lexeme, "class", StringComparison.Ordinal))
+                    {
+                        position++; // sealed
+                        CollectClassSignature(ref position, isSealed: true);
                         continue;
                     }
 
@@ -376,6 +417,106 @@ namespace Aloe.CompilerLib
             }
 
 
+            private void CollectEnumSignatures()
+            {
+                var position = 0;
+                while (TokenAt(position).Kind != TokenKind.EndOfFile)
+                {
+                    if (!string.Equals(TokenAt(position).Lexeme, "enum", StringComparison.Ordinal))
+                    {
+                        position++;
+                        continue;
+                    }
+
+                    var start = position++;
+                    var nameToken = TokenAt(position++);
+                    if (nameToken.Kind != TokenKind.Identifier)
+                        throw Error(nameToken, "Expected enum name.");
+                    if (_enumMembers.ContainsKey(nameToken.Lexeme))
+                        throw Error(nameToken, $"Enum '{nameToken.Lexeme}' is already declared.");
+
+                    ExpectAt(ref position, TokenKind.LBrace);
+                    var members = new Dictionary<string, int>(StringComparer.Ordinal);
+                    long nextValue = 0;
+                    while (TokenAt(position).Kind != TokenKind.RBrace)
+                    {
+                        var member = TokenAt(position++);
+                        if (member.Kind != TokenKind.Identifier)
+                            throw Error(member, "Expected enum member name.");
+                        long value;
+                        if (TokenAt(position).Kind == TokenKind.Assign)
+                        {
+                            position++;
+                            value = ParseEnumMemberValue(ref position);
+                        }
+                        else
+                        {
+                            value = nextValue;
+                            if (value > int.MaxValue)
+                                throw Error(member, "Implicit enum member value exceeds int32; specify an explicit value.");
+                        }
+                        if (!members.TryAdd(member.Lexeme, (int)value))
+                            throw Error(member, $"Enum member '{member.Lexeme}' is already declared.");
+                        nextValue = value + 1;
+
+                        if (TokenAt(position).Kind == TokenKind.Comma)
+                        {
+                            position++;
+                            continue;
+                        }
+                        if (TokenAt(position).Kind != TokenKind.RBrace)
+                            throw Error(TokenAt(position), "Expected ',' or '}' in enum declaration.");
+                    }
+
+                    if (members.Count == 0)
+                        throw Error(nameToken, $"Enum '{nameToken.Lexeme}' must declare at least one member.");
+
+                    ExpectAt(ref position, TokenKind.RBrace);
+                    _enumMembers.Add(nameToken.Lexeme, members);
+                    _enumEndPositions.Add(start, position);
+                }
+            }
+
+
+            private int ParseEnumMemberValue(ref int position)
+            {
+                var signToken = TokenAt(position);
+                var hasSign = signToken.Kind is TokenKind.Plus or TokenKind.Minus;
+                var negative = signToken.Kind == TokenKind.Minus;
+                if (hasSign)
+                    position++;
+                var literal = TokenAt(position++);
+                if (literal.Kind != TokenKind.IntegerLiteral)
+                    throw Error(literal, "Enum member value must be an int32 integer literal.");
+                var text = literal.Lexeme;
+                if (text.StartsWith("-", StringComparison.Ordinal))
+                {
+                    if (hasSign)
+                        throw Error(literal, "Enum member value accepts only one sign.");
+                    negative = true;
+                    text = text[1..];
+                }
+
+                ulong magnitude;
+                try
+                {
+                    if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                        magnitude = Convert.ToUInt64(text[2..], 16);
+                    else if (text.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
+                        magnitude = Convert.ToUInt64(text[2..], 2);
+                    else
+                        magnitude = ulong.Parse(text, NumberStyles.None, CultureInfo.InvariantCulture);
+                }
+                catch (Exception exception) when (exception is FormatException or OverflowException)
+                {
+                    throw Error(literal, "Enum member value must be an int32 integer literal.");
+                }
+                var limit = negative ? 2147483648UL : 2147483647UL;
+                if (magnitude > limit)
+                    throw Error(literal, "Enum member value is outside the int32 range.");
+                return negative ? (int)-(long)magnitude : (int)magnitude;
+            }
+
             private void CollectFilterSignature(ref int position)
             {
                 position++; // filter
@@ -443,16 +584,30 @@ namespace Aloe.CompilerLib
                     nameToken.Lexeme, inputPipeType!, outputPipeType!, function));
             }
 
-            private void CollectClassSignature(ref int position)
+            private void CollectClassSignature(ref int position, bool isSealed)
             {
                 position++; // class
                 var classNameToken = TokenAt(position++);
                 if (classNameToken.Kind != TokenKind.Identifier)
                     throw Error(classNameToken, "Expected class name.");
+                if (_enumMembers.ContainsKey(classNameToken.Lexeme))
+                    throw Error(classNameToken, $"Type '{classNameToken.Lexeme}' is already declared as an enum.");
                 if (!_classNames.Add(classNameToken.Lexeme))
                     throw Error(classNameToken, $"Class '{classNameToken.Lexeme}' is already declared.");
 
-                var classInfo = new ClassSignature(classNameToken.Lexeme);
+                string? baseClassName = null;
+                if (string.Equals(TokenAt(position).Lexeme, "extends", StringComparison.Ordinal))
+                {
+                    position++;
+                    var baseClassToken = TokenAt(position++);
+                    if (baseClassToken.Kind != TokenKind.Identifier || !_classes.TryGetValue(baseClassToken.Lexeme, out var baseClass))
+                        throw Error(baseClassToken, "Base class must be a previously declared class.");
+                    if (baseClass.IsSealed)
+                        throw Error(baseClassToken, $"Sealed class '{baseClass.Name}' cannot be extended.");
+                    baseClassName = baseClass.Name;
+                }
+
+                var classInfo = new ClassSignature(classNameToken.Lexeme, baseClassName, isSealed);
                 _classes.Add(classInfo.Name, classInfo);
                 ExpectAt(ref position, TokenKind.LBrace);
 
@@ -464,25 +619,36 @@ namespace Aloe.CompilerLib
 
                     var sawPublic = false;
                     var sawAsync = false;
-                    while (token.Lexeme is "private" or "protected" or "readonly" or "public" or "async")
+                    var sawStatic = false;
+                    var sawVirtual = false;
+                    var sawOverride = false;
+                    while (token.Lexeme is "private" or "protected" or "readonly" or "public" or "async" or "static" or "virtual" or "override")
                     {
                         if (token.Lexeme == "public")
                             sawPublic = true;
                         if (token.Lexeme == "async")
                             sawAsync = true;
+                        if (token.Lexeme == "static")
+                            sawStatic = true;
+                        if (token.Lexeme == "virtual")
+                            sawVirtual = true;
+                        if (token.Lexeme == "override")
+                            sawOverride = true;
                         position++;
                         token = TokenAt(position);
                     }
 
                     if (string.Equals(token.Lexeme, "field", StringComparison.Ordinal))
                     {
+                        if (sawVirtual || sawOverride)
+                            throw Error(token, "virtual and override are valid only on methods.");
                         if (sawPublic)
                             throw Error(token, "Class fields cannot be public; expose state through a public property.");
                         position++;
                         var fieldName = TokenAt(position++);
                         if (fieldName.Kind != TokenKind.Identifier)
                             throw Error(fieldName, "Expected field name.");
-                        if (classInfo.Fields.Any(x => x.Name == fieldName.Lexeme))
+                        if (FindField(classInfo.BaseClassName, fieldName.Lexeme) != null || classInfo.Fields.Any(x => x.Name == fieldName.Lexeme))
                             throw Error(fieldName, $"Field '{fieldName.Lexeme}' is already declared in class '{classInfo.Name}'.");
 
                         ExpectAt(ref position, TokenKind.Colon);
@@ -490,12 +656,14 @@ namespace Aloe.CompilerLib
                         if (TokenAt(position).Kind == TokenKind.Assign)
                             throw Error(TokenAt(position), "Field initializers are not supported yet; initialize the field in construct(...).");
                         ExpectAt(ref position, TokenKind.Semicolon);
-                        classInfo.Fields.Add(new FieldSignature(fieldName.Lexeme, classInfo.Fields.Count, fieldType, fieldClassName));
+                        classInfo.Fields.Add(new FieldSignature(fieldName.Lexeme, GetFieldCount(classInfo.BaseClassName) + classInfo.Fields.Count, fieldType, fieldClassName));
                         continue;
                     }
 
                     if (string.Equals(token.Lexeme, "construct", StringComparison.Ordinal))
                     {
+                        if (sawVirtual || sawOverride)
+                            throw Error(token, "virtual and override are valid only on methods.");
                         if (classInfo.Constructor != null)
                             throw Error(token, $"Class '{classInfo.Name}' already declares a constructor.");
                         position++;
@@ -546,6 +714,8 @@ namespace Aloe.CompilerLib
 
                     if (string.Equals(token.Lexeme, "property", StringComparison.Ordinal))
                     {
+                        if (sawVirtual || sawOverride)
+                            throw Error(token, "virtual and override are valid only on methods.");
                         if (sawAsync)
                             throw Error(token, "Instance properties cannot be async.");
                         if (!sawPublic)
@@ -554,7 +724,7 @@ namespace Aloe.CompilerLib
                         var propertyName = TokenAt(position++);
                         if (propertyName.Kind != TokenKind.Identifier)
                             throw Error(propertyName, "Expected property name.");
-                        if (classInfo.Properties.Any(x => x.Name == propertyName.Lexeme))
+                        if (FindProperty(classInfo.BaseClassName, propertyName.Lexeme) != null || classInfo.Properties.Any(x => x.Name == propertyName.Lexeme))
                             throw Error(propertyName, $"Property '{propertyName.Lexeme}' is already declared in class '{classInfo.Name}'.");
 
                         ExpectAt(ref position, TokenKind.Colon);
@@ -598,16 +768,25 @@ namespace Aloe.CompilerLib
 
                     if (string.Equals(token.Lexeme, "method", StringComparison.Ordinal))
                     {
-                        if (sawPublic && !sawAsync)
+                        if (sawStatic && (!sawPublic || !sawAsync))
+                            throw Error(token, "Only public static async methods are supported by the current static method subset.");
+                        if (!sawStatic && sawPublic && !sawAsync)
                             throw Error(token, "Public instance methods must be declared async.");
-                        if (sawAsync && !sawPublic)
+                        if (!sawStatic && sawAsync && !sawPublic)
                             throw Error(token, "Only public async instance methods are supported; private/protected methods are synchronous.");
                         position++;
                         var methodName = TokenAt(position++);
                         if (methodName.Kind != TokenKind.Identifier)
                             throw Error(methodName, "Expected method name.");
-                        if (classInfo.Methods.Any(x => x.Name == methodName.Lexeme))
+                        var inheritedMethod = FindMethod(classInfo.BaseClassName, methodName.Lexeme);
+                        if (classInfo.Methods.Concat(classInfo.StaticAsyncMethods).Any(x => x.Name == methodName.Lexeme))
                             throw Error(methodName, $"Method '{methodName.Lexeme}' is already declared in class '{classInfo.Name}'.");
+                        if (sawOverride && (inheritedMethod == null || !inheritedMethod.Function.IsVirtual))
+                            throw Error(methodName, $"Method '{methodName.Lexeme}' does not override an inherited virtual method.");
+                        if (!sawOverride && inheritedMethod != null)
+                            throw Error(methodName, $"Method '{methodName.Lexeme}' already exists in a base class; declare override for a virtual method.");
+                        if ((sawVirtual || sawOverride) && (sawStatic || !sawPublic || !sawAsync))
+                            throw Error(methodName, "virtual and override are supported only on public async instance methods.");
 
                         ExpectAt(ref position, TokenKind.LParen);
                         var parameters = new List<ParameterSignature>();
@@ -630,7 +809,9 @@ namespace Aloe.CompilerLib
                         ExpectAt(ref position, TokenKind.Colon);
                         var returnType = ScanType(ref position, allowVoid: true, out var returnClassName);
                         if (sawPublic && sawAsync && returnType != ExprType.Void)
-                            throw Error(methodName, "public async instance methods must return void.");
+                            throw Error(methodName, "public async methods must return void.");
+                        if (sawOverride && !HasMatchingMethodSignature(inheritedMethod!.Function, parameters, returnType, returnClassName))
+                            throw Error(methodName, $"Override '{classInfo.Name}.{methodName.Lexeme}' must match the inherited method signature.");
                         ExpectAt(ref position, TokenKind.LBrace);
                         var bodyStart = position;
                         var depth = 1;
@@ -654,9 +835,15 @@ namespace Aloe.CompilerLib
                             IsMain: false,
                             DeclaringClass: classInfo.Name,
                             ReturnClassName: returnClassName,
-                            IsPublicAsync: sawPublic && sawAsync);
+                            IsPublicAsync: sawPublic && sawAsync && !sawStatic,
+                            IsPublicStaticAsync: sawPublic && sawAsync && sawStatic,
+                            IsStaticMethod: sawStatic);
+                        methodFunction = methodFunction with { IsVirtual = sawVirtual || sawOverride };
                         _functions.Add(methodFunction);
-                        classInfo.Methods.Add(new MethodSignature(methodName.Lexeme, methodFunction));
+                        if (sawStatic)
+                            classInfo.StaticAsyncMethods.Add(new MethodSignature(methodName.Lexeme, methodFunction));
+                        else
+                            classInfo.Methods.Add(new MethodSignature(methodName.Lexeme, methodFunction));
                         continue;
                     }
 
@@ -705,6 +892,10 @@ namespace Aloe.CompilerLib
                 switch (token.Lexeme)
                 {
                     case "int": return ExprType.Int;
+                    case "byte": return ExprType.Byte;
+                    case "char": return ExprType.Char;
+                    case "float": return ExprType.Float;
+                    case "decimal": return ExprType.Decimal;
                     case "string": return ExprType.String;
                     case "bool":
                     case "boolean": return ExprType.Bool;
@@ -724,6 +915,11 @@ namespace Aloe.CompilerLib
                         return ExprType.Object;
                     case "void" when allowVoid: return ExprType.Void;
                     default:
+                        if (_enumMembers.ContainsKey(token.Lexeme))
+                        {
+                            className = token.Lexeme;
+                            return ExprType.Enum;
+                        }
                         if (_classNames.Contains(token.Lexeme))
                         {
                             className = token.Lexeme;
@@ -762,6 +958,9 @@ namespace Aloe.CompilerLib
 
             private bool ParseStatement()
             {
+                if (Current.Lexeme == "with")
+                    return ParseTypeWith();
+
                 if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot)
                 {
                     ParseThisFieldAssignment();
@@ -827,6 +1026,68 @@ namespace Aloe.CompilerLib
                     return false;
                 }
 
+                // A bare enum member in a type-based with block has no runtime effect.
+                if (Check(TokenKind.Dot) && Peek(1).Kind == TokenKind.Identifier && Peek(2).Kind == TokenKind.Assign)
+                {
+                    Advance();
+                    var member = Expect(TokenKind.Identifier);
+                    if (!TryResolveTypeWithMember(member.Lexeme, out var context) || context.InstanceSlot == null)
+                        throw Error(member, "Field assignment requires an instance with context.");
+                    var field = ResolveWithField(context.TypeName, member);
+                    Expect(TokenKind.Assign);
+                    Emit(EnumOpcode.LoadLocal, context.InstanceSlot.Value);
+                    EmitIntConstant(field.Index);
+                    var expressionStart = _code.Count;
+                    var actualType = ParseExpression();
+                    actualType = AdaptByteLiteral(member, field.Type, actualType, expressionStart);
+                    RequireAssignable(member, field.Type, actualType, field.ClassName, _lastExpressionClassName);
+                    Expect(TokenKind.Semicolon);
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.ObjectFieldSet);
+                    return true;
+                }
+
+                if (_typeWithScopes.Count > 0 &&
+                    Current.Kind == TokenKind.Identifier &&
+                    Peek(1).Kind == TokenKind.Semicolon &&
+                    !TryResolveLocal(Current.Lexeme, out _) &&
+                    TryResolveEnumWithMember(Current.Lexeme, out _, out _))
+                {
+                    Advance();
+                    Advance();
+                    return true;
+                }
+
+                if (_typeWithScopes.Count > 0 &&
+                    Check(TokenKind.Dot) &&
+                    Peek(1).Kind == TokenKind.Identifier &&
+                    Peek(2).Kind == TokenKind.Semicolon &&
+                    TryResolveTypeWithMember(Peek(1).Lexeme, out var literalType) &&
+                    literalType.InstanceSlot == null && _enumMembers.ContainsKey(literalType.TypeName))
+                {
+                    Advance();
+                    Advance();
+                    Advance();
+                    return true;
+                }
+
+                if (_typeWithScopes.Count > 0 &&
+                    Check(TokenKind.Dot) &&
+                    Peek(1).Kind == TokenKind.Identifier &&
+                    Peek(2).Kind == TokenKind.LParen)
+                {
+                    Advance(); // .
+                    var member = Expect(TokenKind.Identifier);
+                    if (!TryResolveTypeWithMember(member.Lexeme, out var targetType))
+                        throw Error(member, $"Unknown type-based with member '{member.Lexeme}'.");
+                    if (!_classes.TryGetValue(targetType.TypeName, out var classInfo))
+                        throw Error(member, $"Enum member '{targetType.TypeName}.{member.Lexeme}' cannot be called.");
+                    if (targetType.InstanceSlot is int slot)
+                        ParseInstanceAsyncMethodCallStatement(new LocalInfo(slot, ExprType.Object, targetType.TypeName), classInfo, member);
+                    else
+                        ParseStaticAsyncMethodCallStatement(classInfo, member);
+                    return true;
+                }
+
 
                 if (Current.Lexeme == "GC" && Peek(1).Kind == TokenKind.Dot)
                 {
@@ -876,6 +1137,11 @@ namespace Aloe.CompilerLib
                     Peek(2).Kind == TokenKind.Identifier &&
                     Peek(3).Kind == TokenKind.LParen)
                 {
+                    if (_classes.TryGetValue(Current.Lexeme, out _))
+                    {
+                        ParseStaticAsyncMethodCallStatement();
+                        return true;
+                    }
                     ParseInstanceAsyncMethodCallStatement();
                     return true;
                 }
@@ -903,6 +1169,83 @@ namespace Aloe.CompilerLib
             }
 
 
+            private bool ParseTypeWith()
+            {
+                Advance(); // with
+                Expect(TokenKind.LParen);
+                var contexts = new List<WithContext>();
+                while (true)
+                {
+                    contexts.Add(ParseWithTarget());
+                    if (!Check(TokenKind.Comma))
+                        break;
+                    Advance();
+                }
+                Expect(TokenKind.RParen);
+                Expect(TokenKind.LBrace);
+
+                EnterScope();
+                _typeWithScopes.Push(contexts);
+                var canFallThrough = true;
+                while (!Check(TokenKind.RBrace))
+                {
+                    if (Check(TokenKind.EndOfFile))
+                        throw Error(Current, "Unexpected end of file in with block.");
+
+                    var statementCanFallThrough = ParseStatement();
+                    if (canFallThrough)
+                        canFallThrough = statementCanFallThrough;
+                }
+
+                _typeWithScopes.Pop();
+                ExitScope();
+                Expect(TokenKind.RBrace);
+                return canFallThrough;
+            }
+
+            private bool IsWithTargetDelimiter(int offset)
+                => Peek(offset).Kind is TokenKind.RParen or TokenKind.Comma;
+
+            private WithContext ParseWithTarget()
+            {
+                var typeToken = Current;
+                WithContext context;
+                if (Check(TokenKind.Identifier) && IsWithTargetDelimiter(1) &&
+                    (_enumMembers.ContainsKey(typeToken.Lexeme) || _classes.ContainsKey(typeToken.Lexeme)))
+                {
+                    Advance();
+                    if (TryResolveLocal(typeToken.Lexeme, out _))
+                        throw Error(typeToken, $"Ambiguous with target '{typeToken.Lexeme}': both a type and a local value are in scope.");
+                    context = new WithContext(typeToken.Lexeme);
+                }
+                else
+                {
+                    ExprType type;
+                    string? className;
+                    if (Current.Lexeme == "this" && IsWithTargetDelimiter(1))
+                    {
+                        Advance();
+                        className = _currentFunction?.IsStaticMethod == false ? _currentFunction.DeclaringClass : null;
+                        if (className == null)
+                            throw Error(typeToken, "'this' requires class instance code.");
+                        Emit(EnumOpcode.LoadLocal, 0);
+                        type = ExprType.Object;
+                    }
+                    else
+                    {
+                        type = ParseExpression();
+                        className = _lastExpressionClassName;
+                    }
+                    if (type != ExprType.Object || className == null || !_classes.ContainsKey(className))
+                        throw Error(typeToken, "Instance with requires a statically known class instance.");
+                    var slot = _nextLocalSlot++;
+                    Emit(EnumOpcode.StoreLocal, slot);
+                    context = new WithContext(className, slot);
+                }
+                return context;
+            }
+
+
             private void ParseVarDeclaration()
             {
                 Advance(); // var
@@ -925,7 +1268,9 @@ namespace Aloe.CompilerLib
                 Expect(TokenKind.Colon);
                 var declaredType = ParseTypeName(out var declaredClassName);
                 Expect(TokenKind.Assign);
+                var expressionStart = _code.Count;
                 var actualType = ParseExpression();
+                actualType = AdaptByteLiteral(name, declaredType, actualType, expressionStart);
                 var actualClassName = _lastExpressionClassName;
                 RequireAssignable(name, declaredType, actualType, declaredClassName, actualClassName);
                 Expect(TokenKind.Semicolon);
@@ -941,7 +1286,9 @@ namespace Aloe.CompilerLib
                 var name = Expect(TokenKind.Identifier);
                 var local = ResolveLocal(name);
                 Expect(TokenKind.Assign);
+                var expressionStart = _code.Count;
                 var actualType = ParseExpression();
+                actualType = AdaptByteLiteral(name, local.Type, actualType, expressionStart);
                 var actualClassName = _lastExpressionClassName;
                 RequireAssignable(name, local.Type, actualType, local.ClassName, actualClassName);
                 Expect(TokenKind.Semicolon);
@@ -953,7 +1300,7 @@ namespace Aloe.CompilerLib
             {
                 var thisToken = Advance(); // this
                 var function = _currentFunction;
-                if (function?.DeclaringClass == null)
+                if (function?.DeclaringClass == null || function.IsStaticMethod)
                     throw Error(thisToken, "'this' is only available in class instance code.");
 
                 Expect(TokenKind.Dot);
@@ -963,7 +1310,9 @@ namespace Aloe.CompilerLib
 
                 Emit(EnumOpcode.LoadLocal, 0);
                 EmitIntConstant(field.Index);
+                var expressionStart = _code.Count;
                 var actualType = ParseExpression();
+                actualType = AdaptByteLiteral(fieldToken, field.Type, actualType, expressionStart);
                 var actualClassName = _lastExpressionClassName;
                 RequireAssignable(fieldToken, field.Type, actualType, field.ClassName, actualClassName);
                 Expect(TokenKind.Semicolon);
@@ -975,8 +1324,76 @@ namespace Aloe.CompilerLib
             {
                 if (!_classes.TryGetValue(className, out var classInfo))
                     throw Error(fieldToken, $"Unknown class '{className}'.");
-                var field = classInfo.Fields.FirstOrDefault(x => x.Name == fieldToken.Lexeme);
+                var field = classInfo.Fields.FirstOrDefault(x => x.Name == fieldToken.Lexeme)
+                            ?? FindField(classInfo.BaseClassName, fieldToken.Lexeme);
                 return field ?? throw Error(fieldToken, $"Unknown field '{fieldToken.Lexeme}' in class '{className}'.");
+            }
+
+            private FieldSignature? FindField(string? className, string memberName)
+                => className != null && _classes.TryGetValue(className, out var classInfo)
+                    ? classInfo.Fields.FirstOrDefault(x => x.Name == memberName) ?? FindField(classInfo.BaseClassName, memberName)
+                    : null;
+
+            private PropertySignature? FindProperty(string? className, string memberName)
+                => className != null && _classes.TryGetValue(className, out var classInfo)
+                    ? classInfo.Properties.FirstOrDefault(x => x.Name == memberName) ?? FindProperty(classInfo.BaseClassName, memberName)
+                    : null;
+
+            private MethodSignature? FindMethod(string? className, string memberName)
+                => className != null && _classes.TryGetValue(className, out var classInfo)
+                    ? classInfo.Methods.FirstOrDefault(x => x.Name == memberName) ?? FindMethod(classInfo.BaseClassName, memberName)
+                    : null;
+
+            private static bool HasMatchingMethodSignature(
+                FunctionSignature inherited,
+                IReadOnlyList<ParameterSignature> parameters,
+                ExprType returnType,
+                string? returnClassName)
+                => inherited.ReturnType == returnType && inherited.ReturnClassName == returnClassName &&
+                   inherited.Parameters.Count == parameters.Count &&
+                   inherited.Parameters.Zip(parameters).All(pair =>
+                       pair.First.Type == pair.Second.Type && pair.First.ClassName == pair.Second.ClassName);
+
+            private int GetFieldCount(string? className)
+                => className != null && _classes.TryGetValue(className, out var classInfo)
+                    ? classInfo.Fields.Count + GetFieldCount(classInfo.BaseClassName)
+                    : 0;
+
+            private IReadOnlyList<ClassSignature> GetBaseClassesRootFirst(ClassSignature classInfo)
+            {
+                var bases = new List<ClassSignature>();
+                var baseName = classInfo.BaseClassName;
+                while (baseName != null && _classes.TryGetValue(baseName, out var baseClass))
+                {
+                    bases.Add(baseClass);
+                    baseName = baseClass.BaseClassName;
+                }
+                bases.Reverse();
+                return bases;
+            }
+
+            private void EmitBaseConstructors(ClassSignature classInfo, int objectSlot, AloeToken allocationToken)
+            {
+                foreach (var baseClass in GetBaseClassesRootFirst(classInfo))
+                {
+                    if (baseClass.Constructor == null)
+                        continue;
+                    if (baseClass.Constructor.Parameters.Count != 0)
+                        throw Error(allocationToken, $"Base constructor '{baseClass.Name}.construct' requires arguments; explicit base-constructor calls are not supported yet.");
+                    Emit(EnumOpcode.LoadLocal, objectSlot);
+                    Emit(EnumOpcode.Call, baseClass.Constructor.Index);
+                }
+            }
+
+            private bool IsClassAssignable(string? actualClassName, string expectedClassName)
+            {
+                while (actualClassName != null && _classes.TryGetValue(actualClassName, out var classInfo))
+                {
+                    if (string.Equals(actualClassName, expectedClassName, StringComparison.Ordinal))
+                        return true;
+                    actualClassName = classInfo.BaseClassName;
+                }
+                return false;
             }
 
 
@@ -1413,7 +1830,9 @@ namespace Aloe.CompilerLib
                 }
                 else
                 {
+                    var expressionStart = _code.Count;
                     var type = ParseExpression();
+                    type = AdaptByteLiteral(returnToken, function.ReturnType, type, expressionStart);
                     var className = _lastExpressionClassName;
                     RequireAssignable(returnToken, function.ReturnType, type, function.ReturnClassName, className);
                 }
@@ -1499,6 +1918,7 @@ namespace Aloe.CompilerLib
             private ExprType ParseComparison()
             {
                 var leftType = ParseAdditive();
+                var leftClassName = _lastExpressionClassName;
 
 
                 if (!IsComparison(Current.Kind))
@@ -1507,16 +1927,20 @@ namespace Aloe.CompilerLib
 
                 var op = Advance();
                 var rightType = ParseAdditive();
+                var rightClassName = _lastExpressionClassName;
 
 
                 switch (op.Kind)
                 {
                     case TokenKind.EqualEqual:
                     case TokenKind.BangEqual:
-                        if (leftType != rightType)
+                        if (leftType != rightType && !IsNumericType(leftType, rightType))
                             throw Error(
                                 op,
                                 $"Cannot compare {leftType} and {rightType} with '{op.Lexeme}'.");
+                        if (leftType == ExprType.Enum &&
+                            !string.Equals(leftClassName, rightClassName, StringComparison.Ordinal))
+                            throw Error(op, "Different enum types cannot be compared.");
                         Emit(
                             op.Kind == TokenKind.EqualEqual
                                 ? EnumOpcode.CmpEq
@@ -1528,7 +1952,8 @@ namespace Aloe.CompilerLib
                     case TokenKind.LessEqual:
                     case TokenKind.Greater:
                     case TokenKind.GreaterEqual:
-                        RequireIntBinary(op, leftType, rightType);
+                        if (leftType != ExprType.Char || rightType != ExprType.Char)
+                            RequireNumericBinary(op, leftType, rightType);
                         Emit(op.Kind switch
                         {
                             TokenKind.Less => EnumOpcode.CmpLt,
@@ -1559,7 +1984,7 @@ namespace Aloe.CompilerLib
                 {
                     var op = Advance();
                     var right = ParseMultiplicative();
-                    RequireIntBinary(op, type, right);
+                    RequireNumericBinary(op, type, right);
 
 
                     Emit(
@@ -1568,7 +1993,7 @@ namespace Aloe.CompilerLib
                             : EnumOpcode.Sub);
 
 
-                    type = ExprType.Int;
+                    type = PromoteNumericType(type, right);
                     _lastExpressionClassName = null;
                 }
 
@@ -1589,7 +2014,7 @@ namespace Aloe.CompilerLib
                 {
                     var op = Advance();
                     var right = ParseUnary();
-                    RequireIntBinary(op, type, right);
+                    RequireNumericBinary(op, type, right);
 
 
                     Emit(op.Kind switch
@@ -1601,7 +2026,7 @@ namespace Aloe.CompilerLib
                     });
 
 
-                    type = ExprType.Int;
+                    type = PromoteNumericType(type, right);
                     _lastExpressionClassName = null;
                 }
 
@@ -1642,7 +2067,14 @@ namespace Aloe.CompilerLib
 
                 Expect(TokenKind.Dot);
                 var member = Expect(TokenKind.Identifier);
-                var method = classInfo.Methods.FirstOrDefault(x => x.Name == member.Lexeme && x.Function.IsPublicAsync);
+                ParseInstanceAsyncMethodCallStatement(target, classInfo, member);
+            }
+
+            private void ParseInstanceAsyncMethodCallStatement(LocalInfo target, ClassSignature classInfo, AloeToken member)
+            {
+                var method = FindMethod(classInfo.Name, member.Lexeme);
+                if (method?.Function.IsPublicAsync != true)
+                    method = null;
                 if (method == null)
                     throw Error(member, $"'{classInfo.Name}.{member.Lexeme}' is not a public async instance method.");
 
@@ -1659,9 +2091,11 @@ namespace Aloe.CompilerLib
                             throw Error(Current, $"Method '{function.Name}' received too many arguments.");
 
                         var argumentToken = Current;
+                        var expressionStart = _code.Count;
                         var actualType = ParseExpression();
                         var actualClassName = _lastExpressionClassName;
                         var parameter = function.Parameters[argumentIndex];
+                        actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
                         RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
                         argumentIndex++;
 
@@ -1676,7 +2110,38 @@ namespace Aloe.CompilerLib
                     throw Error(member, $"Method '{function.Name}' expects {function.Parameters.Count} arguments, found {argumentIndex}.");
                 Expect(TokenKind.Semicolon);
 
-                if (_currentFunction?.IsPublicAsync == true)
+                if (function.IsVirtual)
+                {
+                    var dispatchClasses = _classes.Values
+                        .Where(candidate => IsClassAssignable(candidate.Name, classInfo.Name))
+                        .ToArray();
+                    var dispatchTargets = dispatchClasses
+                        .Select(candidate => FindMethod(candidate.Name, member.Lexeme)!.Function)
+                        .DistinctBy(candidate => candidate.Index)
+                        .ToArray();
+                    var dispatchData = string.Join(";", dispatchClasses.Select(candidate =>
+                    {
+                        var implementation = FindMethod(candidate.Name, member.Lexeme)!.Function;
+                        return $"{candidate.Name}={implementation.Index.ToString(CultureInfo.InvariantCulture)}";
+                    }));
+
+                    if (_currentFunction?.IsPublicAsync == true || _currentFunction?.IsPublicStaticAsync == true)
+                    {
+                        if (!_asyncCallEdges.TryGetValue(_currentFunction.Index, out var targets))
+                        {
+                            targets = new HashSet<int>();
+                            _asyncCallEdges.Add(_currentFunction.Index, targets);
+                        }
+                        targets.UnionWith(dispatchTargets.Select(x => x.Index));
+                    }
+
+                    EmitIntConstant(AddConstant(AloeValue.FromString(dispatchData)));
+                    EmitIntConstant(argumentIndex);
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.InstanceVirtualAsyncEnqueue);
+                    return;
+                }
+
+                if (_currentFunction?.IsPublicAsync == true || _currentFunction?.IsPublicStaticAsync == true)
                 {
                     if (!_asyncCallEdges.TryGetValue(_currentFunction.Index, out var targets))
                     {
@@ -1691,13 +2156,70 @@ namespace Aloe.CompilerLib
                 Emit(EnumOpcode.Syscall, (int)EnumSyscall.InstanceAsyncEnqueue);
             }
 
+            private void ParseStaticAsyncMethodCallStatement()
+            {
+                var typeToken = Expect(TokenKind.Identifier);
+                if (!_classes.TryGetValue(typeToken.Lexeme, out var classInfo))
+                    throw Error(typeToken, $"Unknown class '{typeToken.Lexeme}'.");
+                Expect(TokenKind.Dot);
+                var member = Expect(TokenKind.Identifier);
+                ParseStaticAsyncMethodCallStatement(classInfo, member);
+            }
+
+
+            private void ParseStaticAsyncMethodCallStatement(ClassSignature classInfo, AloeToken member)
+            {
+                var method = classInfo.StaticAsyncMethods.FirstOrDefault(x => x.Name == member.Lexeme);
+                if (method == null)
+                    throw Error(member, $"'{classInfo.Name}.{member.Lexeme}' is not a public static async method.");
+
+                var function = method.Function;
+                Expect(TokenKind.LParen);
+                var argumentIndex = 0;
+                if (!Check(TokenKind.RParen))
+                {
+                    while (true)
+                    {
+                        if (argumentIndex >= function.Parameters.Count)
+                            throw Error(Current, $"Method '{function.Name}' received too many arguments.");
+                        var argumentToken = Current;
+                        var expressionStart = _code.Count;
+                        var actualType = ParseExpression();
+                        var actualClassName = _lastExpressionClassName;
+                        var parameter = function.Parameters[argumentIndex++];
+                        actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
+                        RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
+                        if (!Check(TokenKind.Comma)) break;
+                        Advance();
+                    }
+                }
+                Expect(TokenKind.RParen);
+                if (argumentIndex != function.Parameters.Count)
+                    throw Error(member, $"Method '{function.Name}' expects {function.Parameters.Count} arguments, found {argumentIndex}.");
+                Expect(TokenKind.Semicolon);
+
+                if (_currentFunction?.IsPublicAsync == true || _currentFunction?.IsPublicStaticAsync == true)
+                {
+                    if (!_asyncCallEdges.TryGetValue(_currentFunction.Index, out var targets))
+                    {
+                        targets = new HashSet<int>();
+                        _asyncCallEdges.Add(_currentFunction.Index, targets);
+                    }
+                    targets.Add(function.Index);
+                }
+
+                EmitIntConstant(function.Index);
+                EmitIntConstant(argumentIndex);
+                Emit(EnumOpcode.Syscall, (int)EnumSyscall.StaticAsyncEnqueue);
+            }
+
 
             private void ValidateAsyncCallGraph()
             {
                 var state = new Dictionary<int, int>(); // 0=unseen, 1=visiting, 2=done
                 var path = new Stack<int>();
 
-                foreach (var function in _functions.Where(x => x.IsPublicAsync))
+                foreach (var function in _functions.Where(x => x.IsPublicAsync || x.IsPublicStaticAsync))
                 {
                     if (!state.TryGetValue(function.Index, out var existing) || existing == 0)
                         Visit(function.Index);
@@ -1756,7 +2278,7 @@ namespace Aloe.CompilerLib
                     var declaringClass = _currentFunction?.DeclaringClass;
                     if (declaringClass != null && _classes.TryGetValue(declaringClass, out var classInfo))
                     {
-                        var method = classInfo.Methods.FirstOrDefault(x => x.Name == name.Lexeme);
+                        var method = FindMethod(classInfo.Name, name.Lexeme);
                         if (method != null)
                         {
                             function = method.Function;
@@ -1784,9 +2306,11 @@ namespace Aloe.CompilerLib
                             throw Error(Current, $"Function '{function.Name}' received too many arguments.");
 
                         var argumentToken = Current;
+                        var expressionStart = _code.Count;
                         var actualType = ParseExpression();
                         var actualClassName = _lastExpressionClassName;
                         var parameter = function.Parameters[argumentIndex];
+                        actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
                         RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
                         argumentIndex++;
 
@@ -1808,6 +2332,22 @@ namespace Aloe.CompilerLib
 
             private ExprType ParsePrimary()
             {
+                if (Check(TokenKind.Dot) && _typeWithScopes.Count > 0)
+                {
+                    Advance();
+                    var memberToken = Expect(TokenKind.Identifier);
+                    if (!TryResolveTypeWithMember(memberToken.Lexeme, out var dotEnumName))
+                        throw Error(memberToken, $"Unknown type-based with member '{memberToken.Lexeme}'.");
+                    if (dotEnumName.InstanceSlot is int instanceSlot)
+                        return ParseWithInstanceRead(dotEnumName.TypeName, instanceSlot, memberToken);
+                    if (!_enumMembers.TryGetValue(dotEnumName.TypeName, out var members))
+                        throw Error(memberToken, $"Class member '{dotEnumName.TypeName}.{memberToken.Lexeme}' cannot be used as a value in type-based with; only public static async method statements are supported.");
+                    var dotEnumValue = members[memberToken.Lexeme];
+                    Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromInt(dotEnumValue)));
+                    _lastExpressionClassName = dotEnumName.TypeName;
+                    return ExprType.Enum;
+                }
+
                 if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot)
                     return ParseThisFieldRead();
 
@@ -1818,6 +2358,10 @@ namespace Aloe.CompilerLib
                 // before the generic "identifier ." instance property read.
                 if (Current.Lexeme == "GC" && Peek(1).Kind == TokenKind.Dot)
                     return ParseGcStaticPropertyRead();
+
+                if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.Dot &&
+                    _enumMembers.ContainsKey(Current.Lexeme))
+                    return ParseEnumLiteral();
 
                 if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.Dot)
                     return ParseInstancePropertyRead();
@@ -1833,6 +2377,28 @@ namespace Aloe.CompilerLib
                 }
 
 
+                if (Check(TokenKind.FloatLiteral))
+                {
+                    var token = Advance();
+                    Emit(
+                        EnumOpcode.PushConst,
+                        AddConstant(AloeValue.FromFloat(ParseFloat(token))));
+                    _lastExpressionClassName = null;
+                    return ExprType.Float;
+                }
+
+
+                if (Check(TokenKind.DecimalLiteral))
+                {
+                    var token = Advance();
+                    Emit(
+                        EnumOpcode.PushConst,
+                        AddConstant(AloeValue.FromDecimal(ParseDecimal(token))));
+                    _lastExpressionClassName = null;
+                    return ExprType.Decimal;
+                }
+
+
                 if (Check(TokenKind.StringLiteral))
                 {
                     var token = Advance();
@@ -1841,6 +2407,15 @@ namespace Aloe.CompilerLib
                         AddConstant(AloeValue.FromString(ParseString(token))));
                     _lastExpressionClassName = null;
                     return ExprType.String;
+                }
+
+
+                if (Check(TokenKind.CharLiteral))
+                {
+                    var token = Advance();
+                    Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromChar(ParseChar(token))));
+                    _lastExpressionClassName = null;
+                    return ExprType.Char;
                 }
 
 
@@ -1867,6 +2442,17 @@ namespace Aloe.CompilerLib
 
                 if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.LParen)
                     return ParseFunctionCall(requireValue: true);
+
+
+                if (Check(TokenKind.Identifier) &&
+                    !TryResolveLocal(Current.Lexeme, out _) &&
+                    TryResolveEnumWithMember(Current.Lexeme, out var enumName, out var enumValue))
+                {
+                    Advance();
+                    Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromInt(enumValue)));
+                    _lastExpressionClassName = enumName;
+                    return ExprType.Enum;
+                }
 
 
                 if (Check(TokenKind.Identifier))
@@ -1943,7 +2529,7 @@ namespace Aloe.CompilerLib
             {
                 var thisToken = Advance(); // this
                 var function = _currentFunction;
-                if (function?.DeclaringClass == null)
+                if (function?.DeclaringClass == null || function.IsStaticMethod)
                     throw Error(thisToken, "'this' is only available in class instance code.");
 
                 Expect(TokenKind.Dot);
@@ -1970,7 +2556,7 @@ namespace Aloe.CompilerLib
                 Emit(EnumOpcode.LoadLocal, target.Slot);
                 Expect(TokenKind.Dot);
                 var member = Expect(TokenKind.Identifier);
-                var property = classInfo.Properties.FirstOrDefault(x => x.Name == member.Lexeme);
+                var property = FindProperty(classInfo.Name, member.Lexeme);
                 if (property == null)
                     throw Error(member, $"'{classInfo.Name}.{member.Lexeme}' is not a public instance property in the current compiler subset.");
 
@@ -1978,6 +2564,33 @@ namespace Aloe.CompilerLib
                 Emit(EnumOpcode.Syscall, (int)EnumSyscall.InstancePropertyGet);
                 _lastExpressionClassName = property.ClassName;
                 return property.Type;
+            }
+
+            private FieldSignature ResolveWithField(string className, AloeToken member)
+            {
+                var field = ResolveField(className, member);
+                var declaringClass = _currentFunction?.DeclaringClass;
+                if (declaringClass == null || !_classes[declaringClass].Fields.Any(candidate => ReferenceEquals(candidate, field)))
+                    throw Error(member, $"Field '{className}.{member.Lexeme}' is private to its declaring class.");
+                return field;
+            }
+
+            private ExprType ParseWithInstanceRead(string className, int slot, AloeToken member)
+            {
+                var property = FindProperty(className, member.Lexeme);
+                Emit(EnumOpcode.LoadLocal, slot);
+                if (property != null)
+                {
+                    EmitIntConstant(property.Getter.Index);
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.InstancePropertyGet);
+                    _lastExpressionClassName = property.ClassName;
+                    return property.Type;
+                }
+                var field = ResolveWithField(className, member);
+                EmitIntConstant(field.Index);
+                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ObjectFieldGet);
+                _lastExpressionClassName = field.ClassName;
+                return field.Type;
             }
 
 
@@ -1989,7 +2602,7 @@ namespace Aloe.CompilerLib
                     throw Error(className, $"Unknown class '{className.Lexeme}'.");
 
                 Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(classInfo.Name)));
-                EmitIntConstant(classInfo.Fields.Count);
+                EmitIntConstant(GetFieldCount(classInfo.Name));
                 Emit(EnumOpcode.Syscall, (int)EnumSyscall.ObjectAllocate);
                 var objectSlot = _nextLocalSlot++;
                 Emit(EnumOpcode.StoreLocal, objectSlot);
@@ -2000,15 +2613,16 @@ namespace Aloe.CompilerLib
                 {
                     if (!Check(TokenKind.RParen))
                         throw Error(Current, $"Class '{classInfo.Name}' has no constructor and cannot accept arguments.");
-                    if (classInfo.Fields.Count != 0)
+                    if (classInfo.Fields.Count != 0 ||
+                        GetBaseClassesRootFirst(classInfo).Any(x => x.Fields.Count != 0 && x.Constructor == null))
                         throw Error(className, $"Class '{classInfo.Name}' has fields but no constructor to initialize them.");
                     Expect(TokenKind.RParen);
+                    EmitBaseConstructors(classInfo, objectSlot, className);
                     Emit(EnumOpcode.LoadLocal, objectSlot);
                     _lastExpressionClassName = classInfo.Name;
                     return ExprType.Object;
                 }
 
-                Emit(EnumOpcode.LoadLocal, objectSlot); // implicit this argument
                 var argumentIndex = 0;
                 if (!Check(TokenKind.RParen))
                 {
@@ -2017,9 +2631,11 @@ namespace Aloe.CompilerLib
                         if (argumentIndex >= constructor.Parameters.Count)
                             throw Error(Current, $"Constructor '{classInfo.Name}' received too many arguments.");
                         var argumentToken = Current;
+                        var expressionStart = _code.Count;
                         var actualType = ParseExpression();
                         var actualClassName = _lastExpressionClassName;
                         var parameter = constructor.Parameters[argumentIndex];
+                        actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
                         RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
                         argumentIndex++;
                         if (!Check(TokenKind.Comma))
@@ -2031,10 +2647,86 @@ namespace Aloe.CompilerLib
                 if (argumentIndex != constructor.Parameters.Count)
                     throw Error(className, $"Constructor '{classInfo.Name}' expects {constructor.Parameters.Count} arguments, found {argumentIndex}.");
 
+                var argumentSlots = new int[argumentIndex];
+                for (var i = argumentIndex - 1; i >= 0; i--)
+                {
+                    argumentSlots[i] = _nextLocalSlot++;
+                    Emit(EnumOpcode.StoreLocal, argumentSlots[i]);
+                }
+
+                EmitBaseConstructors(classInfo, objectSlot, className);
+                Emit(EnumOpcode.LoadLocal, objectSlot); // implicit this argument
+                foreach (var argumentSlot in argumentSlots)
+                    Emit(EnumOpcode.LoadLocal, argumentSlot);
                 Emit(EnumOpcode.Call, constructor.Index);
                 Emit(EnumOpcode.LoadLocal, objectSlot);
                 _lastExpressionClassName = classInfo.Name;
                 return ExprType.Object;
+            }
+
+
+            private ExprType ParseEnumLiteral()
+            {
+                var enumToken = Advance();
+                Expect(TokenKind.Dot);
+                var memberToken = Expect(TokenKind.Identifier);
+                var members = _enumMembers[enumToken.Lexeme];
+                if (!members.TryGetValue(memberToken.Lexeme, out var value))
+                    throw Error(memberToken, $"Enum '{enumToken.Lexeme}' has no member '{memberToken.Lexeme}'.");
+
+                Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromInt(value)));
+                _lastExpressionClassName = enumToken.Lexeme;
+                return ExprType.Enum;
+            }
+
+
+            private bool TryResolveEnumWithMember(string memberName, out string enumName, out int value)
+            {
+                if (TryResolveWithContext(memberName, enumOnly: true, out var context))
+                {
+                    enumName = context.TypeName;
+                    value = _enumMembers[enumName][memberName];
+                    return true;
+                }
+
+                enumName = string.Empty;
+                value = default;
+                return false;
+            }
+
+
+            private bool TryResolveTypeWithMember(string memberName, out WithContext typeName)
+                => TryResolveWithContext(memberName, enumOnly: false, out typeName);
+
+            private bool TryResolveWithContext(string memberName, bool enumOnly, out WithContext context)
+            {
+                foreach (var scope in _typeWithScopes)
+                {
+                    WithContext? match = null;
+                    foreach (var candidate in scope)
+                    {
+                        var hasMember = candidate.InstanceSlot == null &&
+                            _enumMembers.TryGetValue(candidate.TypeName, out var members) && members.ContainsKey(memberName);
+                        if (!enumOnly && _classes.TryGetValue(candidate.TypeName, out var classInfo))
+                            hasMember = (candidate.InstanceSlot == null && classInfo.StaticAsyncMethods.Any(method => method.Name == memberName)) ||
+                                FindMethod(candidate.TypeName, memberName) != null ||
+                                FindField(candidate.TypeName, memberName) != null ||
+                                FindProperty(candidate.TypeName, memberName) != null;
+                        if (!hasMember)
+                            continue;
+                        if (match != null)
+                            throw Error(Current, $"Ambiguous with member '{memberName}' in the same block: '{match.TypeName}' and '{candidate.TypeName}'. Use an explicit target member access.");
+                        match = candidate;
+                    }
+                    if (match != null)
+                    {
+                        context = match;
+                        return true;
+                    }
+                }
+
+                context = null!;
+                return false;
             }
 
 
@@ -2049,6 +2741,10 @@ namespace Aloe.CompilerLib
                 switch (token.Lexeme)
                 {
                     case "int": return ExprType.Int;
+                    case "byte": return ExprType.Byte;
+                    case "char": return ExprType.Char;
+                    case "float": return ExprType.Float;
+                    case "decimal": return ExprType.Decimal;
                     case "string": return ExprType.String;
                     case "bool":
                     case "boolean": return ExprType.Bool;
@@ -2067,6 +2763,11 @@ namespace Aloe.CompilerLib
                         className = $"pipe<{FormatType(elementType)}>";
                         return ExprType.Object;
                     default:
+                        if (_enumMembers.ContainsKey(token.Lexeme))
+                        {
+                            className = token.Lexeme;
+                            return ExprType.Enum;
+                        }
                         if (_classNames.Contains(token.Lexeme))
                         {
                             className = token.Lexeme;
@@ -2081,6 +2782,11 @@ namespace Aloe.CompilerLib
                 => type switch
                 {
                     ExprType.Int => "int",
+                    ExprType.Byte => "byte",
+                    ExprType.Char => "char",
+                    ExprType.Enum => "enum",
+                    ExprType.Float => "float",
+                    ExprType.Decimal => "decimal",
                     ExprType.String => "string",
                     ExprType.Bool => "bool",
                     ExprType.Object => "object",
@@ -2183,14 +2889,14 @@ namespace Aloe.CompilerLib
                     TokenKind.GreaterEqual;
 
 
-            private static void RequireAssignable(
+            private void RequireAssignable(
                 AloeToken token,
                 ExprType expected,
                 ExprType actual)
                 => RequireAssignable(token, expected, actual, null, null);
 
 
-            private static void RequireAssignable(
+            private void RequireAssignable(
                 AloeToken token,
                 ExprType expected,
                 ExprType actual,
@@ -2200,11 +2906,41 @@ namespace Aloe.CompilerLib
                 if (expected != actual)
                     throw Error(token, $"Type mismatch: expected {expected}, found {actual}.");
 
+                if (expected == ExprType.Enum &&
+                    !string.Equals(expectedClassName, actualClassName, StringComparison.Ordinal))
+                    throw Error(token, $"Enum type mismatch: expected {expectedClassName}, found {actualClassName ?? "unknown enum"}.");
+
                 if (expected == ExprType.Object && expectedClassName != null)
                 {
-                    if (actualClassName == null || !string.Equals(expectedClassName, actualClassName, StringComparison.Ordinal))
+                    if (actualClassName == null ||
+                        (!string.Equals(expectedClassName, actualClassName, StringComparison.Ordinal) &&
+                         !IsClassAssignable(actualClassName, expectedClassName)))
                         throw Error(token, $"Type mismatch: expected {expectedClassName}, found {actualClassName ?? "object"}.");
                 }
+            }
+
+
+            private ExprType AdaptByteLiteral(AloeToken token, ExprType expected, ExprType actual, int expressionStart)
+            {
+                if (expected != ExprType.Byte || actual != ExprType.Int ||
+                    expressionStart < 0 || expressionStart >= _code.Count ||
+                    _code.Count != expressionStart + 1)
+                    return actual;
+
+                var instruction = _code[expressionStart];
+                if (instruction.Opcode != EnumOpcode.PushConst ||
+                    (uint)instruction.Operand0 >= (uint)_constants.Count ||
+                    !_constants[instruction.Operand0].IsInt)
+                    return actual;
+
+                var value = _constants[instruction.Operand0].AsInt;
+                if (value is < byte.MinValue or > byte.MaxValue)
+                    throw Error(token, $"Byte literal must be between {byte.MinValue} and {byte.MaxValue}.");
+
+                _code[expressionStart] = new Instruction(
+                    EnumOpcode.PushConst,
+                    AddConstant(AloeValue.FromByte((byte)value)));
+                return ExprType.Byte;
             }
 
 
@@ -2242,6 +2978,65 @@ namespace Aloe.CompilerLib
                     throw Error(
                         op,
                         $"Operator '{op.Lexeme}' is supported only for int in the current compiler subset.");
+            }
+
+
+            private static void RequireNumericBinary(
+                AloeToken op,
+                ExprType left,
+                ExprType right)
+            {
+                if (!IsNumericType(left, right))
+                    throw Error(
+                        op,
+                        $"Operator '{op.Lexeme}' requires compatible numeric operands; decimal and float cannot be mixed.");
+            }
+
+
+            private static bool IsNumericType(ExprType type)
+                => type is ExprType.Byte or ExprType.Int or ExprType.Float or ExprType.Decimal;
+
+
+            private static bool IsNumericType(ExprType left, ExprType right)
+                => IsNumericType(left) && IsNumericType(right) &&
+                   !(left == ExprType.Decimal && right == ExprType.Float) &&
+                   !(left == ExprType.Float && right == ExprType.Decimal);
+
+
+            private static ExprType PromoteNumericType(ExprType left, ExprType right)
+                => left == ExprType.Decimal || right == ExprType.Decimal
+                    ? ExprType.Decimal
+                    : left == ExprType.Float || right == ExprType.Float
+                        ? ExprType.Float
+                        : ExprType.Int;
+
+
+            private static double ParseFloat(AloeToken token)
+            {
+                if (!float.TryParse(
+                        token.Lexeme,
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out var value) ||
+                    !float.IsFinite(value))
+                    throw Error(token, $"Invalid float literal '{token.Lexeme}'.");
+
+                return value;
+            }
+
+
+            private static decimal ParseDecimal(AloeToken token)
+            {
+                var text = token.Lexeme;
+                var number = text[..^2];
+                if (!decimal.TryParse(
+                        number,
+                        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
+                        CultureInfo.InvariantCulture,
+                        out var value))
+                    throw Error(token, $"Invalid decimal literal '{token.Lexeme}'.");
+
+                return value;
             }
 
 
@@ -2311,6 +3106,32 @@ namespace Aloe.CompilerLib
 
 
                 return sb.ToString();
+            }
+
+
+            private static char ParseChar(AloeToken token)
+            {
+                var raw = token.Lexeme;
+                if (raw.Length < 3 || raw[0] != '\'' || raw[^1] != '\'')
+                    throw Error(token, "Unterminated char literal.");
+
+                var text = raw[1..^1];
+                if (text.Length == 1)
+                    return text[0];
+
+                if (text.Length == 2 && text[0] == '\\')
+                    return text[1] switch
+                    {
+                        '0' => '\0',
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '\'' => '\'',
+                        '\\' => '\\',
+                        _ => throw Error(token, $"Unsupported char escape '\\{text[1]}'.")
+                    };
+
+                throw Error(token, "A char literal must contain exactly one UTF-16 code unit.");
             }
 
 

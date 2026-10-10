@@ -25,8 +25,14 @@ namespace Aloe.CommonLib
         public static AloeValue FromInt(long value)
             => new AloeValue(EnumValueKind.Int, value);
 
+        public static AloeValue FromByte(byte value)
+            => new AloeValue(EnumValueKind.Byte, value);
+
+        public static AloeValue FromChar(char value)
+            => new AloeValue(EnumValueKind.Char, value);
+
         public static AloeValue FromFloat(double value)
-            => new AloeValue(EnumValueKind.Float, value);
+            => new AloeValue(EnumValueKind.Float, (float)value);
 
         public static AloeValue FromBool(bool value)
             => new AloeValue(EnumValueKind.Bool, value);
@@ -48,6 +54,8 @@ namespace Aloe.CommonLib
 
         public bool IsNull => Kind == EnumValueKind.Null;
         public bool IsInt => Kind == EnumValueKind.Int;
+        public bool IsByte => Kind == EnumValueKind.Byte;
+        public bool IsChar => Kind == EnumValueKind.Char;
         public bool IsFloat => Kind == EnumValueKind.Float;
         public bool IsBool => Kind == EnumValueKind.Bool;
         public bool IsString => Kind == EnumValueKind.String;
@@ -59,6 +67,7 @@ namespace Aloe.CommonLib
         // ★ decimal も数値扱いにする
         public bool IsNumber =>
             Kind == EnumValueKind.Int ||
+            Kind == EnumValueKind.Byte ||
             Kind == EnumValueKind.Float ||
             Kind == EnumValueKind.Decimal;
 
@@ -77,15 +86,40 @@ namespace Aloe.CommonLib
             }
         }
 
+        public byte AsByte
+        {
+            get
+            {
+                if (Kind == EnumValueKind.Byte)
+                    return (byte)_value!;
+
+                throw new VmException($"AloeValue is not Byte (actual: {Kind}).");
+            }
+        }
+
+        public char AsChar
+        {
+            get
+            {
+                if (Kind == EnumValueKind.Char)
+                    return (char)_value!;
+
+                throw new VmException($"AloeValue is not Char (actual: {Kind}).");
+            }
+        }
+
         public double AsFloat
         {
             get
             {
                 if (Kind == EnumValueKind.Float)
-                    return (double)_value!;
+                    return (double)(float)_value!;
 
                 if (Kind == EnumValueKind.Int)
                     return (double)(long)_value!;
+
+                if (Kind == EnumValueKind.Byte)
+                    return AsByte;
 
                 // ★ Decimal も Float に変換して扱えるようにする
                 if (Kind == EnumValueKind.Decimal)
@@ -139,8 +173,10 @@ namespace Aloe.CommonLib
                 // 必要なら Int/Float からの変換も許可する
                 if (Kind == EnumValueKind.Int)
                     return (decimal)(long)_value!;
+                if (Kind == EnumValueKind.Byte)
+                    return AsByte;
                 if (Kind == EnumValueKind.Float)
-                    return (decimal)(double)_value!;
+                    return (decimal)(float)_value!;
 
                 throw new VmException($"AloeValue is not Decimal/Int/Float (actual: {Kind}).");
             }
@@ -163,9 +199,36 @@ namespace Aloe.CommonLib
                     $"Cannot apply {opName} to {left.Kind} and {right.Kind}.");
             }
 
+            if (IsInteger(left) && IsInteger(right) && opName is "addition" or "subtraction" or "multiplication")
+            {
+                var leftInteger = left.IsByte ? left.AsByte : left.AsInt;
+                var rightInteger = right.IsByte ? right.AsByte : right.AsInt;
+                var integerResult = opName switch
+                {
+                    "addition" => checked(leftInteger + rightInteger),
+                    "subtraction" => checked(leftInteger - rightInteger),
+                    _ => checked(leftInteger * rightInteger),
+                };
+                return FromInt(integerResult);
+            }
+
             var l = left.AsFloat;
             var r = right.AsFloat;
+            var usesFloat32 = left.IsFloat || right.IsFloat;
+            if (usesFloat32)
+            {
+                l = (float)l;
+                r = (float)r;
+            }
             var result = op(l, r);
+
+            if (usesFloat32)
+                result = (float)result;
+
+            if ((usesFloat32 ? !float.IsFinite((float)result) : !double.IsFinite(result)) ||
+                (result == 0 && l != 0 && r != 0 &&
+                 opName is "multiplication" or "division"))
+                throw new OverflowException($"Floating-point {opName} overflowed or underflowed.");
 
             // 両方 Int だった場合、結果が Int にきれいに収まるなら Int に戻す
             if (left.Kind == EnumValueKind.Int &&
@@ -191,6 +254,24 @@ namespace Aloe.CommonLib
             return FromFloat(result);
         }
 
+        private static AloeValue DecimalBinary(
+            AloeValue left,
+            AloeValue right,
+            Func<decimal, decimal, decimal> op,
+            string opName)
+        {
+            if (!left.IsNumber || !right.IsNumber || left.IsFloat || right.IsFloat)
+                throw new VmException($"Decimal {opName} requires decimal/int operands; float mixing is unsupported (left={left.Kind}, right={right.Kind}).");
+
+            var l = left.AsDecimal;
+            var r = right.AsDecimal;
+            var result = op(l, r);
+            if (result == 0 && l != 0 && r != 0 && opName is "multiplication" or "division")
+                throw new OverflowException($"Decimal {opName} underflowed.");
+
+            return FromDecimal(result);
+        }
+
         private static bool IsZero(AloeValue value)
         {
             if (!value.IsNumber) return false;
@@ -198,23 +279,38 @@ namespace Aloe.CommonLib
             if (value.Kind == EnumValueKind.Int)
                 return value.AsInt == 0;
 
+            if (value.IsByte)
+                return value.AsByte == 0;
+
+            if (value.IsDecimal)
+                return value.AsDecimal == 0;
+
             // Float/Decimal は AsFloat でまとめて判定
             var f = value.AsFloat;
             return Math.Abs(f) < double.Epsilon;
         }
+
+        private static bool IsInteger(AloeValue value)
+            => value.IsInt || value.IsByte;
 
         #endregion
 
         #region Operators
 
         public static AloeValue operator +(AloeValue left, AloeValue right)
-            => NumericBinary(left, right, (a, b) => a + b, "addition");
+            => left.IsDecimal || right.IsDecimal
+                ? DecimalBinary(left, right, (a, b) => a + b, "addition")
+                : NumericBinary(left, right, (a, b) => a + b, "addition");
 
         public static AloeValue operator -(AloeValue left, AloeValue right)
-            => NumericBinary(left, right, (a, b) => a - b, "subtraction");
+            => left.IsDecimal || right.IsDecimal
+                ? DecimalBinary(left, right, (a, b) => a - b, "subtraction")
+                : NumericBinary(left, right, (a, b) => a - b, "subtraction");
 
         public static AloeValue operator *(AloeValue left, AloeValue right)
-            => NumericBinary(left, right, (a, b) => a * b, "multiplication");
+            => left.IsDecimal || right.IsDecimal
+                ? DecimalBinary(left, right, (a, b) => a * b, "multiplication")
+                : NumericBinary(left, right, (a, b) => a * b, "multiplication");
 
         public static AloeValue operator /(AloeValue left, AloeValue right)
         {
@@ -224,7 +320,9 @@ namespace Aloe.CommonLib
                 throw new ZeroDivisionException("Division by zero.");
             }
 
-            return NumericBinary(left, right, (a, b) => a / b, "division");
+            return left.IsDecimal || right.IsDecimal
+                ? DecimalBinary(left, right, (a, b) => a / b, "division")
+                : NumericBinary(left, right, (a, b) => a / b, "division");
         }
 
         #endregion
@@ -237,10 +335,12 @@ namespace Aloe.CommonLib
             {
                 EnumValueKind.Null => "null",
                 EnumValueKind.Int => AsInt.ToString(),
-                EnumValueKind.Float => AsFloat.ToString(),
+                EnumValueKind.Byte => AsByte.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                EnumValueKind.Char => AsChar.ToString(),
+                EnumValueKind.Float => ((float)_value!).ToString(System.Globalization.CultureInfo.InvariantCulture),
                 EnumValueKind.Bool => AsBool ? "true" : "false",
                 EnumValueKind.String => AsString,
-                EnumValueKind.Decimal => AsDecimal.ToString(),   // ★ 追加
+                EnumValueKind.Decimal => AsDecimal.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 EnumValueKind.Object => $"object#{AsObjectId}",
                 _ => $"<{Kind}>"
             };

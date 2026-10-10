@@ -10,8 +10,15 @@ namespace Aloe.RuntimeLib.OpCommand
         {
             if (left.IsNumber && right.IsNumber)
             {
-                if (left.IsInt && right.IsInt)
-                    return left.AsInt == right.AsInt;
+                if (IsInteger(left) && IsInteger(right))
+                    return ToInteger(left) == ToInteger(right);
+
+                if (left.IsDecimal || right.IsDecimal)
+                {
+                    if (left.IsFloat || right.IsFloat)
+                        throw new VmException("Decimal and float comparison cannot be mixed.");
+                    return left.AsDecimal == right.AsDecimal;
+                }
 
 
                 return left.AsFloat.Equals(right.AsFloat);
@@ -24,6 +31,9 @@ namespace Aloe.RuntimeLib.OpCommand
 
             if (left.IsBool)
                 return left.AsBool == right.AsBool;
+
+            if (left.IsChar)
+                return left.AsChar == right.AsChar;
 
 
             if (left.IsString)
@@ -44,6 +54,9 @@ namespace Aloe.RuntimeLib.OpCommand
 
         public static int CompareNumber(AloeValue left, AloeValue right)
         {
+            if (left.IsChar && right.IsChar)
+                return left.AsChar.CompareTo(right.AsChar);
+
             if (!left.IsNumber || !right.IsNumber)
             {
                 throw new VmException(
@@ -52,12 +65,25 @@ namespace Aloe.RuntimeLib.OpCommand
             }
 
 
-            if (left.IsInt && right.IsInt)
-                return left.AsInt.CompareTo(right.AsInt);
+            if (IsInteger(left) && IsInteger(right))
+                return ToInteger(left).CompareTo(ToInteger(right));
+
+            if (left.IsDecimal || right.IsDecimal)
+            {
+                if (left.IsFloat || right.IsFloat)
+                    throw new VmException("Decimal and float comparison cannot be mixed.");
+                return left.AsDecimal.CompareTo(right.AsDecimal);
+            }
 
 
             return left.AsFloat.CompareTo(right.AsFloat);
         }
+
+        private static bool IsInteger(AloeValue value)
+            => value.IsInt || value.IsByte;
+
+        private static long ToInteger(AloeValue value)
+            => value.IsByte ? value.AsByte : value.AsInt;
     }
 
 

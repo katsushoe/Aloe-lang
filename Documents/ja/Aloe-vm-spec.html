@@ -332,7 +332,7 @@
             <tr>
               <td>浮動小数点</td>
               <td><code>float</code></td>
-              <td>32bit IEEE754。</td>
+              <td>IEEE 754 binary32（<code>float</code>）。浮動小数点演算の結果は binary32 精度に丸める。</td>
             </tr>
             <tr>
               <td>decimal</td>
@@ -953,7 +953,7 @@ Section:
           <thead><tr><th>SectionId</th><th>名前</th><th>C# 0.1 プロファイルの内容</th></tr></thead>
           <tbody>
             <tr><td><code>0x01</code></td><td>TYPE</td><td>関数ごとの型メタデータ。型付き関数では引数型、全 local slot 型、戻り値型を保持する。旧 FunctionInfo は parameter/local count のみを保持する。</td></tr>
-            <tr><td><code>0x02</code></td><td>CONSTANT</td><td>定数列。現行 compiler subset では <code>int</code>、<code>bool</code>、UTF-8 <code>string</code> を格納する。</td></tr>
+            <tr><td><code>0x02</code></td><td>CONSTANT</td><td>定数列。現行 codec は <code>int</code>、IEEE 754 binary32 の <code>float</code>（4byte）、<code>bool</code>、<code>decimal</code>、UTF-8 <code>string</code> を格納する。decimal payload はC# decimalの内部表現に対応する符号付き32bit値4個（little-endian）である。</td></tr>
             <tr><td><code>0x03</code></td><td>FUNCTION</td><td>EntryPointIndex、関数名、命令配列中の EntryIp を格納する。</td></tr>
             <tr><td><code>0x04</code></td><td>CODE</td><td>命令数と、各命令の <code>opcode:u16 + operand0:i32 + operand1:i32</code> を格納する。</td></tr>
             <tr><td><code>0x80-0xFF</code></td><td>Custom / Extension</td><td>未知の場合でも PayloadSize により読み飛ばしてよい。</td></tr>
@@ -976,7 +976,7 @@ Section:
           <ul>
             <li>0x01: UTF-8 文字列</li>
             <li>0x02: int32</li>
-            <li>0x03: float32</li>
+            <li>0x03: float32（binary32）</li>
             <li>0x04: decimal</li>
           </ul>
         </li>
@@ -1360,7 +1360,7 @@ Section:
       <h3>8.4 Instance CallBuffer</h3>
       <ul>
         <li>各 Object は CallBuffer を持つ。</li>
-        <li>C# reference VM の現行 prototype は public async instance method を対象 Object と function index、引数列からなる pending entry として保持し、<code>tick()</code> 内で FIFO 順に単一 VMThread 上で drain する。処理中に新たに enqueue された entry も同じ <code>tick()</code> で Quiescence まで処理する。</li>
+        <li>C# reference VM は public async instance method を対象 Object、function index、引数列を持つ pending entry として保持する。同一 Object 宛ての call は FIFO で逐次実行し、異なる Object 宛ての call は別 VMThread pool worker で並列実行できる。処理中に enqueue された call も含め、queue と worker が Quiescence になるまで <code>tick()</code> は待機する。</li>
         <li>pending entry の target Object と Object Reference 引数は、entry が未処理の間 Runtime Temporary Root として GC から保護する。これは将来の per-Object CallBuffer strong-reference metadata 実装と同じ生存意味を持つ。</li>
         <li>外部 Object からの public async method call は即時実行せず CallBuffer に enqueue する。</li>
         <li>CallBuffer 追加は排他制御し、Buffer entry は記録順に実行する。</li>
@@ -1370,9 +1370,8 @@ Section:
 
       <h3>8.5 CallBuffer 順序と決定論</h3>
       <ul>
-        <li>CallBuffer lock により一回の実行中の call 順は確定し、データ race を避ける。</li>
-        <li>複数 VMThread が同時に lock を取得しようとする場合、OS scheduling によって lock 取得順が変わり得る。</li>
-        <li>したがって現仕様は <strong>Race Free</strong> を保証するが、同一入力に対する完全 Replay Determinism は保証しない。</li>
+        <li>C# reference VM は CallBuffer と Heap 操作を同期し、同一 target Object 宛ての call を重複実行しない。</li>
+        <li>別 Object 間の処理順は scheduling によって変わる。同じ参照先 Object を複数 worker から操作するコードには所有権規約が必要だが、prototype は参照を辿った Object 所有権を強制しない。</li>
         <li>完全決定論が必要な場合の Sender Object ID / Sender Sequence / Logical Call Order 等は将来仕様とする。</li>
       </ul>
 
@@ -1388,8 +1387,7 @@ Section:
       <h3>8.7 Static CallBuffer</h3>
       <ul>
         <li>public static async method は class / type ごとの Static CallBuffer を使用する。</li>
-        <li>static async call も現在 Tick 終了までに処理する。</li>
-        <li>同一 type の Static CallBuffer をどの VMThread が実行するか、必ず逐次実行するかは未決事項とする。</li>
+        <li>C# reference VM は type ごとの Static CallBuffer を FIFO で処理し、同一 type の call は同時実行しない。異なる type の call は並列実行できる。処理中に enqueue された call も同じ Tick 内で処理する。</li>
       </ul>
 
 
@@ -1471,9 +1469,11 @@ tick() return
 
       <h3>8.13 VMThread Pool と Scheduling</h3>
       <ul>
-        <li>VM は複数 VMThread / OS Thread を使用して異なる Object の async method を並列実行できる。</li>
-        <li>同一 Object の Mutable State は owner Object の method のみが更新する。</li>
-        <li>Scheduler は pending CallBuffer work を VMThread Pool へ割り当て、Tick Quiescence 判定に pending work を含める。</li>
+        <li>C# reference VM は worker ごとに operand stack と call stack を分離する。<code>AloeVm.MaxVmThreads</code> が worker 数の上限を定め、既定値は processor 数である。</li>
+        <li>同一 Object の Instance CallBuffer と同一 type の Static CallBuffer は同時に一件だけ実行し、異なる Object / type の call は並列実行できる。</li>
+        <li>Heap 操作は同期する。Heap 構造と個々の field 操作を保護するが、複数 Object にまたがる transaction や、引数から辿れる Object の所有権までは保証しない。</li>
+        <li>Host syscall callback は VM ごとに直列化する。Pipe 状態も同期し、worker 内の blocking pipe 操作は suspend せず VM error にする。</li>
+        <li><code>tick()</code> の worker queue 処理中は GC を実行できない。新規 enqueue を含む worker が終了してから Volatile State を commit する。</li>
       </ul>
 
 
@@ -1488,15 +1488,15 @@ tick() return
       <h3>8.15 Host synchronous Query</h3>
       <ul>
         <li>Keyboard.isDown / isPressed 等、Host 状態を同期的に問い合わせる static method を提供できる。</li>
-        <li>複数 VMThread から呼び出される可能性があるため、Host Thread Safety 要件は別途正式化する。</li>
+        <li>C# reference VM は登録済み Host syscall callback を直列化する。この callback 経路外で Host state を共有する場合の安全性は Host 側の責任である。</li>
       </ul>
 
 
       <h3>8.16 async failure と Tick atomicity</h3>
       <p>
-        async method の未処理例外を Tick Failure とし、実行中 VMThread を合流し、Volatile State を Commit せず、
-        未処理 Call を破棄して <code>tick()</code> から main へ例外を throw する案を候補とする。
-        Host の不可逆副作用の扱いを含め、これは未決事項である。
+        C# reference VM では worker の未処理例外を Tick Failure とする。実行中 worker を合流し、未開始の call を破棄し、
+        Volatile State を commit せず、最初の worker 例外を <code>tick()</code> から main へ再 throw する。
+        VM は次のプログラム実行まで fault 状態となる。失敗前に完了した Host 副作用は rollback できない。
       </p>
     </section>
 
@@ -1510,11 +1510,10 @@ tick() return
       <ol>
         <li>public property getter を副作用なしの Read-only Query に制限するか。</li>
         <li>一般の mutable global variable / mutable static field と settable public static property の共有状態を VMThread 間でどう同期するか。</li>
-        <li>Host synchronous function / Query の Thread Safety 要件。</li>
+        <li>async method が参照経由で別 Object を更新する場合の所有権規則。target Object ごとの CallBuffer lock を越える規則。</li>
         <li>constructor の正式な実行方式と constructor 完了前の <code>this</code> の async 流出禁止。</li>
-        <li>async method 未処理例外時の Tick Failure / Volatile rollback / <code>tick()</code> 例外伝播。</li>
-        <li>Tick Failure 時の未処理 CallBuffer entry と Host 不可逆副作用の扱い。</li>
-        <li>Static CallBuffer の実行 VMThread と同一 type 内逐次実行規則。</li>
+        <li>Tick failure 時に Host 副作用を rollback するか、call ごとの完了結果を公開するか。現 prototype は完了済みの外部副作用を rollback できない。</li>
+        <li>言語に mutable static field が追加された場合、Static CallBuffer の所有権をより広い static state モデルへどう結び付けるか。</li>
         <li>完全 Replay Determinism の論理順序付け。</li>
         <li>同 Tick Property 可視性による 1 Tick 遅延と Phase 導入の必要性。</li>
         <li>Object Reference property と Collection 内 Object Reference の Graph edge 規則。</li>

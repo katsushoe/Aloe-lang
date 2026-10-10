@@ -15,6 +15,7 @@ namespace Aloe.RuntimeLib
 
         private readonly Dictionary<long, AloeObjectTableEntry> _objects = new();
         private readonly List<AloeHeapBank> _banks = new();
+        private readonly object _gate = new();
         private long _nextObjectId = 1;
         private int _nextBankId = 1;
         private long _allocationVersion;
@@ -30,20 +31,33 @@ namespace Aloe.RuntimeLib
         }
 
         public int BankSlotCapacity { get; }
-        public IReadOnlyDictionary<long, AloeObjectTableEntry> ObjectTable => _objects;
-        public IReadOnlyList<AloeHeapBank> Banks => _banks;
+        public IReadOnlyDictionary<long, AloeObjectTableEntry> ObjectTable
+        {
+            get { lock (_gate) return new Dictionary<long, AloeObjectTableEntry>(_objects); }
+        }
+        public IReadOnlyList<AloeHeapBank> Banks
+        {
+            get { lock (_gate) return _banks.ToArray(); }
+        }
+        public bool ContainsObject(long objectId)
+        {
+            lock (_gate) return _objects.ContainsKey(objectId);
+        }
 
         /// <summary>Total bytes occupied by live Aloe Object slots.</summary>
-        public long UsedBytes => _objects.Values.Sum(x => (long)x.AllocatedBytes);
+        public long UsedBytes { get { lock (_gate) return _objects.Values.Sum(x => (long)x.AllocatedBytes); } }
 
         /// <summary>Total bytes reserved by currently allocated Aloe heap Banks.</summary>
-        public long ReservedBytes => _banks.Sum(x => (long)x.SlotCapacity * HeapSlotSize);
-        internal long AllocationVersion => _allocationVersion;
-        internal long ReferenceGraphVersion => _referenceGraphVersion;
-        internal long LifetimeVersion => _lifetimeVersion;
+        public long ReservedBytes { get { lock (_gate) return _banks.Sum(x => (long)x.SlotCapacity * HeapSlotSize); } }
+        internal object SyncRoot => _gate;
+        internal long AllocationVersion { get { lock (_gate) return _allocationVersion; } }
+        internal long ReferenceGraphVersion { get { lock (_gate) return _referenceGraphVersion; } }
+        internal long LifetimeVersion { get { lock (_gate) return _lifetimeVersion; } }
 
         public long Allocate(ReadOnlySpan<byte> data, long referenceGroupId = 0, int fieldCount = 0, string? typeName = null)
         {
+            lock (_gate)
+            {
             if (fieldCount < 0) throw new ArgumentOutOfRangeException(nameof(fieldCount));
             var physicalBytes = Math.Max(data.Length, fieldCount * HeapSlotSize);
             var slotCount = GetRequiredSlotCount(physicalBytes);
@@ -66,36 +80,51 @@ namespace Aloe.RuntimeLib
             _referenceGraphVersion++;
             _lifetimeVersion++;
             return objectId;
+            }
         }
 
         public byte[] ReadObject(long objectId)
         {
+            lock (_gate)
+            {
             var entry = GetEntry(objectId);
             return GetBank(entry.BankId).Read(entry.StartSlot, entry.DataSizeBytes);
+            }
         }
 
         public AloeObjectTableEntry GetEntry(long objectId)
         {
+            lock (_gate)
+            {
             if (!_objects.TryGetValue(objectId, out var entry))
                 throw new KeyNotFoundException($"Unknown ObjectId: {objectId}.");
             return entry;
+            }
         }
 
         public AloeValue GetField(long objectId, int fieldIndex)
         {
+            lock (_gate)
+            {
             var entry = GetEntry(objectId);
             return entry.GetCurrentField(fieldIndex);
+            }
         }
 
         public AloeValue GetCommittedField(long objectId, int fieldIndex)
         {
+            lock (_gate)
+            {
             var entry = GetEntry(objectId);
             return entry.GetCommittedField(fieldIndex);
+            }
         }
 
         /// <summary>Write directly to Committed State. Used by construction and non-Tick synchronous execution.</summary>
         public void SetField(long objectId, int fieldIndex, AloeValue value)
         {
+            lock (_gate)
+            {
             var entry = GetEntry(objectId);
             var previous = entry.GetCommittedField(fieldIndex, allowUninitialized: true);
 
@@ -108,11 +137,14 @@ namespace Aloe.RuntimeLib
                 AddReference(objectId, value.AsObjectId);
 
             _lifetimeVersion++;
+            }
         }
 
         /// <summary>Write Tick-local Volatile State while retaining the old Committed reference until commit.</summary>
         public void SetVolatileField(long objectId, int fieldIndex, AloeValue value)
         {
+            lock (_gate)
+            {
             var entry = GetEntry(objectId);
 
             if (entry.TryGetVolatileField(fieldIndex, out var previousVolatile) && previousVolatile.IsObject)
@@ -123,11 +155,14 @@ namespace Aloe.RuntimeLib
                 AddReference(objectId, value.AsObjectId);
 
             _lifetimeVersion++;
+            }
         }
 
         /// <summary>Commit all dirty Volatile fields. The Volatile reference edge becomes the Committed edge.</summary>
         public int CommitVolatileFields()
         {
+            lock (_gate)
+            {
             var committed = 0;
             foreach (var entry in _objects.Values)
             {
@@ -145,37 +180,49 @@ namespace Aloe.RuntimeLib
             if (committed > 0)
                 _lifetimeVersion++;
             return committed;
+            }
         }
 
         public void SetDestructionCandidate(long objectId, bool value = true)
         {
+            lock (_gate)
+            {
             var entry = GetEntry(objectId);
             if (entry.IsDestructionCandidate == value) return;
             entry.IsDestructionCandidate = value;
             _lifetimeVersion++;
+            }
         }
 
         public void SetExternalReferenceCount(long objectId, int count)
         {
+            lock (_gate)
+            {
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
             var entry = GetEntry(objectId);
             if (entry.ExternalReferenceCount == count) return;
             entry.ExternalReferenceCount = count;
             _lifetimeVersion++;
+            }
         }
 
         public void SetCallBufferStrongReferenceCount(long objectId, int count)
         {
+            lock (_gate)
+            {
             if (count < 0) throw new ArgumentOutOfRangeException(nameof(count));
             var entry = GetEntry(objectId);
             if (entry.CallBufferStrongReferenceCount == count) return;
             entry.CallBufferStrongReferenceCount = count;
             _lifetimeVersion++;
+            }
         }
 
         /// <summary>Add one strong Object Reference edge from source to target.</summary>
         public void AddReference(long sourceObjectId, long targetObjectId)
         {
+            lock (_gate)
+            {
             var source = GetEntry(sourceObjectId);
             _ = GetEntry(targetObjectId);
             source.AddOutgoingReference(targetObjectId);
@@ -183,11 +230,14 @@ namespace Aloe.RuntimeLib
             GetEntry(targetObjectId).ReferenceDirty = true;
             _referenceGraphVersion++;
             _lifetimeVersion++;
+            }
         }
 
         /// <summary>Remove one strong Object Reference edge from source to target.</summary>
         public bool RemoveReference(long sourceObjectId, long targetObjectId)
         {
+            lock (_gate)
+            {
             var source = GetEntry(sourceObjectId);
             if (!source.RemoveOutgoingReference(targetObjectId))
                 return false;
@@ -197,11 +247,14 @@ namespace Aloe.RuntimeLib
             _referenceGraphVersion++;
             _lifetimeVersion++;
             return true;
+            }
         }
 
         /// <summary>Replace all strong outgoing references for an Object.</summary>
         public void SetReferences(long sourceObjectId, IEnumerable<long> targetObjectIds)
         {
+            lock (_gate)
+            {
             if (targetObjectIds == null) throw new ArgumentNullException(nameof(targetObjectIds));
             var source = GetEntry(sourceObjectId);
             var counts = new Dictionary<long, int>();
@@ -226,6 +279,7 @@ namespace Aloe.RuntimeLib
             }
             _referenceGraphVersion++;
             _lifetimeVersion++;
+            }
         }
 
         /// <summary>
@@ -234,6 +288,8 @@ namespace Aloe.RuntimeLib
         /// </summary>
         public void SetRuntimeTemporaryRoots(IEnumerable<long> objectIds)
         {
+            lock (_gate)
+            {
             if (objectIds == null) throw new ArgumentNullException(nameof(objectIds));
             var next = new Dictionary<long, int>();
             foreach (var objectId in objectIds)
@@ -257,6 +313,7 @@ namespace Aloe.RuntimeLib
             }
 
             if (changed) _lifetimeVersion++;
+            }
         }
 
         internal static int GetRequiredSlotCount(int dataSizeBytes)
@@ -266,27 +323,38 @@ namespace Aloe.RuntimeLib
         }
 
         internal AloeHeapBank GetBank(int bankId)
-            => _banks.FirstOrDefault(x => x.BankId == bankId)
-               ?? throw new KeyNotFoundException($"Unknown BankId: {bankId}.");
+        {
+            lock (_gate)
+                return _banks.FirstOrDefault(x => x.BankId == bankId)
+                    ?? throw new KeyNotFoundException($"Unknown BankId: {bankId}.");
+        }
 
         internal AloeHeapBank CreateBank()
         {
+            lock (_gate)
+            {
             var bank = new AloeHeapBank(_nextBankId++, BankSlotCapacity);
             _banks.Add(bank);
             return bank;
+            }
         }
 
         internal void Sweep(long objectId)
         {
+            lock (_gate)
+            {
             var entry = GetEntry(objectId);
             GetBank(entry.BankId).Release(entry.StartSlot, entry.SlotCount);
             _objects.Remove(objectId);
             _referenceGraphVersion++;
             _lifetimeVersion++;
+            }
         }
 
         internal void Move(long objectId, int targetBankId, int targetStartSlot)
         {
+            lock (_gate)
+            {
             var entry = GetEntry(objectId);
             var source = GetBank(entry.BankId);
             var target = GetBank(targetBankId);
@@ -302,16 +370,20 @@ namespace Aloe.RuntimeLib
 
             entry.BankId = targetBankId;
             entry.StartSlot = targetStartSlot;
+            }
         }
 
         internal bool FreeBankIfEmpty(int bankId)
         {
+            lock (_gate)
+            {
             var bank = GetBank(bankId);
             if (bank.UsedSlotCount != 0)
                 return false;
 
             _banks.Remove(bank);
             return true;
+            }
         }
 
         private AloeHeapBank? FindBankWithCapacity(int slotCount)

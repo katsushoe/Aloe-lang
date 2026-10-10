@@ -6,7 +6,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 
 namespace Aloe.RuntimeLib
@@ -31,16 +33,42 @@ namespace Aloe.RuntimeLib
 
 
         /// <summary>評価スタック（オペランドスタック）。</summary>
-        private readonly Stack<AloeValue> _valueStack = new();
+        private sealed class VmThreadState
+        {
+            public Stack<AloeValue> ValueStack { get; } = new();
+            public CallStack CallStack { get; } = new();
+            public VmExecutionContext? RunningContext { get; set; }
+            public bool ContextSuspendRequested { get; set; }
+            public bool SuspendCurrentInstruction { get; set; }
+            public int SynchronousCallDepth { get; set; }
+            public int CommittedQueryDepth { get; set; }
+        }
 
-
-        /// <summary>コールスタック。</summary>
-        private readonly CallStack _callStack = new();
+        private readonly VmThreadState _mainThreadState = new();
+        private readonly AsyncLocal<VmThreadState?> _threadState = new();
+        private VmThreadState CurrentThreadState => _threadState.Value ?? _mainThreadState;
+        private Stack<AloeValue> _valueStack => CurrentThreadState.ValueStack;
+        private CallStack _callStack => CurrentThreadState.CallStack;
 
         private sealed record PendingInstanceCall(long TargetObjectId, int FunctionIndex, AloeValue[] Arguments);
+        private sealed record PendingStaticCall(string TypeName, int FunctionIndex, AloeValue[] Arguments);
 
         /// <summary>Prototype instance CallBuffer. Entries are drained synchronously by tick().</summary>
         private readonly Queue<PendingInstanceCall> _instanceCallBuffer = new();
+        private readonly Dictionary<string, Queue<PendingStaticCall>> _staticCallBuffers = new(StringComparer.Ordinal);
+        private readonly Queue<string> _readyStaticCallTypes = new();
+        private readonly object _callBufferGate = new();
+        private readonly object _pipeGate = new();
+        private readonly object _hostCallGate = new();
+        private readonly object _outputGate = new();
+        private readonly HashSet<long> _runningInstanceObjects = new();
+        private readonly HashSet<string> _runningStaticTypes = new(StringComparer.Ordinal);
+        private Exception? _tickFailure;
+        private bool _tickFaulted;
+        private int _tickInFlight;
+        private bool _tickCoordinatorActive;
+        private bool _preferInstanceCall = true;
+        private int _maxVmThreads = Math.Max(1, Environment.ProcessorCount);
 
         private sealed class FilterBinding
         {
@@ -96,29 +124,49 @@ namespace Aloe.RuntimeLib
         private readonly Dictionary<long, PipeState> _pipes = new();
         private readonly Queue<VmExecutionContext> _readyContexts = new();
         private readonly List<VmExecutionContext> _allContexts = new();
-        private VmExecutionContext? _runningContext;
+        private VmExecutionContext? _runningContext
+        {
+            get => CurrentThreadState.RunningContext;
+            set => CurrentThreadState.RunningContext = value;
+        }
         private const int InstructionQuantum = 1024;
-        private bool _contextSuspendRequested;
-        private bool _suspendCurrentInstruction;
+        private bool _contextSuspendRequested
+        {
+            get => CurrentThreadState.ContextSuspendRequested;
+            set => CurrentThreadState.ContextSuspendRequested = value;
+        }
+        private bool _suspendCurrentInstruction
+        {
+            get => CurrentThreadState.SuspendCurrentInstruction;
+            set => CurrentThreadState.SuspendCurrentInstruction = value;
+        }
 
         /// <summary>
         /// Depth of host-initiated synchronous calls (property getters, tick() instance calls).
         /// These run to completion inside one SYSCALL and cannot be suspended by the scheduler.
         /// </summary>
-        private int _synchronousCallDepth;
+        private int _synchronousCallDepth
+        {
+            get => CurrentThreadState.SynchronousCallDepth;
+            set => CurrentThreadState.SynchronousCallDepth = value;
+        }
 
         /// <summary>True while tick() is executing queued public async instance methods.</summary>
-        private bool _tickActive;
+        private volatile bool _tickActive;
 
         /// <summary>Nested synchronous property-query depth. Field reads use Committed State while positive.</summary>
-        private int _committedQueryDepth;
+        private int _committedQueryDepth
+        {
+            get => CurrentThreadState.CommittedQueryDepth;
+            set => CurrentThreadState.CommittedQueryDepth = value;
+        }
 
 
         /// <summary>停止要求フラグ。</summary>
-        private bool _haltRequested;
+        private volatile bool _haltRequested;
 
         /// <summary>Whether GC diagnostics were enabled at any point during the current program run.</summary>
-        private bool _diagnosticsRequestedDuringRun;
+        private volatile bool _diagnosticsRequestedDuringRun;
 
         /// <summary>C# VM reference heap. ObjectId remains stable across GC movement.</summary>
         public AloeHeap Heap { get; }
@@ -182,6 +230,17 @@ namespace Aloe.RuntimeLib
 
         /// <summary>Host sleep provider used by sleep(ms). Replaceable for deterministic tests.</summary>
         public Action<int> SleepHandler { get; set; } = Thread.Sleep;
+
+        /// <summary>Maximum number of independent async CallBuffer workers used during Tick.</summary>
+        public int MaxVmThreads
+        {
+            get => _maxVmThreads;
+            set
+            {
+                if (value <= 0) throw new ArgumentOutOfRangeException(nameof(value));
+                _maxVmThreads = value;
+            }
+        }
 
         /// <summary>Capabilities granted to host-facing syscalls.</summary>
         public AloeHostCapability AllowedHostCapabilities { get; }
@@ -460,7 +519,18 @@ namespace Aloe.RuntimeLib
 
             _callStack.Clear();
             _valueStack.Clear();
-            _instanceCallBuffer.Clear();
+            lock (_callBufferGate)
+            {
+                _instanceCallBuffer.Clear();
+                _staticCallBuffers.Clear();
+                _readyStaticCallTypes.Clear();
+                _runningInstanceObjects.Clear();
+                _runningStaticTypes.Clear();
+                _tickFailure = null;
+                _tickFaulted = false;
+                _tickInFlight = 0;
+                _tickCoordinatorActive = false;
+            }
             _pipes.Clear();
             _readyContexts.Clear();
             _allContexts.Clear();
@@ -582,7 +652,10 @@ namespace Aloe.RuntimeLib
                 throw new VmException($"Unknown opcode: {instruction.Opcode}");
 
             if (TraceEnabled)
-                TraceWriter?.Invoke(FormatTrace(frame, in instruction));
+            {
+                lock (_outputGate)
+                    TraceWriter?.Invoke(FormatTrace(frame, in instruction));
+            }
 
             var beforeIp = ip;
             var beforeFrame = frame;
@@ -668,13 +741,27 @@ namespace Aloe.RuntimeLib
         /// </summary>
         public void InvokeSyscall(EnumSyscall syscallId)
         {
+            if (syscallId is EnumSyscall.PipeCreate or EnumSyscall.PipeWrite or EnumSyscall.PipeClose or
+                EnumSyscall.PipeTryRead or EnumSyscall.PipeBindFilter)
+            {
+                lock (_pipeGate)
+                    InvokeSyscallCore(syscallId);
+                return;
+            }
+
+            InvokeSyscallCore(syscallId);
+        }
+
+        private void InvokeSyscallCore(EnumSyscall syscallId)
+        {
             switch (syscallId)
             {
                 case EnumSyscall.Print:
                     {
                         // スタックトップを取り出して、そのまま ToString() して出力
                         var v = Pop();
-                        OutputWriter?.Invoke(v.ToString());
+                        lock (_outputGate)
+                            OutputWriter?.Invoke(v.ToString());
                         break;
                     }
 
@@ -791,10 +878,98 @@ namespace Aloe.RuntimeLib
                         if (!target.IsObject)
                             throw new VmException($"Async enqueue expects an object target; found {target.Kind}.");
 
-                        _instanceCallBuffer.Enqueue(new PendingInstanceCall(
-                            target.AsObjectId,
-                            (int)functionIndexValue.AsInt,
-                            arguments));
+                        lock (_callBufferGate)
+                        {
+                            ThrowIfTickFaulted();
+                            _instanceCallBuffer.Enqueue(new PendingInstanceCall(
+                                target.AsObjectId,
+                                (int)functionIndexValue.AsInt,
+                                arguments));
+                            Monitor.PulseAll(_callBufferGate);
+                        }
+                        break;
+                    }
+
+                case EnumSyscall.InstanceVirtualAsyncEnqueue:
+                    {
+                        var argumentCountValue = Pop();
+                        var dispatchIndexValue = Pop();
+                        if (!argumentCountValue.IsInt || argumentCountValue.AsInt < 0 || argumentCountValue.AsInt > int.MaxValue)
+                            throw new VmException("Virtual async enqueue expects a non-negative argument count.");
+                        if (!dispatchIndexValue.IsInt || dispatchIndexValue.AsInt < 0 || dispatchIndexValue.AsInt >= _module.Constants.Count)
+                            throw new VmException("Virtual async enqueue expects a valid dispatch descriptor constant index.");
+                        var dispatchDescriptor = _module.Constants[(int)dispatchIndexValue.AsInt];
+                        if (!dispatchDescriptor.IsString)
+                            throw new VmException("Virtual async enqueue dispatch descriptor must be a string constant.");
+
+                        var argumentCount = (int)argumentCountValue.AsInt;
+                        var arguments = new AloeValue[argumentCount];
+                        for (var i = argumentCount - 1; i >= 0; i--)
+                            arguments[i] = Pop();
+
+                        var target = Pop();
+                        if (!target.IsObject)
+                            throw new VmException($"Virtual async enqueue expects an object target; found {target.Kind}.");
+
+                        var typeName = Heap.GetEntry(target.AsObjectId).TypeName;
+                        if (typeName == null)
+                            throw new VmException("Virtual async enqueue target has no runtime class type name.");
+                        var functionIndex = -1;
+                        foreach (var entry in dispatchDescriptor.AsString.Split(';', StringSplitOptions.RemoveEmptyEntries))
+                        {
+                            var separator = entry.LastIndexOf('=');
+                            if (separator <= 0 || !int.TryParse(entry[(separator + 1)..], out var candidateIndex))
+                                throw new VmException("Virtual async enqueue dispatch descriptor is malformed.");
+                            if (string.Equals(entry[..separator], typeName, StringComparison.Ordinal))
+                            {
+                                functionIndex = candidateIndex;
+                                break;
+                            }
+                        }
+                        if ((uint)functionIndex >= (uint)_module.Functions.Count)
+                            throw new VmException($"No virtual method implementation is registered for runtime type '{typeName}'.");
+
+                        lock (_callBufferGate)
+                        {
+                            ThrowIfTickFaulted();
+                            _instanceCallBuffer.Enqueue(new PendingInstanceCall(target.AsObjectId, functionIndex, arguments));
+                            Monitor.PulseAll(_callBufferGate);
+                        }
+                        break;
+                    }
+
+                case EnumSyscall.StaticAsyncEnqueue:
+                    {
+                        var argumentCountValue = Pop();
+                        var functionIndexValue = Pop();
+                        if (!argumentCountValue.IsInt || argumentCountValue.AsInt < 0 || argumentCountValue.AsInt > int.MaxValue)
+                            throw new VmException("Static async enqueue expects a non-negative argument count.");
+                        if (!functionIndexValue.IsInt || functionIndexValue.AsInt < 0 || functionIndexValue.AsInt >= _module.Functions.Count)
+                            throw new VmException("Static async enqueue expects a valid function index.");
+
+                        var argumentCount = (int)argumentCountValue.AsInt;
+                        var arguments = new AloeValue[argumentCount];
+                        for (var i = argumentCount - 1; i >= 0; i--)
+                            arguments[i] = Pop();
+
+                        var functionIndex = (int)functionIndexValue.AsInt;
+                        var function = _module.Functions[functionIndex];
+                        if (function.ParameterCount != argumentCount || function.Name.IndexOf('.', StringComparison.Ordinal) <= 0)
+                            throw new VmException("Static async enqueue target has an invalid signature.");
+                        var typeName = function.Name[..function.Name.IndexOf('.', StringComparison.Ordinal)];
+                        lock (_callBufferGate)
+                        {
+                            ThrowIfTickFaulted();
+                            if (!_staticCallBuffers.TryGetValue(typeName, out var buffer))
+                            {
+                                buffer = new Queue<PendingStaticCall>();
+                                _staticCallBuffers.Add(typeName, buffer);
+                            }
+                            if (buffer.Count == 0)
+                                _readyStaticCallTypes.Enqueue(typeName);
+                            buffer.Enqueue(new PendingStaticCall(typeName, functionIndex, arguments));
+                            Monitor.PulseAll(_callBufferGate);
+                        }
                         break;
                     }
 
@@ -841,10 +1016,10 @@ namespace Aloe.RuntimeLib
 
                         if (pipe.IsFull)
                         {
-                            if (_synchronousCallDepth > 0)
+                            if (_synchronousCallDepth > 0 || !ReferenceEquals(CurrentThreadState, _mainThreadState))
                                 throw new VmException(
-                                    "Pipe write would block inside a synchronous instance call (property getter or tick()); " +
-                                    "blocking pipe operations are not allowed there.");
+                                    "Pipe write would block inside a synchronous instance call or VMThread Pool worker " +
+                                    "(property getter or tick()); blocking pipe operations are not allowed there.");
 
                             Push(value); // preserve [pipe, value] so the same syscall can retry after resume
                             if (_runningContext == null)
@@ -893,6 +1068,12 @@ namespace Aloe.RuntimeLib
                                 "Pipe read would block inside a synchronous instance call (property getter or tick()); " +
                                 "blocking pipe operations are not allowed there.");
                         }
+                        else if (!pipe.IsClosed && !ReferenceEquals(CurrentThreadState, _mainThreadState))
+                        {
+                            throw new VmException(
+                                "Pipe read would block inside a synchronous instance call or VMThread Pool worker " +
+                                "(property getter or tick()); blocking pipe operations are not allowed there.");
+                        }
                         else if (!pipe.IsClosed && _runningContext != null)
                         {
                             WaitForPipeRead(pipeValue.AsObjectId, pipe, _runningContext);
@@ -931,8 +1112,16 @@ namespace Aloe.RuntimeLib
 
 
                 default:
-                    if (_hostSyscalls.TryInvoke(syscallId, this, AllowedHostCapabilities))
-                        break;
+                    lock (_hostCallGate)
+                    {
+                        if (_syscalls.TryGetValue(syscallId, out var registered))
+                        {
+                            registered(this);
+                            break;
+                        }
+                        if (_hostSyscalls.TryInvoke(syscallId, this, AllowedHostCapabilities))
+                            break;
+                    }
                     throw new VmException($"Unknown syscall id: {syscallId}");
             }
         }
@@ -1129,6 +1318,7 @@ namespace Aloe.RuntimeLib
         /// </summary>
         public AloeGcTickResult RequireGc()
         {
+            EnsureGcAllowedDuringTick();
             RefreshRuntimeTemporaryRoots();
             GarbageCollector.LogWriter = TraceWriter;
             return GarbageCollector.RunTick();
@@ -1144,26 +1334,51 @@ namespace Aloe.RuntimeLib
             if (enabled)
                 _diagnosticsRequestedDuringRun = true;
 
-            GarbageCollector.DebugEnabled = enabled;
+            lock (_hostCallGate)
+                GarbageCollector.DebugEnabled = enabled;
             GarbageCollector.LogWriter = TraceWriter;
-            TraceWriter?.Invoke(enabled ? "[GC] Debug enabled." : "[GC] Debug disabled.");
+            lock (_outputGate)
+                TraceWriter?.Invoke(enabled ? "[GC] Debug enabled." : "[GC] Debug disabled.");
+        }
+
+        private void EnsureGcAllowedDuringTick()
+        {
+            lock (_callBufferGate)
+            {
+                if (_tickCoordinatorActive)
+                    throw new VmException("GC cannot run while tick() is draining the VMThread Pool.");
+            }
         }
 
         /// <summary>
-        /// Implements Aloe tick(): drain the prototype Instance CallBuffer to quiescence,
+        /// Implements Aloe tick(): drain Instance and Static CallBuffers to quiescence,
         /// commit per-field Volatile State to Committed State, refresh reference state,
         /// and return without running physical GC Plan / Sweep / Move / FreeBlock work.
         /// </summary>
         public AloeReferenceGraphUpdateResult Tick()
         {
+            lock (_callBufferGate)
+            {
+                ThrowIfTickFaulted();
+                if (_tickCoordinatorActive)
+                    throw new VmException("Nested or concurrent tick() execution is not supported.");
+                _tickCoordinatorActive = true;
+            }
+
+            var wasTickActive = _tickActive;
             _tickActive = true;
             try
             {
-                ProcessInstanceCallBuffer();
+                ProcessCallBuffersToQuiescence();
             }
             finally
             {
-                _tickActive = false;
+                lock (_callBufferGate)
+                {
+                    _tickActive = wasTickActive;
+                    _tickCoordinatorActive = false;
+                    Monitor.PulseAll(_callBufferGate);
+                }
             }
 
             var committedFields = Heap.CommitVolatileFields();
@@ -1181,16 +1396,251 @@ namespace Aloe.RuntimeLib
             return update;
         }
 
-        private void ProcessInstanceCallBuffer()
+        private void ProcessCallBuffersToQuiescence()
         {
-            while (_instanceCallBuffer.Count > 0)
+            while (true)
             {
-                var pending = _instanceCallBuffer.Dequeue();
-                InvokeInstanceFunctionSynchronously(
-                    pending.TargetObjectId,
-                    pending.FunctionIndex,
-                    pending.Arguments,
-                    committedQuery: false);
+                lock (_callBufferGate)
+                {
+                    if (_tickFailure != null)
+                        _tickFaulted = true;
+
+                    if (!_tickFaulted)
+                    {
+                        while (_tickInFlight < _maxVmThreads &&
+                               TryTakeRunnableCall(out var instanceCall, out var staticCall))
+                        {
+                            _tickInFlight++;
+                            try
+                            {
+                                if (instanceCall != null)
+                                    _ = Task.Run(() => ExecutePendingInstanceCall(instanceCall));
+                                else if (staticCall != null)
+                                    _ = Task.Run(() => ExecutePendingStaticCall(staticCall));
+                                else
+                                    throw new InvalidOperationException("CallBuffer scheduler selected an empty call.");
+                            }
+                            catch (Exception ex)
+                            {
+                                if (instanceCall != null) _runningInstanceObjects.Remove(instanceCall.TargetObjectId);
+                                if (staticCall != null) _runningStaticTypes.Remove(staticCall.TypeName);
+                                _tickInFlight--;
+                                _tickFailure ??= ex;
+                                _tickFaulted = true;
+                            }
+                        }
+                    }
+
+                    if (_tickInFlight == 0)
+                    {
+                        if (_tickFaulted)
+                        {
+                            _instanceCallBuffer.Clear();
+                            foreach (var buffer in _staticCallBuffers.Values) buffer.Clear();
+                            _readyStaticCallTypes.Clear();
+                            var failure = _tickFailure ?? new VmException("VMThread Pool failed during tick().");
+                            ExceptionDispatchInfo.Capture(failure).Throw();
+                        }
+
+                        if (!HasPendingCalls())
+                            return;
+
+                        throw new VmException("CallBuffer scheduler has pending calls but no runnable worker.");
+                    }
+
+                    // Workers signal both when they enqueue child calls and when they finish.
+                    // The Tick thread remains the only scheduler and waits for complete quiescence.
+                    Monitor.Wait(_callBufferGate);
+                }
+            }
+        }
+
+        private bool TryTakeRunnableCall(
+            out PendingInstanceCall? instanceCall,
+            out PendingStaticCall? staticCall)
+        {
+            instanceCall = null;
+            staticCall = null;
+
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                var tryInstance = attempt == 0 ? _preferInstanceCall : !_preferInstanceCall;
+                if (tryInstance && TryTakeRunnableInstance(out instanceCall))
+                {
+                    _preferInstanceCall = false;
+                    return true;
+                }
+                if (!tryInstance && TryTakeRunnableStatic(out staticCall))
+                {
+                    _preferInstanceCall = true;
+                    return true;
+                }
+            }
+
+            return TryTakeRunnableInstance(out instanceCall) || TryTakeRunnableStatic(out staticCall);
+        }
+
+        private bool TryTakeRunnableInstance(out PendingInstanceCall? call)
+        {
+            call = null;
+            var queuedCount = _instanceCallBuffer.Count;
+            for (var i = 0; i < queuedCount; i++)
+            {
+                var candidate = _instanceCallBuffer.Dequeue();
+                if (_runningInstanceObjects.Add(candidate.TargetObjectId))
+                {
+                    call = candidate;
+                    return true;
+                }
+                _instanceCallBuffer.Enqueue(candidate);
+            }
+            return false;
+        }
+
+        private bool TryTakeRunnableStatic(out PendingStaticCall? call)
+        {
+            call = null;
+            var readyCount = _readyStaticCallTypes.Count;
+            for (var i = 0; i < readyCount; i++)
+            {
+                var typeName = _readyStaticCallTypes.Dequeue();
+                if (!_staticCallBuffers.TryGetValue(typeName, out var buffer) || buffer.Count == 0)
+                    continue;
+
+                if (!_runningStaticTypes.Add(typeName))
+                {
+                    _readyStaticCallTypes.Enqueue(typeName);
+                    continue;
+                }
+
+                call = buffer.Dequeue();
+                if (buffer.Count > 0)
+                    _readyStaticCallTypes.Enqueue(typeName);
+                return true;
+            }
+            return false;
+        }
+
+        private bool HasPendingCalls()
+            => _instanceCallBuffer.Count > 0 || _readyStaticCallTypes.Count > 0;
+
+        private void ExecutePendingInstanceCall(PendingInstanceCall pending)
+        {
+            ExecutePendingCall(
+                pending.TargetObjectId,
+                pending.FunctionIndex,
+                pending.Arguments,
+                isStatic: false,
+                typeName: null);
+        }
+
+        private void ExecutePendingStaticCall(PendingStaticCall pending)
+        {
+            ExecutePendingCall(
+                targetObjectId: null,
+                functionIndex: pending.FunctionIndex,
+                arguments: pending.Arguments,
+                isStatic: true,
+                typeName: pending.TypeName);
+        }
+
+        private void ExecutePendingCall(
+            long? targetObjectId,
+            int functionIndex,
+            IReadOnlyList<AloeValue> arguments,
+            bool isStatic,
+            string? typeName)
+        {
+            var previousState = _threadState.Value;
+            _threadState.Value = new VmThreadState();
+            try
+            {
+                if ((uint)functionIndex >= (uint)_module.Functions.Count)
+                    throw new VmException($"Async call function index is out of range: {functionIndex}.");
+
+                var function = _module.Functions[functionIndex];
+                var expectedParameters = arguments.Count + (isStatic ? 0 : 1);
+                if (function.ParameterCount != expectedParameters ||
+                    function.Name.IndexOf('.', StringComparison.Ordinal) <= 0)
+                    throw new VmException("Async call target has an invalid signature.");
+
+                if (targetObjectId is long objectId && !Heap.ContainsObject(objectId))
+                    throw new VmException($"Instance call target Object {objectId} no longer exists.");
+
+                var locals = new AloeValue[Math.Max(function.LocalCount, function.ParameterCount)];
+                var argumentOffset = 0;
+                if (!isStatic)
+                {
+                    locals[0] = AloeValue.FromObject(targetObjectId!.Value);
+                    argumentOffset = 1;
+                }
+                for (var i = 0; i < arguments.Count; i++)
+                    locals[i + argumentOffset] = arguments[i];
+
+                _callStack.Push(new CallFrame(
+                    module: _module,
+                    function: function,
+                    ip: function.EntryIp,
+                    locals: locals));
+
+                while (!_callStack.IsEmpty)
+                    ExecuteOneInstruction();
+            }
+            catch (Exception ex)
+            {
+                lock (_callBufferGate)
+                {
+                    _tickFailure ??= ex;
+                    _tickFaulted = true;
+                }
+            }
+            finally
+            {
+                _threadState.Value = previousState;
+                lock (_callBufferGate)
+                {
+                    if (targetObjectId is long objectId)
+                        _runningInstanceObjects.Remove(objectId);
+                    if (isStatic && typeName != null)
+                        _runningStaticTypes.Remove(typeName);
+                    _tickInFlight--;
+                    Monitor.PulseAll(_callBufferGate);
+                }
+            }
+        }
+
+        private void ThrowIfTickFaulted()
+        {
+            if (!_tickFaulted) return;
+            if (_tickFailure != null)
+                ExceptionDispatchInfo.Capture(_tickFailure).Throw();
+            throw new VmException("VMThread Pool is faulted and cannot execute another Tick.");
+        }
+
+        private void InvokeStaticFunctionSynchronously(int functionIndex, IReadOnlyList<AloeValue> arguments)
+        {
+            if ((uint)functionIndex >= (uint)_module.Functions.Count)
+                throw new VmException($"Static async call function index is out of range: {functionIndex}.");
+            var function = _module.Functions[functionIndex];
+            if (function.ParameterCount != arguments.Count || function.Name.IndexOf('.', StringComparison.Ordinal) <= 0)
+                throw new VmException("Static async call target has an invalid signature.");
+            var caller = CurrentFrame ?? throw new VmException("Static async call requires an active caller frame.");
+            var depthBeforeCall = _callStack.Count;
+            var callerIp = caller.Ip;
+            foreach (var argument in arguments)
+                Push(argument);
+
+            _synchronousCallDepth++;
+            try
+            {
+                var instruction = new Instruction(EnumOpcode.Call, functionIndex);
+                new CallCommand().Execute(this, caller, in instruction);
+                RunUntilCallDepth(depthBeforeCall);
+                caller.Ip = callerIp;
+            }
+            finally
+            {
+                _synchronousCallDepth--;
             }
         }
 
@@ -1266,6 +1716,14 @@ namespace Aloe.RuntimeLib
                 }
             }
 
+            foreach (var buffer in _staticCallBuffers.Values)
+            {
+                foreach (var pending in buffer)
+                    foreach (var argument in pending.Arguments)
+                        if (argument.IsObject)
+                            roots.Add(argument.AsObjectId);
+            }
+
             foreach (var pipeId in _pipes.Keys)
                 roots.Add(pipeId);
 
@@ -1311,6 +1769,7 @@ namespace Aloe.RuntimeLib
         /// </summary>
         public AloeGcTickResult FinishGc()
         {
+            EnsureGcAllowedDuringTick();
             // GC.finish() only completes an already requested, unfinished cycle.
             // If GC.require() already completed (or no cycle was requested), this is a no-op.
             if (!GarbageCollector.HasActivePlan)

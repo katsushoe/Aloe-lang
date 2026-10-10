@@ -31,3 +31,6 @@ logs/
 # Local files kept out of version control
 aloe-src-latest.zip
 Test_CompilerLib/HostSyscallTests.cs.__new2
+
+# Internal progress and planning documents
+.local/

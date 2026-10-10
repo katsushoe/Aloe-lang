@@ -336,7 +336,7 @@
             <tr>
               <td>Floating-point</td>
               <td><code>float</code></td>
-              <td>32-bit IEEE754.</td>
+              <td>IEEE 754 binary32 (<code>float</code>); floating-point operations round to binary32 precision.</td>
             </tr>
             <tr>
               <td>decimal</td>
@@ -933,7 +933,7 @@ Section:
           <thead><tr><th>SectionId</th><th>Name</th><th>C# 0.1 profile payload</th></tr></thead>
           <tbody>
             <tr><td><code>0x01</code></td><td>TYPE</td><td>Per-function type metadata. Typed functions store parameter types, all local-slot types, and an optional return type. Legacy FunctionInfo records store only parameter/local counts.</td></tr>
-            <tr><td><code>0x02</code></td><td>CONSTANT</td><td>Constant sequence. The current compiler subset stores <code>int</code>, <code>bool</code>, and UTF-8 <code>string</code> constants.</td></tr>
+            <tr><td><code>0x02</code></td><td>CONSTANT</td><td>Constant sequence. The current codec stores <code>int</code>, IEEE 754 binary32 <code>float</code> (4 bytes), <code>bool</code>, <code>decimal</code>, and UTF-8 <code>string</code> constants. Decimal payloads are four little-endian signed 32-bit words matching the C# decimal bit representation.</td></tr>
             <tr><td><code>0x03</code></td><td>FUNCTION</td><td>Stores EntryPointIndex, function name, and EntryIp in the instruction array.</td></tr>
             <tr><td><code>0x04</code></td><td>CODE</td><td>Stores instruction count and each instruction as <code>opcode:u16 + operand0:i32 + operand1:i32</code>.</td></tr>
             <tr><td><code>0x80-0xFF</code></td><td>Custom / Extension</td><td>Unknown sections in this range may be skipped using PayloadSize.</td></tr>
@@ -957,7 +957,7 @@ Section:
           <ul>
             <li>0x01: UTF-8 string</li>
             <li>0x02: int32</li>
-            <li>0x03: float32</li>
+            <li>0x03: float32 (binary32)</li>
             <li>0x04: decimal</li>
           </ul>
         </li>
@@ -1355,7 +1355,7 @@ Section:
       <h3>8.4 Instance CallBuffer</h3>
       <ul>
         <li>Each Object has a CallBuffer.</li>
-        <li>The current C# reference-VM prototype represents a public async instance-method invocation as a pending entry containing the target Object, function index, and argument values, and drains entries FIFO on a single VMThread inside <code>tick()</code>. Entries enqueued while draining are also processed in the same <code>tick()</code> until quiescence.</li>
+        <li>The C# reference VM stores each public async instance-method invocation as a pending entry containing the target Object, function index, and arguments. Calls for one target Object run FIFO and never overlap; calls for different Objects may run on separate VMThread-pool workers. Calls enqueued during execution are included, and <code>tick()</code> waits until queues and workers reach quiescence.</li>
         <li>The target Object and Object Reference arguments of an unprocessed pending entry are protected from GC as Runtime Temporary Roots. This has the same liveness meaning as the future per-Object CallBuffer strong-reference metadata implementation.</li>
         <li>A public async method call from another Object is enqueued instead of being executed immediately.</li>
         <li>CallBuffer append is mutually exclusive and entries execute in recorded order.</li>
@@ -1367,7 +1367,7 @@ Section:
       <ul>
         <li>CallBuffer locking establishes a call order for one execution and avoids data races.</li>
         <li>If multiple VMThreads compete for the lock simultaneously, OS scheduling may change lock-acquisition order.</li>
-        <li>The current specification therefore guarantees <strong>Race Freedom</strong>, but not complete Replay Determinism for identical input.</li>
+        <li>The C# reference VM synchronizes CallBuffer and Heap operations and serializes calls with the same target Object. Code that concurrently accesses another shared Object through references still needs an ownership discipline; the prototype does not enforce transitive Object ownership. Scheduling across different Objects is not deterministic.</li>
         <li>Sender Object ID / Sender Sequence / Logical Call Order or similar rules for complete determinism are future work.</li>
       </ul>
 
@@ -1383,8 +1383,8 @@ Section:
       <h3>8.7 Static CallBuffer</h3>
       <ul>
         <li>A public static async method uses a Static CallBuffer owned by its class / type.</li>
-        <li>Static async calls are also processed before the current Tick ends.</li>
-        <li>Which VMThread executes a Static CallBuffer and whether one type is always serialized remain open issues.</li>
+        <li>Static async calls are also processed before the current Tick ends, including calls enqueued while draining.</li>
+        <li>The C# reference VM processes each type's queue FIFO and runs at most one Static CallBuffer call for a type at a time. Calls for different types may run in parallel. Calls enqueued while a type is running are processed in the same Tick.</li>
       </ul>
 
 
@@ -1465,9 +1465,11 @@ tick() return
 
       <h3>8.13 VMThread Pool and scheduling</h3>
       <ul>
-        <li>The VM may use multiple VMThreads / OS threads to execute async methods on different Objects in parallel.</li>
-        <li>Mutable State of one Object is modified only by methods executing as that Object's owner.</li>
-        <li>The Scheduler assigns pending CallBuffer work to the VMThread Pool and includes pending work in Tick Quiescence.</li>
+        <li>The C# reference VM uses isolated operand and call stacks per worker. <code>AloeVm.MaxVmThreads</code> bounds concurrent workers and defaults to the processor count.</li>
+        <li>At most one instance CallBuffer worker runs for a target Object, and at most one Static CallBuffer worker runs for a type. Different Objects and different types may run in parallel.</li>
+        <li>Heap operations are synchronized. This protects Heap structures and individual field operations; it does not provide a transaction across multiple Objects or enforce ownership of Objects reachable through arguments.</li>
+        <li>Host syscall callbacks are serialized per VM. Pipe state changes are synchronized; a blocking pipe operation from a VMThread-pool worker fails with a VM error rather than suspending.</li>
+        <li>GC cannot run while <code>tick()</code> is draining worker queues. <code>tick()</code> waits for active workers and newly enqueued calls before committing Volatile State.</li>
       </ul>
 
 
@@ -1482,15 +1484,15 @@ tick() return
       <h3>8.15 Host synchronous Queries</h3>
       <ul>
         <li>Static methods such as Keyboard.isDown / isPressed may synchronously query Host state.</li>
-        <li>Because they may be called from multiple VMThreads, Host Thread Safety requirements must be specified separately.</li>
+        <li>The C# reference VM serializes registered Host syscall callbacks. Other Host state accessed outside that callback path remains the Host's responsibility.</li>
       </ul>
 
 
       <h3>8.16 async failure and Tick atomicity</h3>
       <p>
-        A candidate rule is that an unhandled exception in an async method causes Tick Failure, joins running VMThreads,
-        does not Commit Volatile State, discards unprocessed Calls, and throws from <code>tick()</code> to main.
-        This remains open, including treatment of irreversible Host side effects.
+        In the C# reference VM, an unhandled worker exception faults the Tick. The scheduler joins workers already running,
+        discards calls that have not started, skips the Volatile commit, and rethrows the first worker exception from <code>tick()</code>.
+        The VM remains faulted until a new program run. Host side effects that completed before the failure cannot be rolled back.
       </p>
     </section>
 
@@ -1504,11 +1506,10 @@ tick() return
       <ol>
         <li>Whether public property getters are restricted to side-effect-free read-only Queries.</li>
         <li>How shared state behind mutable globals / static fields and settable public static properties is synchronized across VMThreads.</li>
-        <li>Thread Safety requirements for Host synchronous functions / Queries.</li>
+        <li>Ownership rules for an async method that mutates a different Object through a reference, beyond the per-target CallBuffer lock.</li>
         <li>Final constructor execution rules and prohibition of <code>this</code> escaping asynchronously before construction completes.</li>
-        <li>Tick Failure / Volatile rollback / <code>tick()</code> exception propagation for unhandled async-method exceptions.</li>
-        <li>Handling of unprocessed CallBuffer entries and irreversible Host side effects on Tick Failure.</li>
-        <li>VMThread ownership and serialization rules for Static CallBuffer.</li>
+        <li>Whether Tick failure should roll back Host side effects or expose per-call completion results. The current prototype cannot roll back completed external effects.</li>
+        <li>Whether Static CallBuffer ownership should follow a broader static-state model when mutable static fields are added to the language.</li>
         <li>Logical ordering for complete Replay Determinism.</li>
         <li>One-Tick latency from same-Tick Property visibility and whether Phase semantics are needed.</li>
         <li>Graph-edge rules for Object Reference properties and Object References stored in Collections.</li>
