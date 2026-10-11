@@ -26,7 +26,7 @@ internal static class Program
             if (string.Equals(Path.GetExtension(input), ".aloebc", StringComparison.OrdinalIgnoreCase))
                 module = AloeBcCodec.Read(File.ReadAllBytes(input));
             else
-                module = new AloeCompiler().Compile(File.ReadAllText(input));
+                module = new AloeCompiler().CompileForWasm(File.ReadAllText(input));
 
             var wasm = new AloeWasmCompiler().Compile(module);
             Directory.CreateDirectory(Path.GetDirectoryName(output)!);
@@ -70,5 +70,6 @@ internal static class Program
     {
         Console.WriteLine("Aloe to WebAssembly compiler");
         Console.WriteLine("  aloe2wasm <source.aloe|module.aloebc> [-o output.wasm]");
+        Console.WriteLine("  Source subset: synchronous int/bool/enum functions; main args must be unused.");
     }
 }

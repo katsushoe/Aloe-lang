@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="67">
-  <meta name="edit-date" content="2026-10-11T03:21:31+09:00">
+  <meta name="edit-version" content="72">
+  <meta name="edit-date" content="2026-10-12T02:44:46+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 66)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 72)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 66<br>
-      edit-date: 2026-10-07T01:35:59+09:00</p>
+      edit-version: 72<br>
+      edit-date: 2026-10-12T02:44:46+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -1208,6 +1208,7 @@ var score = Game.score;
 
 
     <h3>7.2 struct</h3>
+    <div class="note" id="struct-subset">現行struct基礎実装（2026-10-12）：<code>struct</code>／<code>sealed struct</code> とfield宣言、<code>Point { x: 1, y: 2 }</code> 形式のリテラル、ローカル経由のフィールド読み書き（入れ子を含む）、代入・関数引数／戻り値・classフィールド・async引数の値コピーに対応します。フィールド型はint、byte、char、float、decimal、bool、他のstructです。全フィールドを一度ずつ初期化し、初期化式は記述順に一度ずつ評価します。空structとstruct型の前方参照は許可し、参照型フィールドと再帰的レイアウトは拒否します。intフィールドはint32範囲を検査します。内部表現は参照フィールドを持たない不変スナップショットとし、フィールド更新時に新しい値を作って入れ子の経路を再構成します。境界ごとに可変領域を複製する方式よりコピー漏れを防ぎやすく、仕様の値コピーを保てるためこの方式を採用します。同期construct(...)とnew Type(...)に対応します。constructorは順次実行するthis.field代入で全フィールドを初期化し、ローカル変数宣言と関数呼び出し、初期化済みフィールド（入れ子を含む）の読み取り・再代入が可能です。引数型はフィールドと同じprimitive／struct型に限定し、呼び出し引数は左から右へ一度ずつ評価して値コピーを保ちます。初期化漏れ、未初期化読み取り、constructor／引数名の重複、引数の型・個数不一致は拒否します。constructor内のif/else、while、foreachに対応し、初期化済みフィールドを全経路で照合します。分岐合流後はすべての継続経路で初期化されたフィールドだけを既知とします。while／foreachは0回実行の可能性があるため、ループ本体内だけの代入はループ後の初期化として数えません。未初期化フィールドの読取は拒否します。constructor内では<code>return;</code>による早期returnを許可し、その地点までに全fieldが初期化済みであることを検査します。<code>this.field.path = expression</code>形式の入れ子代入は、親fieldへ完全なstruct値を代入した後に許可し、不変値を再構成します。未初期化の親fieldへの入れ子代入と、値を返すreturnは拒否します。constructorがない空structはnew Empty()を許可し、フィールドがある場合はconstructorまたは全フィールドリテラルを使用します。constructorを完成した不変値を返す通常の同期関数へ変換するため、既存VM・AloeBC形式を変更せず値コピーを保ちます。structメソッド・プロパティ、継承、レイアウト注釈、structのwith、比較、直接WASMは未対応です。以下のconstructor例は現行コンパイラーで対応します。</div>
 <pre><code>struct Point {
     field x: int;
     field y: int;
@@ -1674,6 +1675,8 @@ let i3: int = o as int ifnot throw;    // 失敗時は InvalidCastException（�
 
 
 
+
+    <div class="note" id="int-bitwise-subset">現行コンパイラのintビット演算（2026-10-11）：int同士の &amp;、|、^、intの単項 ~、intとintシフト数による &lt;&lt;、&gt;&gt; に対応し、結果はintです。オペランドは実行時に符号付きint32範囲を検査し、シフト数は0..31に限定します。左シフトは上位ビットを捨て、右シフトは符号を拡張します。範囲外はVMでVmException、直接WASMでtrapとなります。byte・bool・char・float・decimal・通常enumやint/bitfield enumの混在はコンパイルエラーです。bitfield enum同士の既存演算は型を保持します。比較はビット演算より優先されるため、ビット判定は <code>(value &amp; mask) == mask</code> と書きます。</div>
 
     <h2 id="ch16">16. Exceptions（例外）</h2>
 <pre><code>try {

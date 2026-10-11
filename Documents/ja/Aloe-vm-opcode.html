@@ -463,6 +463,7 @@
     <!-- 0x03 Arithmetic / Bit -->
     <section id="cat-03" class="op-section" style="display:none;">
       <h3>カテゴリ 0x03: Arithmetic / Bit（算術・ビット演算）</h3>
+      <div class="note">2026-10-11: 整数の加算・減算・乗算・除算・剰余は、オペランドと結果を符号付きint32の範囲で検査します。byteはintへ昇格します。整数除算は0方向へ端数を切り捨て（7 / 2 = 3、-7 / 2 = -3）、剰余の符号は被除数に従います。-2147483648 / -1は桁あふれ、-2147483648 % -1は0です。VMでは範囲外にOverflowException、ゼロ除算にZeroDivisionException、直接WASMではいずれもtrapとなります。整数定数の保存形式とWASM ABIのi64表現は維持します。float・decimal混合演算の規則は変更しません。</div>
       <div class="table-wrap">
         <table>
           <thead>

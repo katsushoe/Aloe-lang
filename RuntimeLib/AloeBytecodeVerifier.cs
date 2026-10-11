@@ -89,6 +89,12 @@ namespace Aloe.RuntimeLib
                     case EnumOpcode.Mul:
                     case EnumOpcode.Div:
                     case EnumOpcode.Mod:
+                    case EnumOpcode.BitAnd:
+                    case EnumOpcode.BitOr:
+                    case EnumOpcode.BitXor:
+                    case EnumOpcode.BitNot:
+                    case EnumOpcode.BitShiftLeft:
+                    case EnumOpcode.BitShiftRight:
                     case EnumOpcode.CmpEq:
                     case EnumOpcode.CmpNe:
                     case EnumOpcode.CmpLt:
@@ -101,6 +107,13 @@ namespace Aloe.RuntimeLib
 
                     case EnumOpcode.PushConst:
                         RequireIndex(ip, "constant", instruction.Operand0, module.Constants.Count);
+                        break;
+
+                    case EnumOpcode.StructCreate:
+                    case EnumOpcode.StructGet:
+                    case EnumOpcode.StructSet:
+                        if (instruction.Operand0 < 0)
+                            throw Error(ip, "Struct field count/index must be non-negative.");
                         break;
 
                     case EnumOpcode.LoadLocal:

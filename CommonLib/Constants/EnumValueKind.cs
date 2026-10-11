@@ -32,14 +32,17 @@ namespace Aloe.CommonLib.Constants
         Char = 8,
 
         /// <summary>
-        /// 配列 / リスト / セット / マップ / struct / class / enum など、
+        /// 配列 / リスト / セット / マップ / class など、
         /// 「参照型オブジェクト」全般（実装側でまとめて扱いたいとき用）。
         /// </summary>
         Object = 9,
 
+        /// <summary>Immutable struct value; contains no heap object references.</summary>
+        Struct = 10,
+
         // 以降は将来拡張用（Task / Pipe / Result など）
-        // Task   = 10,
-        // Pipe   = 11,
-        // Result = 12,
+        // Task   = 11,
+        // Pipe   = 12,
+        // Result = 13,
     }
 }

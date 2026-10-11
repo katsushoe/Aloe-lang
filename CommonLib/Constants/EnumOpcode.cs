@@ -49,6 +49,19 @@ namespace Aloe.CommonLib.Constants
         Call = 0x30,
         Return = 0x31,
 
+        // Signed int32 bit patterns, used by the bitfield enum subset.
+        BitAnd = 0x40,
+        BitOr = 0x41,
+        BitXor = 0x42,
+        BitNot = 0x43,
+        BitShiftLeft = 0x44,
+        BitShiftRight = 0x45,
+
+        // Immutable struct values: create, read, replace a field.
+        StructCreate = 0x50,
+        StructGet = 0x51,
+        StructSet = 0x52,
+
 
         Syscall = 0x0600,
 

@@ -102,7 +102,10 @@ public sealed class AloeWasmCompiler
         {
             using var body = new MemoryStream();
             var function = module.Functions[functionIndex];
-            WriteLocals(body, function);
+            var usesScratch = module.Code.Skip(function.EntryIp).Take(
+                (functionIndex + 1 < module.Functions.Count ? module.Functions[functionIndex + 1].EntryIp : module.Code.Count) - function.EntryIp)
+                .Any(i => IsBitwise(i.Opcode) || i.Opcode is EnumOpcode.Add or EnumOpcode.Sub or EnumOpcode.Mul or EnumOpcode.Div or EnumOpcode.Mod);
+            WriteLocals(body, function, usesScratch);
             EmitFunctionBody(body, module, functionIndex);
             body.WriteByte(0x0B); // function end
 
@@ -112,7 +115,10 @@ public sealed class AloeWasmCompiler
         }
     }
 
-    private static void WriteLocals(Stream s, FunctionInfo f)
+    private static bool IsBitwise(EnumOpcode opcode) => opcode is EnumOpcode.BitAnd or EnumOpcode.BitOr
+        or EnumOpcode.BitXor or EnumOpcode.BitNot or EnumOpcode.BitShiftLeft or EnumOpcode.BitShiftRight;
+
+    private static void WriteLocals(Stream s, FunctionInfo f, bool usesScratch)
     {
         var nonParameters = f.LocalTypes.Skip(f.ParameterCount).ToArray();
         var groups = new List<(uint Count, byte Type)>();
@@ -125,6 +131,8 @@ public sealed class AloeWasmCompiler
                 groups.Add((1, wt));
         }
 
+        // Scratch locals follow all source locals, including parameters.
+        if (usesScratch) groups.Add((2, 0x7E));
         WriteU32(s, (uint)groups.Count);
         foreach (var g in groups)
         {
@@ -164,11 +172,19 @@ public sealed class AloeWasmCompiler
                     RequirePop(stack, function.LocalTypes[ins.Operand0], "StoreLocal");
                     s.WriteByte(0x21); WriteU32(s, (uint)ins.Operand0);
                     break;
-                case EnumOpcode.Add: EmitIntBinary(s, stack, 0x7C, "Add"); break;
-                case EnumOpcode.Sub: EmitIntBinary(s, stack, 0x7D, "Sub"); break;
-                case EnumOpcode.Mul: EmitIntBinary(s, stack, 0x7E, "Mul"); break;
-                case EnumOpcode.Div: EmitIntBinary(s, stack, 0x7F, "Div"); break;
-                case EnumOpcode.Mod: EmitIntBinary(s, stack, 0x81, "Mod"); break;
+                case EnumOpcode.Add:
+                case EnumOpcode.Sub:
+                case EnumOpcode.Mul:
+                case EnumOpcode.Div:
+                case EnumOpcode.Mod:
+                    EmitIntBinary(s, stack, ins.Opcode, function.LocalTypes.Count); break;
+                case EnumOpcode.BitAnd:
+                case EnumOpcode.BitOr:
+                case EnumOpcode.BitXor:
+                case EnumOpcode.BitNot:
+                case EnumOpcode.BitShiftLeft:
+                case EnumOpcode.BitShiftRight:
+                    EmitBitwise(s, stack, ins.Opcode, function.LocalTypes.Count); break;
                 case EnumOpcode.CmpEq: EmitCompare(s, stack, 0x51, 0x46, "CmpEq"); break;
                 case EnumOpcode.CmpNe: EmitCompare(s, stack, 0x52, 0x47, "CmpNe"); break;
                 case EnumOpcode.CmpLt: EmitIntCompare(s, stack, 0x53, "CmpLt"); break;
@@ -234,10 +250,81 @@ public sealed class AloeWasmCompiler
         if (callee.ReturnType is { } rt) stack.Push(rt);
     }
 
-    private static void EmitIntBinary(Stream s, Stack<EnumValueKind> stack, byte opcode, string name)
+    private static void EmitBitwise(Stream s, Stack<EnumValueKind> stack, EnumOpcode opcode, int scratch)
     {
-        RequirePop(stack, EnumValueKind.Int, name); RequirePop(stack, EnumValueKind.Int, name);
-        s.WriteByte(opcode); stack.Push(EnumValueKind.Int);
+        var unary = opcode == EnumOpcode.BitNot;
+        RequirePop(stack, EnumValueKind.Int, opcode.ToString());
+        if (!unary) RequirePop(stack, EnumValueKind.Int, opcode.ToString());
+        EmitLocal(s, 0x21, scratch + 1);
+        EmitRangeGuard(s, scratch + 1, int.MinValue, int.MaxValue);
+        if (opcode is EnumOpcode.BitShiftLeft or EnumOpcode.BitShiftRight)
+            EmitRangeGuard(s, scratch + 1, 0, 31);
+        if (!unary)
+        {
+            EmitLocal(s, 0x21, scratch);
+            EmitRangeGuard(s, scratch, int.MinValue, int.MaxValue);
+            EmitLocal(s, 0x20, scratch);
+            s.WriteByte(0xA7); // i32.wrap_i64
+        }
+        EmitLocal(s, 0x20, scratch + 1);
+        s.WriteByte(0xA7);
+        if (unary) { s.WriteByte(0x41); WriteS32(s, -1); }
+        s.WriteByte(opcode switch
+        {
+            EnumOpcode.BitAnd => 0x71,
+            EnumOpcode.BitOr => 0x72,
+            EnumOpcode.BitXor or EnumOpcode.BitNot => 0x73,
+            EnumOpcode.BitShiftLeft => 0x74,
+            EnumOpcode.BitShiftRight => 0x75,
+            _ => throw new InvalidOperationException($"Invalid bitwise opcode {opcode}.")
+        });
+        s.WriteByte(0xAC); // i64.extend_i32_s: preserve the signed int32 result
+        stack.Push(EnumValueKind.Int);
+    }
+
+    private static void EmitLocal(Stream s, byte opcode, int index)
+    {
+        s.WriteByte(opcode); WriteU32(s, checked((uint)index));
+    }
+
+    private static void EmitRangeGuard(Stream s, int local, long min, long max)
+    {
+        EmitLocal(s, 0x20, local);
+        s.WriteByte(0x42); WriteS64(s, min);
+        s.WriteByte(0x53); // i64.lt_s
+        EmitLocal(s, 0x20, local);
+        s.WriteByte(0x42); WriteS64(s, max);
+        s.WriteByte(0x55); // i64.gt_s
+        s.WriteByte(0x72); // i32.or
+        s.WriteByte(0x04); s.WriteByte(0x40); // if (no result)
+        s.WriteByte(0x00); // unreachable: reject invalid input rather than wrapping it
+        s.WriteByte(0x0B);
+    }
+
+    private static void EmitIntBinary(Stream s, Stack<EnumValueKind> stack, EnumOpcode opcode, int scratch)
+    {
+        RequirePop(stack, EnumValueKind.Int, opcode.ToString());
+        RequirePop(stack, EnumValueKind.Int, opcode.ToString());
+        EmitLocal(s, 0x21, scratch + 1);
+        EmitLocal(s, 0x21, scratch);
+        EmitRangeGuard(s, scratch, int.MinValue, int.MaxValue);
+        EmitRangeGuard(s, scratch + 1, int.MinValue, int.MaxValue);
+        EmitLocal(s, 0x20, scratch);
+        EmitLocal(s, 0x20, scratch + 1);
+        // Valid int32 operands fit in i64 intermediates. Signed i64 division
+        // truncates toward zero; MinValue / -1 is rejected by the result guard.
+        s.WriteByte(opcode switch
+        {
+            EnumOpcode.Add => 0x7C,
+            EnumOpcode.Sub => 0x7D,
+            EnumOpcode.Mul => 0x7E,
+            EnumOpcode.Div => 0x7F,
+            EnumOpcode.Mod => 0x81,
+            _ => throw new InvalidOperationException($"Invalid integer opcode {opcode}.")
+        });
+        EmitLocal(s, 0x22, scratch); // local.tee: retain the result on the stack
+        EmitRangeGuard(s, scratch, int.MinValue, int.MaxValue);
+        stack.Push(EnumValueKind.Int);
     }
 
     private static void EmitIntCompare(Stream s, Stack<EnumValueKind> stack, byte opcode, string name)

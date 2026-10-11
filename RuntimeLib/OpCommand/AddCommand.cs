@@ -25,8 +25,7 @@ namespace Aloe.RuntimeLib.OpCommand
             // byte/int + byte/int is promoted to int.
             if (IsInteger(left) && IsInteger(right))
             {
-                long sum = ToInteger(left) + ToInteger(right);
-                vm.Push(AloeValue.FromInt(checked((int)sum)));
+                vm.Push(left + right);
                 return;
             }
 
@@ -61,7 +60,5 @@ namespace Aloe.RuntimeLib.OpCommand
         private static bool IsInteger(AloeValue value)
             => value.IsInt || value.IsByte;
 
-        private static long ToInteger(AloeValue value)
-            => value.IsByte ? value.AsByte : value.AsInt;
     }
 }

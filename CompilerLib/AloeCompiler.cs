@@ -38,12 +38,22 @@ namespace Aloe.CompilerLib
     ///   == != < <= > >=
     ///   not / and / or (short-circuit)
     /// </summary>
-    public sealed class AloeCompiler
+    public sealed partial class AloeCompiler
     {
         public Module Compile(string source)
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
             return new Parser(AloeLexer.Parse(source)).CompileProgram();
+        }
+
+        /// <summary>
+        /// Compile the synchronous Int/Bool/enum subset with WASM type metadata.
+        /// The required main string-array declaration remains syntax-only.
+        /// </summary>
+        public Module CompileForWasm(string source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            return new Parser(AloeLexer.Parse(source), forWasm: true).CompileProgram();
         }
 
 
@@ -58,6 +68,7 @@ namespace Aloe.CompilerLib
             String,
             Bool,
             Object,
+            Struct,
             Void,
         }
 
@@ -142,7 +153,7 @@ namespace Aloe.CompilerLib
         }
 
 
-        private sealed class Parser
+        private sealed partial class Parser
         {
             private readonly IReadOnlyList<AloeToken> _tokens;
             private readonly List<AloeValue> _constants = new();
@@ -150,6 +161,7 @@ namespace Aloe.CompilerLib
             private readonly Stack<Dictionary<string, LocalInfo>> _scopes = new();
             private readonly Stack<LoopContext> _loops = new();
             private readonly Stack<IReadOnlyList<WithContext>> _typeWithScopes = new();
+            private readonly HashSet<string> _bitfieldEnums = new(StringComparer.Ordinal);
             private readonly List<FunctionSignature> _functions = new();
             private readonly Dictionary<string, FunctionSignature> _functionByName =
                 new(StringComparer.Ordinal);
@@ -164,20 +176,25 @@ namespace Aloe.CompilerLib
 
             private int _position;
             private int _nextLocalSlot;
+            private readonly Dictionary<int, ExprType> _localTypes = new();
+            private readonly bool _forWasm;
             private int _controlDepth;
             private FunctionSignature? _currentFunction;
             private string? _lastExpressionClassName;
 
 
-            public Parser(IReadOnlyList<AloeToken> tokens)
+            public Parser(IReadOnlyList<AloeToken> tokens, bool forWasm = false)
             {
                 _tokens = tokens;
+                _forWasm = forWasm;
             }
 
 
             public Module CompileProgram()
             {
                 CollectFunctionSignatures();
+                if (_forWasm && (_classes.Count != 0 || _structs.Count != 0))
+                    throw new AloeCompileException("Direct WASM source compilation does not support classes or structs.");
 
 
                 var main = _functions.SingleOrDefault(f => f.IsMain);
@@ -193,6 +210,7 @@ namespace Aloe.CompilerLib
                 {
                     _position = function.BodyStart;
                     _nextLocalSlot = 0;
+                    _localTypes.Clear();
                     _controlDepth = 0;
                     _currentFunction = function;
                     _scopes.Clear();
@@ -210,7 +228,8 @@ namespace Aloe.CompilerLib
                         DeclareLocal(parameter.Name, parameter.Type, parameter.ClassName);
 
 
-                    var bodyCanFallThrough = true;
+                    var isStructConstructor = CompileStructConstructor(function);
+                    var bodyCanFallThrough = !isStructConstructor;
                     while (_position < function.BodyEnd)
                     {
                         if (Check(TokenKind.EndOfFile))
@@ -243,16 +262,30 @@ namespace Aloe.CompilerLib
                     }
 
 
-                    functionInfos[function.Index] = new FunctionInfo(
-                        name: function.Name,
-                        entryIp: entryIp,
-                        parameterCount: function.Parameters.Count + (function.DeclaringClass != null && !function.IsStaticMethod ? 1 : 0),
-                        localCount: _nextLocalSlot);
+                    var parameterCount = function.Parameters.Count + (function.DeclaringClass != null && !function.IsStaticMethod ? 1 : 0);
+                    var canEmitTypes = function.DeclaringClass == null &&
+                        (function.ReturnType == ExprType.Void || IsWasmType(function.ReturnType)) &&
+                        _localTypes.Count == _nextLocalSlot &&
+                        _localTypes.Values.All(IsWasmType);
+                    if (_forWasm && !canEmitTypes)
+                        throw new AloeCompileException($"Direct WASM source compilation requires Int/Bool/enum parameters, locals and returns in '{function.Name}'.");
+                    if (canEmitTypes)
+                    {
+                        var locals = Enumerable.Range(0, _nextLocalSlot)
+                            .Select(slot => _localTypes[slot] == ExprType.Bool ? EnumValueKind.Bool : EnumValueKind.Int).ToArray();
+                        functionInfos[function.Index] = new FunctionInfo(function.Name, entryIp,
+                            locals.Take(parameterCount).ToArray(), locals,
+                            function.ReturnType == ExprType.Void ? null : function.ReturnType == ExprType.Bool ? EnumValueKind.Bool : EnumValueKind.Int);
+                    }
+                    else
+                        functionInfos[function.Index] = new FunctionInfo(function.Name, entryIp, parameterCount, _nextLocalSlot);
                 }
 
 
                 _currentFunction = null;
                 ValidateAsyncCallGraph();
+                if (_forWasm && _code.Any(i => i.Opcode == EnumOpcode.Call && i.Operand0 == main.Index))
+                    throw new AloeCompileException("Direct WASM source compilation does not support calls to main.");
 
 
                 return new Module(
@@ -270,11 +303,13 @@ namespace Aloe.CompilerLib
                 _classNames.Clear();
                 _classes.Clear();
                 _enumMembers.Clear();
+                _bitfieldEnums.Clear();
                 _enumEndPositions.Clear();
                 _asyncCallEdges.Clear();
                 _filterByName.Clear();
 
                 CollectEnumSignatures();
+                CollectStructSignatures();
 
 
                 var position = 0;
@@ -285,7 +320,14 @@ namespace Aloe.CompilerLib
                 {
                     var topLevelToken = TokenAt(position);
 
-                    if (string.Equals(topLevelToken.Lexeme, "enum", StringComparison.Ordinal))
+                    if (_structEndPositions.TryGetValue(position, out var structEnd))
+                    {
+                        position = structEnd;
+                        continue;
+                    }
+
+                    if (string.Equals(topLevelToken.Lexeme, "enum", StringComparison.Ordinal) ||
+                        (topLevelToken.Lexeme == "bitfield" && TokenAt(position + 1).Lexeme == "enum"))
                     {
                         if (!_enumEndPositions.TryGetValue(position, out var enumEnd))
                             throw Error(topLevelToken, "Invalid enum declaration.");
@@ -422,13 +464,16 @@ namespace Aloe.CompilerLib
                 var position = 0;
                 while (TokenAt(position).Kind != TokenKind.EndOfFile)
                 {
-                    if (!string.Equals(TokenAt(position).Lexeme, "enum", StringComparison.Ordinal))
+                    var isBitfield = TokenAt(position).Lexeme == "bitfield" && TokenAt(position + 1).Lexeme == "enum";
+                    if (!isBitfield && !string.Equals(TokenAt(position).Lexeme, "enum", StringComparison.Ordinal))
                     {
                         position++;
                         continue;
                     }
 
                     var start = position++;
+                    if (isBitfield)
+                        position++; // enum
                     var nameToken = TokenAt(position++);
                     if (nameToken.Kind != TokenKind.Identifier)
                         throw Error(nameToken, "Expected enum name.");
@@ -437,7 +482,7 @@ namespace Aloe.CompilerLib
 
                     ExpectAt(ref position, TokenKind.LBrace);
                     var members = new Dictionary<string, int>(StringComparer.Ordinal);
-                    long nextValue = 0;
+                    long nextValue = isBitfield ? 1 : 0;
                     while (TokenAt(position).Kind != TokenKind.RBrace)
                     {
                         var member = TokenAt(position++);
@@ -447,17 +492,25 @@ namespace Aloe.CompilerLib
                         if (TokenAt(position).Kind == TokenKind.Assign)
                         {
                             position++;
-                            value = ParseEnumMemberValue(ref position);
+                            value = ParseEnumConstant(ref position, nameToken.Lexeme, members, isBitfield);
                         }
                         else
                         {
                             value = nextValue;
-                            if (value > int.MaxValue)
+                            if (value > (isBitfield ? uint.MaxValue : int.MaxValue))
                                 throw Error(member, "Implicit enum member value exceeds int32; specify an explicit value.");
                         }
-                        if (!members.TryAdd(member.Lexeme, (int)value))
+                        if (!members.TryAdd(member.Lexeme, unchecked((int)value)))
                             throw Error(member, $"Enum member '{member.Lexeme}' is already declared.");
-                        nextValue = value + 1;
+                        if (isBitfield)
+                        {
+                            var mask = unchecked((uint)value);
+                            var bitCount = 0;
+                            while (mask != 0) { bitCount++; mask >>= 1; }
+                            nextValue = 1L << bitCount;
+                        }
+                        else
+                            nextValue = value + 1;
 
                         if (TokenAt(position).Kind == TokenKind.Comma)
                         {
@@ -473,10 +526,111 @@ namespace Aloe.CompilerLib
 
                     ExpectAt(ref position, TokenKind.RBrace);
                     _enumMembers.Add(nameToken.Lexeme, members);
+                    if (isBitfield)
+                        _bitfieldEnums.Add(nameToken.Lexeme);
                     _enumEndPositions.Add(start, position);
                 }
             }
 
+
+            private int ParseEnumConstant(ref int position, string enumName, Dictionary<string, int> members, bool bitfield, int level = 0)
+            {
+                if (level == 6)
+                    return ParseEnumConstantUnary(ref position, enumName, members, bitfield);
+                var left = ParseEnumConstant(ref position, enumName, members, bitfield, level + 1);
+                while (EnumConstantLevel(TokenAt(position).Kind) == level)
+                {
+                    var op = TokenAt(position++);
+                    if (level <= 3 && !bitfield)
+                        throw Error(op, "Bitwise constant operators require a bitfield enum.");
+                    var right = ParseEnumConstant(ref position, enumName, members, bitfield, level + 1);
+                    left = ApplyEnumConstant(op, left, right);
+                }
+                return left;
+            }
+
+            private static int EnumConstantLevel(TokenKind kind) => kind switch
+            {
+                TokenKind.Pipe => 0,
+                TokenKind.Caret => 1,
+                TokenKind.Ampersand => 2,
+                TokenKind.ShiftLeft or TokenKind.ShiftRight => 3,
+                TokenKind.Plus or TokenKind.Minus => 4,
+                TokenKind.Star or TokenKind.Slash or TokenKind.Percent => 5,
+                _ => -1
+            };
+
+            private int ParseEnumConstantUnary(ref int position, string enumName, Dictionary<string, int> members, bool bitfield)
+            {
+                var token = TokenAt(position);
+                if (token.Kind == TokenKind.IntegerLiteral ||
+                    (token.Kind is TokenKind.Plus or TokenKind.Minus && TokenAt(position + 1).Kind == TokenKind.IntegerLiteral))
+                    return ParseEnumMemberValue(ref position);
+                if (token.Kind is TokenKind.Plus or TokenKind.Minus or TokenKind.Tilde)
+                {
+                    position++;
+                    if (token.Kind == TokenKind.Tilde && !bitfield)
+                        throw Error(token, "Bitwise constant operators require a bitfield enum.");
+                    var operand = ParseEnumConstantUnary(ref position, enumName, members, bitfield);
+                    return token.Kind switch
+                    {
+                        TokenKind.Minus => CheckEnumConstant(-(long)operand, token),
+                        TokenKind.Tilde => ~operand,
+                        _ => operand
+                    };
+                }
+                if (token.Kind == TokenKind.LParen)
+                {
+                    position++;
+                    var value = ParseEnumConstant(ref position, enumName, members, bitfield);
+                    ExpectAt(ref position, TokenKind.RParen);
+                    return value;
+                }
+                if (token.Kind != TokenKind.Identifier)
+                    throw Error(token, "Expected an integer constant or earlier enum member.");
+                position++;
+                var member = token;
+                if (TokenAt(position).Kind == TokenKind.Dot)
+                {
+                    if (!string.Equals(token.Lexeme, enumName, StringComparison.Ordinal))
+                        throw Error(token, "Enum initializer cannot reference another enum type.");
+                    position++;
+                    member = TokenAt(position++);
+                }
+                if (member.Kind != TokenKind.Identifier || !members.TryGetValue(member.Lexeme, out var result))
+                    throw Error(member, "Enum initializer must reference an earlier member of the same enum.");
+                return result;
+            }
+
+            private int ApplyEnumConstant(AloeToken op, int left, int right)
+            {
+                if (op.Kind is TokenKind.Slash or TokenKind.Percent && right == 0)
+                    throw Error(op, "Enum initializer divides by zero.");
+                if (op.Kind is TokenKind.ShiftLeft or TokenKind.ShiftRight && (right < 0 || right > 31))
+                    throw Error(op, "Enum initializer shift count must be from 0 to 31.");
+                long result = op.Kind switch
+                {
+                    TokenKind.Plus => (long)left + right,
+                    TokenKind.Minus => (long)left - right,
+                    TokenKind.Star => (long)left * right,
+                    TokenKind.Slash => (long)left / right,
+                    TokenKind.Percent => (long)left % right,
+                    TokenKind.Pipe => left | right,
+                    TokenKind.Ampersand => left & right,
+                    TokenKind.Caret => left ^ right,
+                    TokenKind.ShiftLeft => unchecked(left << right),
+                    TokenKind.ShiftRight => left >> right,
+                    _ => throw Error(op, "Unsupported enum constant operator.")
+                };
+                return CheckEnumConstant(result, op);
+            }
+
+            private int CheckEnumConstant(long value, AloeToken token)
+            {
+                if (value < int.MinValue || value > int.MaxValue)
+                    throw Error(token, "Enum initializer is outside the int32 range.");
+                return (int)value;
+            }
 
             private int ParseEnumMemberValue(ref int position)
             {
@@ -592,6 +746,8 @@ namespace Aloe.CompilerLib
                     throw Error(classNameToken, "Expected class name.");
                 if (_enumMembers.ContainsKey(classNameToken.Lexeme))
                     throw Error(classNameToken, $"Type '{classNameToken.Lexeme}' is already declared as an enum.");
+                if (_structs.ContainsKey(classNameToken.Lexeme))
+                    throw Error(classNameToken, $"Type '{classNameToken.Lexeme}' is already declared as a struct.");
                 if (!_classNames.Add(classNameToken.Lexeme))
                     throw Error(classNameToken, $"Class '{classNameToken.Lexeme}' is already declared.");
 
@@ -915,6 +1071,11 @@ namespace Aloe.CompilerLib
                         return ExprType.Object;
                     case "void" when allowVoid: return ExprType.Void;
                     default:
+                        if (_structs.ContainsKey(token.Lexeme))
+                        {
+                            className = token.Lexeme;
+                            return ExprType.Struct;
+                        }
                         if (_enumMembers.ContainsKey(token.Lexeme))
                         {
                             className = token.Lexeme;
@@ -958,11 +1119,21 @@ namespace Aloe.CompilerLib
 
             private bool ParseStatement()
             {
+                if (IsStructFieldAssignment())
+                {
+                    ParseStructFieldAssignment();
+                    return true;
+                }
                 if (Current.Lexeme == "with")
                     return ParseTypeWith();
 
                 if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot)
                 {
+                    if (_constructingStruct != null)
+                    {
+                        ParseStructConstructorThisAssignment(_constructingStruct);
+                        return true;
+                    }
                     ParseThisFieldAssignment();
                     return true;
                 }
@@ -1022,6 +1193,11 @@ namespace Aloe.CompilerLib
 
                 if (Current.Lexeme == "return")
                 {
+                    if (_constructingStruct != null)
+                    {
+                        ParseStructConstructorReturn(_constructingStruct);
+                        return false;
+                    }
                     ParseReturn();
                     return false;
                 }
@@ -1407,33 +1583,43 @@ namespace Aloe.CompilerLib
                     throw Error(Previous, "if condition must be bool.");
 
                 Expect(TokenKind.RParen);
+                var constructorEntry = _constructingStruct == null ? null : CaptureConstructorInitialization();
 
                 Emit(EnumOpcode.If);
                 _controlDepth++;
                 var thenCanFallThrough = ParseBlock();
+                var thenInitialization = constructorEntry == null ? null : CaptureConstructorInitialization();
 
                 if (Current.Lexeme != "else")
                 {
                     Emit(EnumOpcode.End);
                     _controlDepth--;
+                    if (constructorEntry != null && thenInitialization != null)
+                        MergeConstructorBranch(constructorEntry, thenInitialization, thenCanFallThrough, hasElse: false);
                     return true;
                 }
 
                 Emit(EnumOpcode.Else);
                 Advance(); // else
 
+                if (constructorEntry != null) RestoreConstructorInitialization(constructorEntry);
                 var elseCanFallThrough = Current.Lexeme == "if"
                     ? ParseIf()
                     : ParseBlock();
+                var elseInitialization = constructorEntry == null ? null : CaptureConstructorInitialization();
 
                 Emit(EnumOpcode.End);
                 _controlDepth--;
+                if (constructorEntry != null && thenInitialization != null && elseInitialization != null)
+                    MergeConstructorBranch(thenInitialization, thenCanFallThrough,
+                        elseInitialization, elseCanFallThrough);
                 return thenCanFallThrough || elseCanFallThrough;
             }
 
 
             private void ParseForeach()
             {
+                var constructorEntry = _constructingStruct == null ? null : CaptureConstructorInitialization();
                 Advance(); // foreach
                 Expect(TokenKind.LParen);
                 var itemName = Expect(TokenKind.Identifier);
@@ -1483,6 +1669,7 @@ namespace Aloe.CompilerLib
                 _controlDepth--;
                 Emit(EnumOpcode.End); // BLOCK
                 _controlDepth--;
+                RestoreConstructorLoopEntry(constructorEntry);
             }
 
 
@@ -1593,6 +1780,7 @@ namespace Aloe.CompilerLib
 
             private void ParseWhile()
             {
+                var constructorEntry = _constructingStruct == null ? null : CaptureConstructorInitialization();
                 Advance(); // while
                 Expect(TokenKind.LParen);
 
@@ -1628,6 +1816,7 @@ namespace Aloe.CompilerLib
                 _controlDepth--;
                 Emit(EnumOpcode.End); // BLOCK
                 _controlDepth--;
+                RestoreConstructorLoopEntry(constructorEntry);
             }
 
 
@@ -1861,6 +2050,7 @@ namespace Aloe.CompilerLib
 
                     // Result-less IF blocks preserve short-circuiting through a hidden local.
                     var tempSlot = _nextLocalSlot++;
+                    _localTypes.Add(tempSlot, ExprType.Bool);
                     Emit(EnumOpcode.If);
                     _controlDepth++;
 
@@ -1885,7 +2075,7 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseLogicalAnd()
             {
-                var type = ParseComparison();
+                var type = ParseBitwiseOr();
 
                 while (Current.Lexeme == "and")
                 {
@@ -1893,10 +2083,11 @@ namespace Aloe.CompilerLib
                     RequireBool(op, type);
 
                     var tempSlot = _nextLocalSlot++;
+                    _localTypes.Add(tempSlot, ExprType.Bool);
                     Emit(EnumOpcode.If);
                     _controlDepth++;
 
-                    var right = ParseComparison();
+                    var right = ParseBitwiseOr();
                     RequireBool(op, right);
                     Emit(EnumOpcode.StoreLocal, tempSlot);
 
@@ -1915,9 +2106,51 @@ namespace Aloe.CompilerLib
             }
 
 
+            private ExprType ParseBitwiseOr() => ParseBitwise(0);
+
+            private ExprType ParseBitwise(int level)
+            {
+                if (level == 3)
+                    return ParseComparison();
+                var kind = level switch { 0 => TokenKind.Pipe, 1 => TokenKind.Caret, _ => TokenKind.Ampersand };
+                var type = ParseBitwise(level + 1);
+                var enumName = _lastExpressionClassName;
+                while (Check(kind))
+                {
+                    var op = Advance();
+                    var right = ParseBitwise(level + 1);
+                    var intOperands = type == ExprType.Int && right == ExprType.Int;
+                    var enumOperands = type == ExprType.Enum && right == ExprType.Enum && enumName != null &&
+                        _bitfieldEnums.Contains(enumName) && enumName == _lastExpressionClassName;
+                    if (!intOperands && !enumOperands)
+                        throw Error(op, "Bitwise operations require two int values or values of the same bitfield enum type.");
+                    Emit(kind switch { TokenKind.Pipe => EnumOpcode.BitOr, TokenKind.Caret => EnumOpcode.BitXor, _ => EnumOpcode.BitAnd });
+                    _lastExpressionClassName = type == ExprType.Enum ? enumName : null;
+                }
+                return type;
+            }
+
+            private ExprType ParseShift()
+            {
+                var type = ParseAdditive();
+                var enumName = _lastExpressionClassName;
+                while (Check(TokenKind.ShiftLeft) || Check(TokenKind.ShiftRight))
+                {
+                    var op = Advance();
+                    var countType = ParseAdditive();
+                    var validLeft = type == ExprType.Int ||
+                        (type == ExprType.Enum && enumName != null && _bitfieldEnums.Contains(enumName));
+                    if (!validLeft || countType != ExprType.Int)
+                        throw Error(op, "Shift operations require an int or bitfield enum value and an int count.");
+                    Emit(op.Kind == TokenKind.ShiftLeft ? EnumOpcode.BitShiftLeft : EnumOpcode.BitShiftRight);
+                    _lastExpressionClassName = type == ExprType.Enum ? enumName : null;
+                }
+                return type;
+            }
+
             private ExprType ParseComparison()
             {
-                var leftType = ParseAdditive();
+                var leftType = ParseShift();
                 var leftClassName = _lastExpressionClassName;
 
 
@@ -1926,8 +2159,11 @@ namespace Aloe.CompilerLib
 
 
                 var op = Advance();
-                var rightType = ParseAdditive();
+                var rightType = ParseShift();
                 var rightClassName = _lastExpressionClassName;
+
+                if (leftType == ExprType.Struct || rightType == ExprType.Struct)
+                    throw Error(op, "Struct comparisons are not supported by the current subset.");
 
 
                 switch (op.Kind)
@@ -2037,6 +2273,17 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseUnary()
             {
+                if (Check(TokenKind.Tilde))
+                {
+                    var op = Advance();
+                    var type = ParseUnary();
+                    if (type != ExprType.Int &&
+                        (type != ExprType.Enum || _lastExpressionClassName == null || !_bitfieldEnums.Contains(_lastExpressionClassName)))
+                        throw Error(op, "Bitwise complement requires an int or bitfield enum value.");
+                    Emit(EnumOpcode.BitNot);
+                    return type;
+                }
+
                 if (Current.Lexeme == "not")
                 {
                     var op = Advance();
@@ -2332,6 +2579,11 @@ namespace Aloe.CompilerLib
 
             private ExprType ParsePrimary()
             {
+                if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.LBrace && _structs.ContainsKey(Current.Lexeme))
+                    return ParseStructLiteral();
+                if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.Dot &&
+                    TryResolveLocal(Current.Lexeme, out var structTarget) && structTarget.Type == ExprType.Struct)
+                    return ParseStructFieldRead();
                 if (Check(TokenKind.Dot) && _typeWithScopes.Count > 0)
                 {
                     Advance();
@@ -2349,7 +2601,7 @@ namespace Aloe.CompilerLib
                 }
 
                 if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot)
-                    return ParseThisFieldRead();
+                    return _constructingStruct != null ? ParseStructConstructorFieldRead() : ParseThisFieldRead();
 
                 if (Current.Lexeme == "pipe" && Peek(1).Kind == TokenKind.Less)
                     return ParsePipeCreate();
@@ -2437,7 +2689,7 @@ namespace Aloe.CompilerLib
 
 
                 if (Current.Lexeme == "new")
-                    return ParseNewObject();
+                    return _structs.ContainsKey(Peek(1).Lexeme) ? ParseNewStruct() : ParseNewObject();
 
 
                 if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.LParen)
@@ -2763,6 +3015,11 @@ namespace Aloe.CompilerLib
                         className = $"pipe<{FormatType(elementType)}>";
                         return ExprType.Object;
                     default:
+                        if (_structs.ContainsKey(token.Lexeme))
+                        {
+                            className = token.Lexeme;
+                            return ExprType.Struct;
+                        }
                         if (_enumMembers.ContainsKey(token.Lexeme))
                         {
                             className = token.Lexeme;
@@ -2790,10 +3047,13 @@ namespace Aloe.CompilerLib
                     ExprType.String => "string",
                     ExprType.Bool => "bool",
                     ExprType.Object => "object",
+                    ExprType.Struct => "struct",
                     ExprType.Void => "void",
                     _ => type.ToString()
                 };
 
+
+            private static bool IsWasmType(ExprType type) => type is ExprType.Int or ExprType.Bool or ExprType.Enum;
 
             private LocalInfo DeclareImplicitLocal(string name, ExprType type, string? className = null)
             {
@@ -2801,6 +3061,7 @@ namespace Aloe.CompilerLib
                 if (scope.ContainsKey(name))
                     throw new AloeCompileException($"Local '{name}' is already declared in this scope.");
                 var local = new LocalInfo(_nextLocalSlot++, type, className);
+                _localTypes.Add(local.Slot, type);
                 scope.Add(name, local);
                 return local;
             }
@@ -2818,6 +3079,7 @@ namespace Aloe.CompilerLib
 
 
                 var local = new LocalInfo(_nextLocalSlot++, type, className);
+                _localTypes.Add(local.Slot, type);
                 scope.Add(name.Lexeme, local);
                 return local;
             }
@@ -2906,9 +3168,9 @@ namespace Aloe.CompilerLib
                 if (expected != actual)
                     throw Error(token, $"Type mismatch: expected {expected}, found {actual}.");
 
-                if (expected == ExprType.Enum &&
+                if (expected is ExprType.Enum or ExprType.Struct &&
                     !string.Equals(expectedClassName, actualClassName, StringComparison.Ordinal))
-                    throw Error(token, $"Enum type mismatch: expected {expectedClassName}, found {actualClassName ?? "unknown enum"}.");
+                    throw Error(token, $"Value type mismatch: expected {expectedClassName}, found {actualClassName ?? "unknown type"}.");
 
                 if (expected == ExprType.Object && expectedClassName != null)
                 {

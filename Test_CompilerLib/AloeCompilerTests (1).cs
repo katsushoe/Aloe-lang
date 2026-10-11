@@ -509,15 +509,15 @@ function main(args: string[]): int {
         }
 
         [Test]
-        public void EnumExplicitValues_RejectOverflowExpressionsAndDuplicateNames()
+        public void EnumExplicitValues_RejectOverflowInvalidConstantsAndDuplicateNames()
         {
             string[] invalidMembers =
             [
                 "A = 2147483648", "A = -2147483649", "A = 0x80000000", "A = -0x80000001",
                 "A = 0xFFFFFFFFFFFFFFFF", "A = 18446744073709551616", "A = -18446744073709551616",
                 "A = 2147483647, B", "A = 0x7fffffff, B, C = 0",
-                "A = 1.0", "A = true", "A = 'A'", "A = \"1\"", "A = 1 + 2", "A = (1)",
-                "A = 1, B = A", "A = - -1", "A = + -1", "A =", "A = 1, A = 2"
+                "A = 1.0", "A = true", "A = 'A'", "A = \"1\"", "A = 1 + true", "A = (1", 
+                "A = 1, B = Missing", "A = - -1", "A = + -1", "A =", "A = 1, A = 2"
             ];
             foreach (var members in invalidMembers)
             {
@@ -537,6 +537,241 @@ function main(args: string[]): int {
             ];
             foreach (var statement in statements)
                 Assert.That(() => new AloeCompiler().Compile(declarations + "function main(args: string[]): int { " + statement + " return 0; }"), Throws.TypeOf<AloeCompileException>());
+        }
+
+        [Test]
+        public void BitfieldEnum_AssignsBitsMasksAndBoundaryValuesThroughAloeBc()
+        {
+            const string source = """
+bitfield enum Flags { Zero = 0, Read, Write, Exec = 1 << 3, Next, Combined = 3, After, High = 1 << 31, All = -1, Reset = 0, Again }
+bitfield enum Auto { First, Second, Third }
+function main(args: string[]): int {
+    print(Flags.Zero); print(Flags.Read); print(Flags.Write); print(Flags.Exec);
+    print(Flags.Next); print(Flags.Combined); print(Flags.After); print(Flags.High);
+    print(Flags.All); print(Flags.Again); print(Auto.First); print(Auto.Second); print(Auto.Third);
+    return 0;
+}
+""";
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("0\n1\n2\n8\n16\n3\n4\n-2147483648\n-1\n1\n1\n2\n4\n"));
+            Assert.That(result.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void BitfieldEnum_CombinesTestsAndComplementsThirtyTwoBits()
+        {
+            const string source = """
+bitfield enum Flags { Zero = 0, A, B, C, High = 1 << 31, All = -1 }
+function echo(value: Flags): Flags { return value; }
+function main(args: string[]): int {
+    let both: Flags = echo(Flags.A | Flags.B);
+    print(both);
+    print((both & Flags.A) == Flags.A);
+    print((both & Flags.C) == Flags.Zero);
+    print(both ^ Flags.A);
+    print(~both);
+    print((~Flags.Zero) == Flags.All);
+    print((Flags.High | Flags.A) & Flags.High);
+    print(Flags.A | Flags.B & Flags.C);
+    print(Flags.A ^ Flags.A | Flags.B);
+    return 0;
+}
+""";
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("3\ntrue\ntrue\n2\n-4\ntrue\n-2147483648\n1\n2\n"));
+            Assert.That(result.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void BitfieldEnum_WorksWithFieldsAsyncArgumentsAndTypeWith()
+        {
+            const string source = """
+bitfield enum Flags { Zero = 0, Read, Write }
+class Box {
+    field mask: Flags;
+    construct() { this.mask = Flags.Zero; }
+    public property Mask: Flags { get { return this.mask; } }
+    public async method change(mask: Flags): void { this.mask = mask; }
+}
+class Logger {
+    public static async method emit(mask: Flags): void { print((mask & Flags.Read) == Flags.Read); }
+}
+function main(args: string[]): int {
+    var box = new Box();
+    with (Flags, Logger) { .emit(.Read | .Write); }
+    box.change(Flags.Read | Flags.Write); tick();
+    print(box.Mask == (Flags.Read | Flags.Write));
+    return 0;
+}
+""";
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("true\ntrue\n"));
+            Assert.That(result.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void BitfieldEnum_RejectsMixedTypesArithmeticAndAmbiguousPrecedence()
+        {
+            const string declarations = "bitfield enum A { First, Second } bitfield enum B { First } enum Normal { First } ";
+            string[] statements =
+            [
+                "let value: A = 1;", "let value: A = B.First;", "print(A.First | B.First);",
+                "print(A.First | Normal.First);", "print(Normal.First | Normal.First);", "print(A.First | 1);",
+                "print(~true);", "print(~Normal.First);", "print(A.First + A.Second);", "print(A.First < A.Second);",
+                "print(A.First & A.First == A.First);", "print(A.First == B.First);"
+            ];
+            foreach (var statement in statements)
+                Assert.That(() => new AloeCompiler().Compile(declarations + "function main(args: string[]): int { " + statement + " return 0; }"), Throws.TypeOf<AloeCompileException>(), statement);
+        }
+
+        [Test]
+        public void BitfieldEnum_RejectsInvalidInitializersAndExhaustedAutoBits()
+        {
+            string[] members =
+            [
+                "A = 1 << 32", "A = 1 << -1", "A = 2 << 32", "A = 1 >> 32", "A = 1 << (31 + 1)",
+                "A = 1 << 31, B", "A = -1, B", "A = 0x80000000", "A = true", "A = 1, B = Missing | A",
+                "A, A", ""
+            ];
+            foreach (var declaration in members)
+                Assert.That(() => new AloeCompiler().Compile("bitfield enum Flags { " + declaration + " } function main(args: string[]): int { return 0; }"), Throws.TypeOf<AloeCompileException>(), declaration);
+        }
+
+        [Test]
+        public void EnumConstants_EvaluateArithmeticReferencesAndImplicitContinuation()
+        {
+            const string source = """
+enum Code { Base = 10, Product = (Base + 2) * 3, Quotient = Code.Product / 5, Remainder = Product % 5, Negative = -(Base - 2), Alias = Code.Base, Next, Hex = 0x10 + 0b11, Repeated = -(-1) }
+function main(args: string[]): int {
+    print(Code.Product); print(Code.Quotient); print(Code.Remainder); print(Code.Negative);
+    print(Code.Alias == Code.Base); print(Code.Next); print(Code.Hex); print(Code.Repeated); return 0;
+}
+""";
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("36\n7\n1\n-8\ntrue\n11\n19\n1\n"));
+            Assert.That(result.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void EnumConstants_CombineFlagsWithPrecedenceShiftsAndComplement()
+        {
+            const string source = """
+bitfield enum Flags { Zero = 0, A, B, C = 2 << 1, Both = A | Flags.B, OnlyB = Both & ~A, Xor = Both ^ A, High = A << (30 + 1), Sign = High >> 31, Reset = 0, Again, Precedence = A | B & C, ShiftPrecedence = 1 << 1 + 2 }
+function echo(value: Flags): Flags { return value; }
+function main(args: string[]): int {
+    print(Flags.C); print(Flags.Both); print(Flags.OnlyB); print(Flags.Xor); print(Flags.High);
+    print(Flags.Sign); print(Flags.Again); print(Flags.Precedence); print(Flags.ShiftPrecedence);
+    with (Flags) { print(echo(.Both) == (.A | .B)); } return 0;
+}
+""";
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("4\n3\n2\n2\n-2147483648\n-1\n1\n1\n8\ntrue\n"));
+            Assert.That(result.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void EnumConstants_CheckArithmeticAtEveryInt32Step()
+        {
+            const string source = """
+enum Code { Min = -2147483648, Max = 2147483647, Neg = -Max, Zero = Min % -1, Safe = Max - 1 + 1, Reset = 0, Next }
+function main(args: string[]): int { print(Code.Neg); print(Code.Zero); print(Code.Safe); print(Code.Next); return 0; }
+""";
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("-2147483647\n0\n2147483647\n1\n"));
+            string[] expressions = ["2147483647 + 1", "-2147483648 - 1", "65536 * 65536", "-(-2147483648)", "-2147483648 / -1", "1 / 0", "1 % (2 - 2)", "(2147483647 + 1) - 1"];
+            foreach (var expression in expressions)
+                Assert.That(() => new AloeCompiler().Compile("enum Code { A = " + expression + " } function main(args: string[]): int { return 0; }"), Throws.TypeOf<AloeCompileException>(), expression);
+        }
+
+        [Test]
+        public void EnumConstants_RejectForwardForeignRuntimeAndUnsupportedExpressions()
+        {
+            string[] declarations =
+            [
+                "enum Code { A = B, B = 1 }", "enum Code { A = A }", "enum Other { A } enum Code { A = Other.A }",
+                "bitfield enum Other { A } bitfield enum Code { A = Other.A | 1 }", "enum Code { A = 1 | 2 }",
+                "enum Code { A = ~1 }", "enum Code { A = 1 << 1 }", "enum Code { A = call() }",
+                "enum Code { A = true }", "enum Code { A = 1.5 }", "enum Code { A = (1 + 2 }",
+                "bitfield enum Code { A = 1 << 32 }", "bitfield enum Code { A = 1 >> -1 }",
+                "bitfield enum Code { A = 1 << 31, B = A | 1, C }"
+            ];
+            foreach (var declaration in declarations)
+                Assert.That(() => new AloeCompiler().Compile(declaration + " function main(args: string[]): int { return 0; }"), Throws.TypeOf<AloeCompileException>(), declaration);
+        }
+
+        [Test]
+        public void BitfieldShifts_PreserveThirtyTwoBitsTypeAndPrecedenceThroughAloeBc()
+        {
+            const string source = """
+bitfield enum Flags { Zero = 0, A, B, C, D, High = 1 << 31, All = -1 }
+function shift(value: Flags, count: int): Flags { return value << count; }
+function main(args: string[]): int {
+    print(shift(Flags.A, 0)); print(shift(Flags.A, 31)); print(Flags.High << 1);
+    print(Flags.High >> 0); print(Flags.High >> 1); print(Flags.High >> 31);
+    print(Flags.All << 31); print(Flags.A << 1 + 2); print(Flags.A << 3 >> 1);
+    print(Flags.A | Flags.A << 1); print(Flags.C >> 1 & Flags.B);
+    print(Flags.A << 1 == Flags.B); print((Flags.A | Flags.B) << 1); return 0;
+}
+""";
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("1\n-2147483648\n0\n-2147483648\n-1073741824\n-1\n-2147483648\n8\n4\n3\n2\ntrue\n6\n"));
+            Assert.That(result.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void BitfieldShifts_WorkInAsyncFieldsCallsAndMixedWithScopes()
+        {
+            const string source = """
+bitfield enum Flags { Zero = 0, A, B, C }
+class Box {
+    field mask: Flags;
+    construct() { this.mask = Flags.Zero; }
+    public property Mask: Flags { get { return this.mask; } }
+    public async method change(value: Flags, count: int): void { this.mask = value << count; }
+}
+function count(): int { return 1; }
+function echo(value: Flags): Flags { return value; }
+function main(args: string[]): int {
+    var box = new Box();
+    with (box, Flags) { .change(.A << count(), 1); }
+    tick(); print(box.Mask == Flags.C);
+    let shifted: Flags = box.Mask >> count(); print(shifted == Flags.B);
+    with (Flags) { print(echo(.A << count()) == .B); } return 0;
+}
+""";
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("true\ntrue\ntrue\n"));
+            Assert.That(result.ExitCode, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void BitfieldShifts_RejectInvalidCountsAtRuntime()
+        {
+            string[] counts = ["-1", "32", "2147483648", "-2147483649"];
+            foreach (var count in counts)
+            {
+                foreach (var op in new[] { "<<", ">>" })
+                {
+                    var source = "bitfield enum Flags { A } function main(args: string[]): int { let count: int = " + count + "; print(Flags.A " + op + " count); return 0; }";
+                    Assert.That(() => CompileAndRun(source, roundTripAloeBc: true), Throws.TypeOf<VmException>(), source);
+                }
+            }
+        }
+
+        [Test]
+        public void BitfieldShifts_RejectWrongOperandsAndPreserveEnumIdentity()
+        {
+            const string declarations = "bitfield enum A { First } bitfield enum B { First } enum Normal { First } ";
+            string[] statements =
+            [
+                "let value: byte = 1; print(value << 1);", "print(Normal.First >> 1);", "print(true << 1);",
+                "print(A.First << B.First);", "print(A.First << A.First);", "print(A.First << true);",
+                "print(A.First << 1.0);", "let count: byte = 1; print(A.First << count);",
+                "let value: B = A.First << 1;", "let value: int = A.First << 1;",
+                "print((A.First << 1) == B.First);", "print(A.First << (1 == 1));"
+            ];
+            foreach (var statement in statements)
+                Assert.That(() => new AloeCompiler().Compile(declarations + "function main(args: string[]): int { " + statement + " return 0; }"), Throws.TypeOf<AloeCompileException>(), statement);
         }
 
         [Test]

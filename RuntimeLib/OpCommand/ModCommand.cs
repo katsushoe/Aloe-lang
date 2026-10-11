@@ -37,12 +37,14 @@ namespace Aloe.RuntimeLib.OpCommand
 
             if ((left.IsInt || left.IsByte) && (right.IsInt || right.IsByte))
             {
-                var leftValue = left.IsByte ? left.AsByte : left.AsInt;
-                var rightValue = right.IsByte ? right.AsByte : right.AsInt;
+                var leftValue = AloeValue.ToInt32(left);
+                var rightValue = AloeValue.ToInt32(right);
                 if (rightValue == 0)
                     throw new ZeroDivisionException("Modulo by zero.");
 
-                vm.Push(AloeValue.FromInt(leftValue % rightValue));
+                // The mathematical remainder is zero, even though CLR's rem
+                // instruction can overflow for MinValue / -1.
+                vm.Push(AloeValue.FromInt(rightValue == -1 ? 0 : leftValue % rightValue));
                 return;
             }
 

@@ -296,6 +296,15 @@ namespace Aloe.RuntimeLib
 
 
                 { EnumOpcode.Mod,         new ModCommand()         },
+                { EnumOpcode.BitAnd,      new BitwiseCommand()     },
+                { EnumOpcode.BitOr,       new BitwiseCommand()     },
+                { EnumOpcode.BitXor,      new BitwiseCommand()     },
+                { EnumOpcode.BitNot,      new BitwiseCommand()     },
+                { EnumOpcode.BitShiftLeft, new BitwiseCommand()    },
+                { EnumOpcode.BitShiftRight, new BitwiseCommand()   },
+                { EnumOpcode.StructCreate, new StructCommand()     },
+                { EnumOpcode.StructGet,    new StructCommand()     },
+                { EnumOpcode.StructSet,    new StructCommand()     },
 
 
                 { EnumOpcode.CmpEq,       new CmpEqCommand()       },

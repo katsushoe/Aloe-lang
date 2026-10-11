@@ -463,6 +463,7 @@
     <!-- 0x03 Arithmetic / Bit -->
     <section id="cat-03" class="op-section" style="display:none;">
       <h3>Category 0x03: Arithmetic / Bit</h3>
+      <div class="note">2026-10-11: Integer addition, subtraction, multiplication, division and remainder check both operands and results against signed int32 limits. Byte operands promote to int. Integer division truncates toward zero (7 / 2 = 3, -7 / 2 = -3); remainder follows the dividend's sign. -2147483648 / -1 overflows, while -2147483648 % -1 is zero. The VM raises OverflowException for range violations and ZeroDivisionException for zero divisors; direct WASM traps in both cases. Integer constant storage and the WASM i64 ABI remain unchanged. Mixed float/decimal arithmetic retains its existing rules.</div>
       <div class="table-wrap">
         <table>
           <thead>

@@ -44,6 +44,15 @@ namespace Aloe.CommonLib
         public static AloeValue FromObject(long objectId)
             => new AloeValue(EnumValueKind.Object, objectId);
 
+        /// <summary>Create a struct value backed by immutable fields.</summary>
+        public static AloeValue FromStruct(AloeStructValue value)
+            => new(EnumValueKind.Struct, value ?? throw new ArgumentNullException(nameof(value)));
+
+        /// <summary>Read the immutable struct payload.</summary>
+        public AloeStructValue AsStruct => Kind == EnumValueKind.Struct
+            ? (AloeStructValue)_value!
+            : throw new VmException($"AloeValue is not Struct (actual: {Kind}).");
+
         // ★ decimal 用ファクトリ
         public static AloeValue FromDecimal(decimal value)
             => new AloeValue(EnumValueKind.Decimal, value);
@@ -199,15 +208,17 @@ namespace Aloe.CommonLib
                     $"Cannot apply {opName} to {left.Kind} and {right.Kind}.");
             }
 
-            if (IsInteger(left) && IsInteger(right) && opName is "addition" or "subtraction" or "multiplication")
+            if (IsInteger(left) && IsInteger(right))
             {
-                var leftInteger = left.IsByte ? left.AsByte : left.AsInt;
-                var rightInteger = right.IsByte ? right.AsByte : right.AsInt;
+                var leftInteger = ToInt32(left);
+                var rightInteger = ToInt32(right);
                 var integerResult = opName switch
                 {
                     "addition" => checked(leftInteger + rightInteger),
                     "subtraction" => checked(leftInteger - rightInteger),
-                    _ => checked(leftInteger * rightInteger),
+                    "multiplication" => checked(leftInteger * rightInteger),
+                    "division" => checked(leftInteger / rightInteger),
+                    _ => throw new VmException($"Unsupported integer operation {opName}."),
                 };
                 return FromInt(integerResult);
             }
@@ -253,6 +264,10 @@ namespace Aloe.CommonLib
 
             return FromFloat(result);
         }
+
+        /// <summary>Convert an integer arithmetic operand to the language int32 range.</summary>
+        public static int ToInt32(AloeValue value)
+            => value.IsByte ? value.AsByte : checked((int)value.AsInt);
 
         private static AloeValue DecimalBinary(
             AloeValue left,
