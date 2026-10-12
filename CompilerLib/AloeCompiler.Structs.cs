@@ -447,16 +447,21 @@ public sealed partial class AloeCompiler
         private void ParseStructFieldAssignment()
         {
             var root = ResolveLocal(Advance());
+            Expect(TokenKind.Dot);
+            ParseStructFieldAssignment(root, Expect(TokenKind.Identifier));
+        }
+
+        private void ParseStructFieldAssignment(LocalInfo root, AloeToken firstMember)
+        {
             var parent = root;
             var parents = new List<(LocalInfo Parent, FieldSignature Field, LocalInfo Child)>();
             FieldSignature field;
-            AloeToken member;
+            var member = firstMember;
             while (true)
             {
-                Expect(TokenKind.Dot);
-                member = Expect(TokenKind.Identifier);
                 field = ResolveStructField(parent.ClassName, member);
                 if (!Check(TokenKind.Dot)) break;
+                Advance();
                 if (field.Type != ExprType.Struct) throw Error(member, "Nested field assignment requires a struct field.");
                 var child = DeclareImplicitLocal($"$struct${_nextLocalSlot}", field.Type, field.ClassName);
                 Emit(EnumOpcode.LoadLocal, parent.Slot);
@@ -464,6 +469,7 @@ public sealed partial class AloeCompiler
                 Emit(EnumOpcode.StoreLocal, child.Slot);
                 parents.Add((parent, field, child));
                 parent = child;
+                member = Expect(TokenKind.Identifier);
             }
             Expect(TokenKind.Assign);
             Emit(EnumOpcode.LoadLocal, parent.Slot);

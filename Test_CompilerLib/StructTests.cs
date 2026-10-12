@@ -49,6 +49,46 @@ function main(args: string[]): int {
     }
 
     [Test]
+    public void StructWith_LocalFieldAccessAndNestedWritesPreserveValueCopies()
+    {
+        const string source = """
+struct Point { field x: int; field y: int; }
+struct Segment { field start: Point; field end: Point; }
+function main(args: string[]): int {
+    var segment = Segment { start: Point { x: 1, y: 2 }, end: Point { x: 3, y: 4 } };
+    var copy = segment;
+    with (segment) {
+        let startX: int = .start.x;
+        .start.y = startX + .end.y;
+        .end = Point { x: .start.y, y: 9 };
+    }
+    if (segment.start.x == 1 and segment.start.y == 5 and segment.end.x == 5 and segment.end.y == 9 and
+        copy.start.x == 1 and copy.start.y == 2 and copy.end.x == 3 and copy.end.y == 4) { return 42; }
+    return 0;
+}
+""";
+        Assert.That(Run(source).ExitCode, Is.EqualTo(42));
+    }
+
+    [Test]
+    public void StructWith_MultipleTargetsResolveMembersAndRejectAmbiguity()
+    {
+        const string source = """
+struct Left { field left: int; }
+struct Right { field right: int; }
+function main(args: string[]): int {
+    var first = Left { left: 0 }; var second = Right { right: 0 };
+    with (first, second) { .left = 20; .right = .left + 22; }
+    if (first.left == 20 and second.right == 42) { return 42; }
+    return 0;
+}
+""";
+        Assert.That(Run(source).ExitCode, Is.EqualTo(42));
+        Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
+            "struct S { field x: int; } function main(args: string[]): int { var a = S { x: 0 }; var b = S { x: 0 }; with (a, b) { .x = 1; } return 0; }"));
+    }
+
+    [Test]
     public void StructValues_InitializersEvaluateOnceInWrittenOrderAndSupportPrimitiveFields()
     {
         const string source = """
@@ -111,7 +151,8 @@ function main(args: string[]): int {
             "var s = S { x: true };", "let s: S = T { x: 1 };", "var s = S { x: 1 }; s = T { x: 2 };",
             "var s = S { x: 1 }; s.x = true;", "var s = S { x: 1 }; s.y = 2;",
             "var s = S { x: 1 }; print(s == s);", "var s = S { x: 1 }; print(s + s);",
-            "var s = S { x: 1 }; print(s.x.y);", "var s = S { x: 1 }; with (s) { .x = 2; }"
+            "var s = S { x: 1 }; print(s.x.y);", "var s = S { x: 1 }; with (S { x: 2 }) { .x = 3; }",
+            "var s = S { x: 1 }; with (s) { .missing = 2; }", "with (S) { .x = 2; }"
         ];
         foreach (var statement in statements)
             Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(types + "function main(args: string[]): int { " + statement + " return 0; }"), statement);

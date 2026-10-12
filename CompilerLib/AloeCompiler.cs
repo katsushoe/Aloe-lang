@@ -1202,13 +1202,20 @@ namespace Aloe.CompilerLib
                     return false;
                 }
 
-                // A bare enum member in a type-based with block has no runtime effect.
-                if (Check(TokenKind.Dot) && Peek(1).Kind == TokenKind.Identifier && Peek(2).Kind == TokenKind.Assign)
+                // Dot-prefixed assignments write through the active with target.
+                if (IsWithMemberAssignment())
                 {
                     Advance();
                     var member = Expect(TokenKind.Identifier);
                     if (!TryResolveTypeWithMember(member.Lexeme, out var context) || context.InstanceSlot == null)
                         throw Error(member, "Field assignment requires an instance with context.");
+                    if (_structs.ContainsKey(context.TypeName))
+                    {
+                        ParseStructFieldAssignment(new LocalInfo(context.InstanceSlot.Value, ExprType.Struct, context.TypeName), member);
+                        return true;
+                    }
+                    if (Check(TokenKind.Dot))
+                        throw Error(Current, "Nested with field assignment is supported only for struct values.");
                     var field = ResolveWithField(context.TypeName, member);
                     Expect(TokenKind.Assign);
                     Emit(EnumOpcode.LoadLocal, context.InstanceSlot.Value);
@@ -1382,17 +1389,39 @@ namespace Aloe.CompilerLib
             private bool IsWithTargetDelimiter(int offset)
                 => Peek(offset).Kind is TokenKind.RParen or TokenKind.Comma;
 
+            private bool IsWithMemberAssignment()
+            {
+                if (!Check(TokenKind.Dot) || Peek(1).Kind != TokenKind.Identifier)
+                    return false;
+                var offset = 1;
+                while (Peek(offset).Kind == TokenKind.Identifier)
+                {
+                    offset++;
+                    if (Peek(offset).Kind != TokenKind.Dot)
+                        break;
+                    offset++;
+                }
+                return Peek(offset).Kind == TokenKind.Assign;
+            }
+
             private WithContext ParseWithTarget()
             {
                 var typeToken = Current;
                 WithContext context;
                 if (Check(TokenKind.Identifier) && IsWithTargetDelimiter(1) &&
-                    (_enumMembers.ContainsKey(typeToken.Lexeme) || _classes.ContainsKey(typeToken.Lexeme)))
+                    (_enumMembers.ContainsKey(typeToken.Lexeme) || _classes.ContainsKey(typeToken.Lexeme) || _structs.ContainsKey(typeToken.Lexeme)))
                 {
                     Advance();
                     if (TryResolveLocal(typeToken.Lexeme, out _))
                         throw Error(typeToken, $"Ambiguous with target '{typeToken.Lexeme}': both a type and a local value are in scope.");
                     context = new WithContext(typeToken.Lexeme);
+                }
+                else if (Check(TokenKind.Identifier) && IsWithTargetDelimiter(1) &&
+                         TryResolveLocal(typeToken.Lexeme, out var structLocal) && structLocal.Type == ExprType.Struct &&
+                         structLocal.ClassName != null && _structs.ContainsKey(structLocal.ClassName))
+                {
+                    Advance();
+                    context = new WithContext(structLocal.ClassName, structLocal.Slot);
                 }
                 else
                 {
@@ -2829,6 +2858,28 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseWithInstanceRead(string className, int slot, AloeToken member)
             {
+                if (_structs.ContainsKey(className))
+                {
+                    var structField = ResolveStructField(className, member);
+                    Emit(EnumOpcode.LoadLocal, slot);
+                    Emit(EnumOpcode.StructGet, structField.Index);
+                    var structType = structField.Type;
+                    var structName = structField.ClassName;
+                    while (Check(TokenKind.Dot))
+                    {
+                        Advance();
+                        var nestedMember = Expect(TokenKind.Identifier);
+                        if (structType != ExprType.Struct)
+                            throw Error(nestedMember, "Nested with field reads require a struct field.");
+                        var nestedField = ResolveStructField(structName, nestedMember);
+                        Emit(EnumOpcode.StructGet, nestedField.Index);
+                        structType = nestedField.Type;
+                        structName = nestedField.ClassName;
+                    }
+                    _lastExpressionClassName = structName;
+                    return structType;
+                }
+
                 var property = FindProperty(className, member.Lexeme);
                 Emit(EnumOpcode.LoadLocal, slot);
                 if (property != null)
@@ -2964,6 +3015,8 @@ namespace Aloe.CompilerLib
                                 FindMethod(candidate.TypeName, memberName) != null ||
                                 FindField(candidate.TypeName, memberName) != null ||
                                 FindProperty(candidate.TypeName, memberName) != null;
+                        if (!enumOnly && candidate.InstanceSlot != null && _structs.TryGetValue(candidate.TypeName, out var structInfo))
+                            hasMember = structInfo.Fields.Any(field => field.Name == memberName);
                         if (!hasMember)
                             continue;
                         if (match != null)

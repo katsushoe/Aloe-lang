@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Language Spec (Draft, English)</title>
-  <meta name="edit-version" content="72">
-  <meta name="edit-date" content="2026-10-12T02:44:46+09:00">
+  <meta name="edit-version" content="73">
+  <meta name="edit-date" content="2026-10-12T15:15:52+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- Left menu -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - English + validity model (edit-version 72)</div>
+    <div class="subtitle">Draft - English + validity model (edit-version 73)</div>
 
 
 
@@ -148,8 +148,8 @@
   <main class="content">
     <h1 id="top">Aloe Language Spec (Draft, English)</h1>
     <p class="note">
-      edit-version: 72<br>
-      edit-date: 2026-10-12T02:44:46+09:00</p>
+      edit-version: 73<br>
+      edit-date: 2026-10-12T15:15:52+09:00</p>
     <p class="note">
       This document is an English draft based on the upstream specification.<br>
       In addition, it introduces a reference validity model using <strong>valid / invalid</strong> and
@@ -1004,7 +1004,7 @@ var score = Game.score;
 
 
     <h3>7.2 struct</h3>
-    <div class="note" id="struct-subset">Current basic struct implementation (2026-10-12): struct/sealed struct and field declarations, literals such as <code>Point { x: 1, y: 2 }</code>, local field reads/writes (including nested paths), and value copies through assignments, function arguments/returns, class fields and queued async arguments are supported. Field types are int, byte, char, float, decimal, bool and other structs. Every field is initialized exactly once; expressions evaluate once in written order. Empty structs and forward struct type references are allowed; reference fields and recursive layouts are rejected. Int fields are checked against int32 limits. Storage uses immutable snapshots without reference fields, rebuilding the containing path when a field changes. This preserves value-copy semantics and avoids missed copies at mutable storage boundaries, so immutable snapshots are used instead of boundary-specific mutable deep copies. Synchronous construct(...) and new Type(...) are supported. Constructors initialize every field through sequential this.field assignments, may declare locals and call functions, and may read previously initialized fields (including nested fields). Reassignment is allowed. Parameters currently support the same primitive/struct value types as fields. Arguments evaluate once from left to right and retain independent value copies. Missing initialization, uninitialized reads, duplicate constructors/parameters, and wrong argument counts/types are rejected. Constructor if/else, while and foreach flow is supported with definite-initialization checks. At a branch join only fields initialized on every path count as initialized. while/foreach paths may execute zero times, so field writes inside their bodies do not count after the loop unless the field was initialized before entry. Reads before assignment are rejected. Constructors allow early <code>return;</code> only after every field is initialized on that path. Nested assignments such as <code>this.field.path = expression</code> are supported after the containing field has been assigned a complete struct value; immutable values are rebuilt along the path. Assigning through an uninitialized containing field and returning an expression are rejected. An empty struct without a constructor accepts new Empty(); structs with fields require a constructor or a complete literal. Constructor bodies lower to ordinary synchronous functions returning a freshly assembled immutable value, preserving the existing VM and AloeBC formats. Struct methods/properties, inheritance, layout annotations, struct with, comparisons and direct WASM remain unsupported. The constructor example below is supported by the current compiler.</div>
+    <div class="note" id="struct-subset">Current basic struct implementation (2026-10-12): struct/sealed struct and field declarations, literals such as <code>Point { x: 1, y: 2 }</code>, local field reads/writes (including nested paths), and value copies through assignments, function arguments/returns, class fields and queued async arguments are supported. Field types are int, byte, char, float, decimal, bool and other structs. Every field is initialized exactly once; expressions evaluate once in written order. Empty structs and forward struct type references are allowed; reference fields and recursive layouts are rejected. Int fields are checked against int32 limits. Storage uses immutable snapshots without reference fields, rebuilding the containing path when a field changes. This preserves value-copy semantics and avoids missed copies at mutable storage boundaries, so immutable snapshots are used instead of boundary-specific mutable deep copies. Synchronous construct(...) and new Type(...) are supported. Constructors initialize every field through sequential this.field assignments, may declare locals and call functions, and may read previously initialized fields (including nested fields). Reassignment is allowed. Parameters currently support the same primitive/struct value types as fields. Arguments evaluate once from left to right and retain independent value copies. Missing initialization, uninitialized reads, duplicate constructors/parameters, and wrong argument counts/types are rejected. Constructor if/else, while and foreach flow is supported with definite-initialization checks. At a branch join only fields initialized on every path count as initialized. while/foreach paths may execute zero times, so field writes inside their bodies do not count after the loop unless the field was initialized before entry. Reads before assignment are rejected. Constructors allow early <code>return;</code> only after every field is initialized on that path. Nested assignments such as <code>this.field.path = expression</code> are supported after the containing field has been assigned a complete struct value; immutable values are rebuilt along the path. Assigning through an uninitialized containing field and returning an expression are rejected. An empty struct without a constructor accepts new Empty(); structs with fields require a constructor or a complete literal. Constructor bodies lower to ordinary synchronous functions returning a freshly assembled immutable value, preserving the existing VM and AloeBC formats. A with block targeting one or more struct locals supports field reads and writes, including nested paths. Assignment rebuilds the immutable snapshot and stores it back into the target local, leaving other value copies unchanged. Targets must be struct locals; other expressions and temporary values are rejected, as are with blocks inside struct constructors. Struct methods/properties, inheritance, layout annotations, comparisons and direct WASM remain unsupported. The constructor and with examples below are supported by the current compiler.</div>
 <pre><code>struct Point {
     field x: int;
     field y: int;
@@ -1018,6 +1018,13 @@ var score = Game.score;
     }
 }
 </code></pre>
+<pre><code>struct Point { field x: int; field y: int; }
+function move(point: Point): Point {
+    with (point) {
+        .x = .x + 1;
+    }
+    return point;
+}</code></pre>
     <ul>
       <li>Struct is a value type.</li>
       <li>Fields are limited to primitives and other structs (reference-typed fields are prohibited).</li>
