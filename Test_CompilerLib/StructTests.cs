@@ -9,6 +9,46 @@ namespace Aloe.CompilerLib.Tests;
 public sealed class StructTests
 {
     [Test]
+    public void StructMethods_ReadFieldsCallOtherMethodsAndReturnValueCopies()
+    {
+        const string source = """
+struct Point {
+    field x: int; field y: int;
+    method sum(offset: int): int { return this.x + this.y + offset; }
+    method total(): int { return sum(0); }
+    method shifted(delta: int): Point { return Point { x: this.x + delta, y: this.y + delta }; }
+    method noop(): void { return; }
+}
+function main(args: string[]): int {
+    var point = Point { x: 10, y: 20 };
+    var moved = point.shifted(2);
+    point.noop();
+    if (point.sum(10) == 40 and point.total() == 30 and moved.x == 12 and moved.y == 22 and point.x == 10) { return 42; }
+    return 0;
+}
+""";
+        Assert.That(Run(source).ExitCode, Is.EqualTo(42));
+    }
+
+    [Test]
+    public void StructMethods_RejectMutationInvalidCallsAndUnsupportedTypes()
+    {
+        string[] sources =
+        [
+            "struct S { field x: int; method set(value: int): void { this.x = value; } }",
+            "struct S { field x: int; method set(value: int): void { this.x.y = value; } }",
+            "struct S { method same(): int { return 1; } method same(): int { return 2; } }",
+            "struct S { method bad(value: string): int { return 1; } }",
+            "struct S { method value(): int { return 1; } } function main(args: string[]): int { var s = S { }; s.value(true); return 0; }",
+            "struct S { method value(): int { return 1; } } function main(args: string[]): int { var s = S { }; s.missing(); return 0; }",
+            "struct S { method value(): int { return 1; } } function main(args: string[]): int { var s = S { }; s.value(); return 0; }",
+            "struct S { method value(): void { return; } } function main(args: string[]): int { var s = S { }; return s.value(); }"
+        ];
+        foreach (var source in sources)
+            Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(source + (source.Contains("function main", StringComparison.Ordinal) ? "" : " function main(args: string[]): int { return 0; }")), source);
+    }
+
+    [Test]
     public void StructValues_LocalAssignmentsAndFunctionBoundariesAreIndependent()
     {
         const string source = """

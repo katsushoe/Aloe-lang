@@ -9,6 +9,7 @@ public sealed partial class AloeCompiler
     private sealed record StructSignature(string Name, List<FieldSignature> Fields)
     {
         public FunctionSignature? Constructor { get; set; }
+        public List<MethodSignature> Methods { get; } = new();
     }
 
     private sealed partial class Parser
@@ -58,6 +59,11 @@ public sealed partial class AloeCompiler
                         CollectStructConstructor(signature, ref position);
                         continue;
                     }
+                    if (TokenAt(position).Lexeme == "method")
+                    {
+                        CollectStructMethod(signature, ref position);
+                        continue;
+                    }
                     ExpectLexemeAt(ref position, "field");
                     var name = TokenAt(position++);
                     if (name.Kind != TokenKind.Identifier || signature.Fields.Any(f => f.Name == name.Lexeme))
@@ -73,6 +79,53 @@ public sealed partial class AloeCompiler
             }
             foreach (var signature in _structs.Values)
                 CheckStructCycle(signature, new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        private void CollectStructMethod(StructSignature signature, ref int position)
+        {
+            position++; // method
+            var name = TokenAt(position++);
+            if (name.Kind != TokenKind.Identifier || signature.Methods.Any(method => method.Name == name.Lexeme))
+                throw Error(name, "Struct method names must be unique identifiers.");
+            ExpectAt(ref position, TokenKind.LParen);
+            var parameters = new List<ParameterSignature>();
+            if (TokenAt(position).Kind != TokenKind.RParen)
+            {
+                while (true)
+                {
+                    var parameterName = TokenAt(position++);
+                    if (parameterName.Kind != TokenKind.Identifier || parameterName.Lexeme == "this" ||
+                        parameters.Any(parameter => parameter.Name.Lexeme == parameterName.Lexeme))
+                        throw Error(parameterName, "Struct method parameter names must be unique identifiers.");
+                    ExpectAt(ref position, TokenKind.Colon);
+                    var parameterType = ScanType(ref position, allowVoid: false, out var parameterClassName);
+                    if (parameterType is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Struct))
+                        throw Error(parameterName, "Struct methods support primitive value types and structs as parameters.");
+                    parameters.Add(new ParameterSignature(parameterName, parameterType, parameterClassName));
+                    if (TokenAt(position).Kind != TokenKind.Comma) break;
+                    position++;
+                }
+            }
+            ExpectAt(ref position, TokenKind.RParen);
+            ExpectAt(ref position, TokenKind.Colon);
+            var returnType = ScanType(ref position, allowVoid: true, out var returnClassName);
+            if (returnType is not (ExprType.Void or ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Struct))
+                throw Error(name, "Struct methods support primitive value types and structs as return values.");
+            ExpectAt(ref position, TokenKind.LBrace);
+            var bodyStart = position;
+            var depth = 1;
+            while (depth > 0)
+            {
+                var bodyToken = TokenAt(position++);
+                if (bodyToken.Kind == TokenKind.EndOfFile)
+                    throw Error(bodyToken, $"Unexpected end of file in struct method '{signature.Name}.{name.Lexeme}'.");
+                if (bodyToken.Kind == TokenKind.LBrace) depth++;
+                else if (bodyToken.Kind == TokenKind.RBrace) depth--;
+            }
+            var function = new FunctionSignature($"{signature.Name}.{name.Lexeme}", _functions.Count, parameters,
+                returnType, bodyStart, position - 1, false, ReturnClassName: returnClassName, DeclaringStruct: signature.Name);
+            signature.Methods.Add(new MethodSignature(name.Lexeme, function));
+            _functions.Add(function);
         }
 
         private void CollectStructConstructor(StructSignature signature, ref int position)

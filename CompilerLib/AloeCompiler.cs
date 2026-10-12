@@ -95,7 +95,8 @@ namespace Aloe.CompilerLib
             bool IsPublicStaticAsync = false,
             bool IsStaticMethod = false,
             bool IsPropertyGetter = false,
-            bool IsVirtual = false);
+            bool IsVirtual = false,
+            string? DeclaringStruct = null);
 
 
         private sealed record FieldSignature(string Name, int Index, ExprType Type, string? ClassName = null);
@@ -224,6 +225,8 @@ namespace Aloe.CompilerLib
                     EnterScope();
                     if (function.DeclaringClass != null && !function.IsStaticMethod)
                         DeclareImplicitLocal("this", ExprType.Object, function.DeclaringClass);
+                    else if (function.DeclaringStruct != null)
+                        DeclareImplicitLocal("this", ExprType.Struct, function.DeclaringStruct);
                     foreach (var parameter in function.Parameters)
                         DeclareLocal(parameter.Name, parameter.Type, parameter.ClassName);
 
@@ -262,7 +265,8 @@ namespace Aloe.CompilerLib
                     }
 
 
-                    var parameterCount = function.Parameters.Count + (function.DeclaringClass != null && !function.IsStaticMethod ? 1 : 0);
+                    var parameterCount = function.Parameters.Count +
+                        (function.DeclaringClass != null && !function.IsStaticMethod || function.DeclaringStruct != null ? 1 : 0);
                     var canEmitTypes = function.DeclaringClass == null &&
                         (function.ReturnType == ExprType.Void || IsWasmType(function.ReturnType)) &&
                         _localTypes.Count == _nextLocalSlot &&
@@ -1129,11 +1133,26 @@ namespace Aloe.CompilerLib
 
                 if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot)
                 {
+                    if (Peek(2).Kind == TokenKind.Identifier && Peek(3).Kind == TokenKind.LParen &&
+                        _currentFunction?.DeclaringStruct is string structName)
+                    {
+                        Emit(EnumOpcode.LoadLocal, 0);
+                        Advance();
+                        Expect(TokenKind.Dot);
+                        var methodName = Expect(TokenKind.Identifier);
+                        var methodType = ParseStructMethodCall(_structs[structName], methodName, requireValue: false);
+                        if (methodType != ExprType.Void)
+                            throw Error(methodName, "Ignoring a non-void struct method result is not supported.");
+                        Expect(TokenKind.Semicolon);
+                        return true;
+                    }
                     if (_constructingStruct != null)
                     {
                         ParseStructConstructorThisAssignment(_constructingStruct);
                         return true;
                     }
+                    if (_currentFunction?.DeclaringStruct != null)
+                        throw Error(Current, "Struct methods are read-only; assigning to this or its fields is not supported.");
                     ParseThisFieldAssignment();
                     return true;
                 }
@@ -1320,6 +1339,19 @@ namespace Aloe.CompilerLib
                     Peek(2).Kind == TokenKind.Identifier &&
                     Peek(3).Kind == TokenKind.LParen)
                 {
+                    if (TryResolveLocal(Current.Lexeme, out var structMethodTarget) &&
+                        structMethodTarget.Type == ExprType.Struct && structMethodTarget.ClassName is string structTypeName)
+                    {
+                        var targetToken = Advance();
+                        Emit(EnumOpcode.LoadLocal, structMethodTarget.Slot);
+                        Expect(TokenKind.Dot);
+                        var methodName = Expect(TokenKind.Identifier);
+                        var methodType = ParseStructMethodCall(_structs[structTypeName], methodName, requireValue: false);
+                        if (methodType != ExprType.Void)
+                            throw Error(targetToken, "Ignoring a non-void struct method result is not supported.");
+                        Expect(TokenKind.Semicolon);
+                        return true;
+                    }
                     if (_classes.TryGetValue(Current.Lexeme, out _))
                     {
                         ParseStaticAsyncMethodCallStatement();
@@ -2551,8 +2583,18 @@ namespace Aloe.CompilerLib
 
                 if (!_functionByName.TryGetValue(name.Lexeme, out function))
                 {
+                    var declaringStruct = _currentFunction?.DeclaringStruct;
+                    if (declaringStruct != null)
+                    {
+                        var method = _structs[declaringStruct].Methods.FirstOrDefault(candidate => candidate.Name == name.Lexeme);
+                        if (method != null)
+                        {
+                            function = method.Function;
+                            isInstanceSelfCall = true;
+                        }
+                    }
                     var declaringClass = _currentFunction?.DeclaringClass;
-                    if (declaringClass != null && _classes.TryGetValue(declaringClass, out var classInfo))
+                    if (function == null && declaringClass != null && _classes.TryGetValue(declaringClass, out var classInfo))
                     {
                         var method = FindMethod(classInfo.Name, name.Lexeme);
                         if (method != null)
@@ -2606,13 +2648,62 @@ namespace Aloe.CompilerLib
             }
 
 
+            private ExprType ParseStructMethodCall(StructSignature structInfo, AloeToken member, bool requireValue)
+            {
+                var method = structInfo.Methods.FirstOrDefault(candidate => candidate.Name == member.Lexeme);
+                if (method == null)
+                    throw Error(member, $"'{structInfo.Name}.{member.Lexeme}' is not a struct method.");
+                var function = method.Function;
+                if (function.ReturnType == ExprType.Void && requireValue)
+                    throw Error(member, $"Void struct method '{function.Name}' cannot be used as a value.");
+
+                Expect(TokenKind.LParen);
+                var argumentIndex = 0;
+                if (!Check(TokenKind.RParen))
+                {
+                    while (true)
+                    {
+                        if (argumentIndex >= function.Parameters.Count)
+                            throw Error(Current, $"Method '{function.Name}' received too many arguments.");
+                        var argumentToken = Current;
+                        var expressionStart = _code.Count;
+                        var actualType = ParseExpression();
+                        var actualClassName = _lastExpressionClassName;
+                        var parameter = function.Parameters[argumentIndex];
+                        actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
+                        RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
+                        argumentIndex++;
+                        if (!Check(TokenKind.Comma)) break;
+                        Advance();
+                    }
+                }
+                Expect(TokenKind.RParen);
+                if (argumentIndex != function.Parameters.Count)
+                    throw Error(member, $"Method '{function.Name}' expects {function.Parameters.Count} arguments, found {argumentIndex}.");
+                Emit(EnumOpcode.Call, function.Index);
+                _lastExpressionClassName = function.ReturnClassName;
+                return function.ReturnType;
+            }
+
+
             private ExprType ParsePrimary()
             {
                 if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.LBrace && _structs.ContainsKey(Current.Lexeme))
                     return ParseStructLiteral();
                 if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.Dot &&
                     TryResolveLocal(Current.Lexeme, out var structTarget) && structTarget.Type == ExprType.Struct)
+                {
+                    if (Peek(3).Kind == TokenKind.LParen)
+                    {
+                        var member = Peek(2);
+                        Emit(EnumOpcode.LoadLocal, structTarget.Slot);
+                        Advance();
+                        Expect(TokenKind.Dot);
+                        Expect(TokenKind.Identifier);
+                        return ParseStructMethodCall(_structs[structTarget.ClassName!], member, requireValue: true);
+                    }
                     return ParseStructFieldRead();
+                }
                 if (Check(TokenKind.Dot) && _typeWithScopes.Count > 0)
                 {
                     Advance();
@@ -2630,7 +2721,18 @@ namespace Aloe.CompilerLib
                 }
 
                 if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot)
-                    return _constructingStruct != null ? ParseStructConstructorFieldRead() : ParseThisFieldRead();
+                {
+                    if (_currentFunction?.DeclaringStruct is string structName && Peek(2).Kind == TokenKind.Identifier && Peek(3).Kind == TokenKind.LParen)
+                    {
+                        Emit(EnumOpcode.LoadLocal, 0);
+                        Advance();
+                        Expect(TokenKind.Dot);
+                        var methodName = Expect(TokenKind.Identifier);
+                        return ParseStructMethodCall(_structs[structName], methodName, requireValue: true);
+                    }
+                    return _constructingStruct != null ? ParseStructConstructorFieldRead() :
+                        _currentFunction?.DeclaringStruct != null ? ParseStructMethodThisFieldRead() : ParseThisFieldRead();
+                }
 
                 if (Current.Lexeme == "pipe" && Peek(1).Kind == TokenKind.Less)
                     return ParsePipeCreate();
@@ -2821,6 +2923,35 @@ namespace Aloe.CompilerLib
                 Emit(EnumOpcode.Syscall, (int)EnumSyscall.ObjectFieldGet);
                 _lastExpressionClassName = field.ClassName;
                 return field.Type;
+            }
+
+
+            private ExprType ParseStructMethodThisFieldRead()
+            {
+                var function = _currentFunction;
+                if (function?.DeclaringStruct is not string structName)
+                    throw Error(Current, "'this' is only available in struct instance methods.");
+                Advance(); // this
+                Expect(TokenKind.Dot);
+                var member = Expect(TokenKind.Identifier);
+                var field = ResolveStructField(structName, member);
+                Emit(EnumOpcode.LoadLocal, 0);
+                Emit(EnumOpcode.StructGet, field.Index);
+                var type = field.Type;
+                var className = field.ClassName;
+                while (Check(TokenKind.Dot))
+                {
+                    Advance();
+                    var nestedMember = Expect(TokenKind.Identifier);
+                    if (type != ExprType.Struct)
+                        throw Error(nestedMember, "Nested this.field reads require a struct field.");
+                    var nestedField = ResolveStructField(className, nestedMember);
+                    Emit(EnumOpcode.StructGet, nestedField.Index);
+                    type = nestedField.Type;
+                    className = nestedField.ClassName;
+                }
+                _lastExpressionClassName = className;
+                return type;
             }
 
 
