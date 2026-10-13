@@ -20,7 +20,7 @@ namespace Aloe.RuntimeLib
     /// ・CallStack / CallFrame による関数呼び出し管理
     /// ・ValueStack によるオペランドスタック
     /// </summary>
-    public sealed class AloeVm
+    public sealed partial class AloeVm
     {
         /// <summary>実行対象モジュール（バイトコード＋メタ情報）。</summary>
         private readonly Module _module;
@@ -765,6 +765,12 @@ namespace Aloe.RuntimeLib
         {
             switch (syscallId)
             {
+                case EnumSyscall.ArrayCreate:
+                case EnumSyscall.ArrayGet:
+                case EnumSyscall.ArraySet:
+                case EnumSyscall.ArrayLength:
+                    InvokeArraySyscall(syscallId);
+                    break;
                 case EnumSyscall.Print:
                     {
                         // スタックトップを取り出して、そのまま ToString() して出力

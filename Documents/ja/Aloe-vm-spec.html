@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="edit-version" content="27" />
-  <meta name="edit-date" content="2026-10-07T12:37:00+09:00" />
+  <meta name="edit-version" content="34" />
+  <meta name="edit-date" content="2026-10-13T11:32:45+09:00" />
   <title>AloeVM 仕様書（ドラフト）</title>
   <style>
     * { box-sizing: border-box; }
@@ -551,6 +551,7 @@
     <!-- 4. ヒープとメモリ管理方針 -->
     <section id="vm-ch4" class="chapter">
       <h2>4. ヒープと参照・寿命管理方針（C# 実装 VM）</h2>
+<div class="note" id="array-runtime-subset">2026-10-13配列プロトタイプ：primitive／string／enum／struct配列は通常のAloeヒープハンドルと固定フィールド数を使用し、別名はハンドルを共有します。組み込みSYSCALL 21 ArrayCreateは個数・型名文字列・個数分の要素を逆順にpopしてハンドルをpush、22 ArrayGetは添字・ハンドルをpopして要素をpush、23 ArraySetは値・添字・ハンドルをpopして要素を更新、24 ArrayLengthはハンドルをpopして長さをpushします。型名はint[]、bool[]、byte[]、char[]、float[]、decimal[]、string[]、enum:&lt;Name&gt;[]、struct:&lt;Name&gt;[]です。enum記述子のNameは空でない識別子（先頭は文字またはアンダースコア、以降は文字・数字・アンダースコア）を要求します。enum要素は符号付きint32で、enum型の区別はコンパイラーが検査します。VMは記述子・int値種別・範囲を検査し、個々のenumタグや宣言照合は行いません。有効な配列ハンドル、添字範囲、要素の値種別、int要素の符号付きint32範囲、float要素の有限binary32値を検査し、不正オペランドはVmExceptionです。property QueryではCommitted State、それ以外は現在状態を読みます。Tick中はVolatile State、Tick外ではCommitted Stateに書き込み、property Query中の書き込みは拒否します。内部操作なのでhost capabilityは不要で、既存Syscall／AloeBC形式を再利用します。直接WASMは未対応です。class／object配列の検査は以下に記載します。<a href="../decisions/0001-basic-array-subset.md">設計判断（英語）</a>を参照してください。 struct記述子の型名も同じ識別子規則で検査し、生成／読み取り／書き込みにはTypeNameが一致するStructスナップショットを要求します。既存の変更不能・参照フィールドを持たない値を保持するため独立した値コピーを維持し、間接GC辺は追加しません。要素全体の置き換えは配列の別名に反映され、以前の値コピーは維持されます。フィールド構成の検査は既存のstruct生成／ソース型検査に従います。 入れ子配列は内側のVM型名へ[]を追加し、int[][]やstruct:Point[][]などとします。生成／読み取り／書き込みには有効なObject配列ハンドルと、親の型名から最後の[]を除いた内側型名の完全一致を要求します。null、異なる型／階層数、無効なハンドルは拒否します。配列フィールドは既存の参照数付き強参照を使用し、重複要素も数えます。置き換え時に参照を更新し、TickのcommitまでCommitted／Volatile双方の内側参照を保持します。GCは外側から内側へ参照をたどり、外側のrootだけでも内側の配列を保持します。各階層の長さは個別に固定で、Syscall ID・opcode・AloeBC形式は変更しません。 string配列の記述子はstring[]とstring[][]などの入れ子型です。末端要素の生成／読み取り／書き込みはString値を要求し、Null・char・他の値種別を拒否します。既存の変更不能な管理文字列を保持するAloeValue.String表現を使用し、Aloe ObjectIdやObjectへの参照辺は追加しません。配列ハンドル共有、添字範囲、Tick状態、Committed Query中の書き込み禁止、入れ子配列の強参照規則は維持します。 class末端記述子はclass:&lt;Base&gt;|&lt;Derived&gt;[]やclass:&lt;Name&gt;[]で、有効な識別子の空でない重複のないリストを要求します。生成／読み取り／書き込みは有効なObjectと、そのヒープTypeNameがリスト内の型名に完全一致することを要求します。コンパイラーが閉じた継承許可リストを供給し、生のバイトコード／runtime呼び出し元はこの記述子契約を供給します。VMの独立した継承表や真正性検査は追加しません。object[]は有効なAloeヒープObjectハンドルを要求し、Null・scalar／string／struct／pipe値を拒否します。[]を重ねた型は他の入れ子配列と同じく直下の記述子一致を要求します。class／object要素は通常の参照数付き強参照を追加し、object配列の循環は既存SCC／参照グループGCで扱います。間接参照先の回収には複数パスが必要な場合があります。Syscall ID・opcode・codec・Tick／Query・インスタンス状態初期化規則は変更しません。</div>
 
 
       <h3>4.1 スロットベースのヒープレイアウト</h3>

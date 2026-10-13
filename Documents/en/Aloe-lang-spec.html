@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Language Spec (Draft, English)</title>
-  <meta name="edit-version" content="74">
-  <meta name="edit-date" content="2026-10-12T15:31:27+09:00">
+  <meta name="edit-version" content="88">
+  <meta name="edit-date" content="2026-10-13T11:30:32+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- Left menu -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - English + validity model (edit-version 74)</div>
+    <div class="subtitle">Draft - English + validity model (edit-version 88)</div>
 
 
 
@@ -148,8 +148,8 @@
   <main class="content">
     <h1 id="top">Aloe Language Spec (Draft, English)</h1>
     <p class="note">
-      edit-version: 74<br>
-      edit-date: 2026-10-12T15:31:27+09:00</p>
+      edit-version: 88<br>
+      edit-date: 2026-10-13T11:30:32+09:00</p>
     <p class="note">
       This document is an English draft based on the upstream specification.<br>
       In addition, it introduces a reference validity model using <strong>valid / invalid</strong> and
@@ -1006,7 +1006,7 @@ var score = Game.score;
 
 
     <h3>7.2 struct</h3>
-    <div class="note" id="struct-subset">Current basic struct implementation (2026-10-12): struct/sealed struct and field declarations, literals such as <code>Point { x: 1, y: 2 }</code>, local field reads/writes (including nested paths), and value copies through assignments, function arguments/returns, class fields and queued async arguments are supported. Field types are int, byte, char, float, decimal, bool and other structs. Every field is initialized exactly once; expressions evaluate once in written order. Empty structs and forward struct type references are allowed; reference fields and recursive layouts are rejected. Int fields are checked against int32 limits. Storage uses immutable snapshots without reference fields, rebuilding the containing path when a field changes. This preserves value-copy semantics and avoids missed copies at mutable storage boundaries, so immutable snapshots are used instead of boundary-specific mutable deep copies. Synchronous construct(...) and new Type(...) are supported. Constructors initialize every field through sequential this.field assignments, may declare locals and call functions, and may read previously initialized fields (including nested fields). Reassignment is allowed. Parameters currently support the same primitive/struct value types as fields. Arguments evaluate once from left to right and retain independent value copies. Missing initialization, uninitialized reads, duplicate constructors/parameters, and wrong argument counts/types are rejected. Constructor if/else, while and foreach flow is supported with definite-initialization checks. At a branch join only fields initialized on every path count as initialized. while/foreach paths may execute zero times, so field writes inside their bodies do not count after the loop unless the field was initialized before entry. Reads before assignment are rejected. Constructors allow early <code>return;</code> only after every field is initialized on that path. Nested assignments such as <code>this.field.path = expression</code> are supported after the containing field has been assigned a complete struct value; immutable values are rebuilt along the path. Assigning through an uninitialized containing field and returning an expression are rejected. An empty struct without a constructor accepts new Empty(); structs with fields require a constructor or a complete literal. Constructor bodies lower to ordinary synchronous functions returning a freshly assembled immutable value, preserving the existing VM and AloeBC formats. A with block targeting one or more struct locals supports field reads and writes, including nested paths. Assignment rebuilds the immutable snapshot and stores it back into the target local, leaving other value copies unchanged. Targets must be struct locals; other expressions and temporary values are rejected, as are with blocks inside struct constructors. Synchronous struct methods are declared as <code>method name(parameters): Type</code> and called as <code>value.method(...)</code> on a struct local, or as <code>this.method(...)</code>/<code>method(...)</code> inside a method. Parameters and returns are limited to void, int, byte, char, float, decimal, bool and structs. Methods can read <code>this.field</code> and nested fields. Since struct receivers are passed by value, methods are read-only; assignments to <code>this</code> or its fields are rejected. Properties, inheritance, layout annotations, comparisons and direct WASM remain unsupported. The constructor, with and method examples below are supported by the current compiler.</div>
+    <div class="note" id="struct-subset">Current basic struct implementation (2026-10-12): struct/sealed struct and field declarations, literals such as <code>Point { x: 1, y: 2 }</code>, local field reads/writes (including nested paths), and value copies through assignments, function arguments/returns, class fields and queued async arguments are supported. Field types are int, byte, char, float, decimal, bool, normal/bitfield enums and other structs. Enum identity is checked by the compiler in literals, field writes, constructors, method arguments/returns and getters; integers and other enum types cannot be substituted. At runtime enum fields retain the existing signed-int32 integer representation, so no VM opcode or AloeBC format change is required. Every field is initialized exactly once; expressions evaluate once in written order. Empty structs and forward struct type references are allowed; reference fields and recursive layouts are rejected. Int fields are checked against int32 limits. Storage uses immutable snapshots without reference fields, rebuilding the containing path when a field changes. This preserves value-copy semantics and avoids missed copies at mutable storage boundaries, so immutable snapshots are used instead of boundary-specific mutable deep copies. Synchronous construct(...) and new Type(...) are supported. Constructors initialize every field through sequential this.field assignments, may declare locals and call functions, and may read previously initialized fields (including nested fields). Reassignment is allowed. Parameters currently support the same primitive/struct value types as fields. Arguments evaluate once from left to right and retain independent value copies. Missing initialization, uninitialized reads, duplicate constructors/parameters, and wrong argument counts/types are rejected. Constructor if/else, while and foreach flow is supported with definite-initialization checks. At a branch join only fields initialized on every path count as initialized. while/foreach paths may execute zero times, so field writes inside their bodies do not count after the loop unless the field was initialized before entry. Reads before assignment are rejected. Constructors allow early <code>return;</code> only after every field is initialized on that path. Nested assignments such as <code>this.field.path = expression</code> are supported after the containing field has been assigned a complete struct value; immutable values are rebuilt along the path. Assigning through an uninitialized containing field and returning an expression are rejected. An empty struct without a constructor accepts new Empty(); structs with fields require a constructor or a complete literal. Constructor bodies lower to ordinary synchronous functions returning a freshly assembled immutable value, preserving the existing VM and AloeBC formats. A with block targeting one or more struct locals supports field reads and writes, including nested paths. It also supports synchronous <code>.method(...)</code> calls and getter-only <code>.Property</code> reads. Methods returning void are used as statements; non-void results must be consumed. In value expressions, struct-valued results and nested fields support further field, property and non-void method access. Calls and getters read the current target-local value, including preceding field writes, and arguments evaluate once from left to right. Member lookup searches the innermost block first; duplicate names in the same block are errors even when member kinds differ. Property writes remain rejected. Assignment rebuilds the immutable snapshot and stores it back into the target local, leaving other value copies unchanged. Targets must be struct locals; other expressions and temporary values are rejected, as are with blocks inside struct constructors. Synchronous struct methods are declared as <code>method name(parameters): Type</code> and called as <code>value.method(...)</code> on a struct local, or as <code>this.method(...)</code>/<code>method(...)</code> inside a method. Parameters and non-void returns support int, byte, char, float, decimal, bool, normal/bitfield enums and structs; methods may also return void. Methods can read <code>this.field</code> and nested fields. Since struct receivers are passed by value, methods are read-only; assignments to <code>this</code> or its fields are rejected. Getter-only public struct properties are declared as <code>public property Name: Type { get { ... } }</code>. Property access on a struct local, <code>this</code>, or a struct-valued property result invokes the synchronous getter; getters may return primitive, enum or struct values, and returned structs retain value-copy semantics. Setters, inheritance, layout annotations, comparisons and direct WASM remain unsupported. The constructor, with, method and property examples below are supported by the current compiler.</div>
 <pre><code>struct Point {
     field x: int;
     field y: int;
@@ -1026,6 +1026,53 @@ function move(point: Point): Point {
         .x = .x + 1;
     }
     return point;
+}</code></pre>
+<pre><code>struct Point {
+    field x: int; field y: int;
+    public property Sum: int { get { return this.x + this.y; } }
+    public property Shifted: Point { get { return Point { x: this.x + 1, y: this.y + 1 }; } }
+}
+function main(args: string[]): int {
+    var point = Point { x: 10, y: 20 };
+    var shifted = point.Shifted;
+    return point.Sum + shifted.x;
+}</code></pre>
+<pre><code>struct Point {
+    field x: int; field y: int;
+    public property Sum: int { get { return this.x + this.y; } }
+    method shifted(delta: int): Point {
+        return Point { x: this.x + delta, y: this.y + delta };
+    }
+    method report(value: int): void { print(value); }
+}
+function main(args: string[]): int {
+    var point = Point { x: 10, y: 20 };
+    with (point) {
+        .x = .x + 1;
+        .report(.Sum);
+        return .shifted(1).Sum;
+    }
+}</code></pre>
+<pre><code>enum Color { Red, Blue }
+bitfield enum Feature { Read, Write }
+struct Options {
+    field color: Color; field features: Feature;
+    construct(color: Color, features: Feature) { this.color = color; this.features = features; }
+    public property Color: Color { get { return this.color; } }
+    public property Features: Feature { get { return this.features; } }
+    method add(value: Feature): Feature { return this.features | value; }
+    method choose(value: Color): Color { return value; }
+}
+function main(args: string[]): int {
+    var original = new Options(Color.Red, Feature.Read);
+    var copy = original;
+    with (copy) {
+        .color = Color.Blue;
+        .features = .add(Feature.Write);
+        if (.Color != Color.Blue or .Features != (Feature.Read | Feature.Write) or .choose(Color.Red) != Color.Red) { return 0; }
+    }
+    if (original.Color == Color.Red and original.Features == Feature.Read) { return 42; }
+    return 0;
 }</code></pre>
     <ul>
       <li>Struct is a value type.</li>
@@ -1210,6 +1257,128 @@ if (obj is invalid) {
 
 
     <h3>10.1 Arrays (T[])</h3>
+<div class="note" id="array-subset">Current array prototype (2026-10-13): fixed-length int[], bool[], byte[], char[], float[], decimal[], string[] and normal/bitfield enum or struct array literals, typed declarations, index reads and read-only Length on array-valued function/property returns, literals, local variables and parenthesized expressions are supported. foreach also accepts these supported array expressions, evaluating its target once and retaining that handle throughout the loop, including GC. Nested loops, break, continue and empty arrays are supported. Elements are read when their iteration begins, so later element writes through an alias are observed; reassigning an alias does not switch the captured target. Element writes accept indexed local arrays, array-valued function/property returns, literals and parenthesized expressions, including this-field and with-property array references. The target, index and assigned value evaluate once from left to right; bounds and element-kind checks happen at the write after the assigned value is evaluated. Writing through a getter-returned reference runs in the caller and affects shared aliases; direct getter writes and transitive writes during committed queries remain forbidden. Length is read-only and general scalar expressions are not assignable targets. Existing pipe foreach continues to require a pipe local. Constructor definite-initialization checks conservatively allow zero iterations, even for nonempty array literals. Empty [] literals require a typed declaration or assignment context. Elements, indexes and assigned values evaluate once in source order. Arrays are heap references: assignment, function parameters/returns, class fields and queued arguments share the handle. foreach captures its target once and reads each element when that iteration begins; source-local reassignment does not change the active iterator. Array writes follow existing Volatile/Committed Tick rules; index reads executed inside property getters read committed elements. Indexing an array reference returned by a getter happens in the caller and reads its current elements; the getter does not copy or freeze the returned array. Direct writes in getters are compile errors, and writes through a function called by a getter fail at runtime. Indexes must be int within 0..Length-1; invalid indexes or element values raise VmException. Int elements must fit signed int32; byte elements are 0..255, chars are UTF-16 code units, floats are finite binary32 values and decimals retain the existing decimal representation. Element kinds must match exactly. In byte[] declaration/assignment contexts, integer literals in 0..255 adapt to byte, including element writes; computed int values do not implicitly convert. Other numeric kinds do not implicitly convert or mix in an array. Mixed element types, incompatible array types and writes to Length are rejected. Resizing, other element types, direct WASM and other collections remain unsupported. Main args: string[] is still syntax-only. See <a href="../decisions/0001-basic-array-subset.md">the array prototype decision</a> for heap/storage choices. The following example is executed by the current compiler tests. Enum arrays infer the nominal enum type from their first element or a typed declaration/assignment context, including empty literals. Reads and foreach items retain enum identity; writes, literals and function/class boundaries reject other enums and int values. Bitfield element expressions retain the existing mask/shift rules. The VM stores enum elements as signed int32 with reserved enum:&lt;Name&gt;[] heap type names; nominal enum identity is enforced by the compiler, as for other enum values, and arbitrary bytecode carries no per-value enum tag. Struct arrays support existing reference-free struct values, including nested structs and enum fields. Elements retain nominal struct identity in inferred/typed literals, empty declaration/assignment contexts, indexing, foreach and function/class/async boundaries. Array aliases share the handle, while elements are immutable value snapshots: changing a local or foreach copy does not alter the stored element; assigning a whole element updates shared aliases while preserving previously read copies. Indexed struct results expose fields, read-only methods/getters and nested value-member chains. Direct values[i].field and nested-field writes are supported: capture the receiver and int index once, read the original struct snapshot, evaluate the RHS, rebuild the immutable field path and replace the whole array element. Bounds are checked by ArrayGet before evaluating the RHS, unlike whole-element writes; a RHS that changes the same element is overwritten by the rebuilt captured snapshot. Shared aliases observe the replacement and earlier copies remain unchanged. Byte literal conversion and nominal struct/enum field checks match local struct field assignments. Properties and method-result paths are read-only assignment targets. Direct getter writes remain compile errors, and transitive writes inside committed queries remain runtime errors. No atomic read/modify/write guarantee is added. The VM uses reserved struct:&lt;Name&gt;[] descriptors and requires Struct values with matching snapshot type names; field layout checks remain with existing struct construction/source validation, and no new opcode or bytecode layout is introduced. Nested arrays such as int[][] and Point[][] are supported as jagged arrays of shared non-null array handles, with the existing primitive/string/enum/struct base types. Each level has its own fixed Length. Consecutive indexes, inner Length, inner-array replacement and captured foreach retain the exact remaining array type; mixed base types or ranks are rejected. Typed declarations/assignments propagate the inner array type into empty and byte-literal contexts. An inferred nonempty first row also supplies the type of later empty rows; a context-free empty first row is rejected. Outer and inner assignments share handles rather than copying rows; struct leaf values retain their existing snapshot semantics and field write-back. Runtime descriptors add one [] per nesting level, for example int[][], enum:Color[][] or struct:Point[][]. A nested element must be a live array handle whose runtime descriptor exactly matches the parent descriptor with its last [] removed. Null, class handles, scalar strings and incorrect ranks/types are rejected. Each nested element is a counted strong heap-field edge; GC retains children reachable only through an outer array, counts duplicate references and removes edges on replacement. Tick retains old Committed and new Volatile child references until commit. This uses existing heap/reference graph rules; class/object array support is described below. String arrays support typed/inferred literals, empty declaration/assignment contexts, expression index reads/writes, Length, foreach and nested jagged arrays through existing function/class/getter/async boundaries. Elements must be String values; int/char/null elements and implicit conversions are rejected. Array aliases share updates, while previously read strings retain their original contents. Existing AloeValue.String stores immutable managed strings without Aloe heap ObjectIds, so string leaf elements add no object-reference graph edges; nested string-array handles retain ordinary strong edges. Empty strings, Unicode text and existing literal escapes preserve their contents through AloeBC. Main args: string[] remains a syntax-only entry parameter without injected command-line values; this change adds ordinary string arrays, not argument delivery or broader string APIs. Class arrays and object[] now support literals, typed empty contexts, reads/writes, Length, captured foreach, nested arrays and existing function/class/async boundaries. A class array accepts instances of its declared class and subclasses; inferred literals use the first element's static class. Array types are invariant: Derived[] cannot be assigned to Base[] or object[]. Use an explicit Base[] literal context to store derived instances. Indexed class elements expose public getters, including getter-result struct/array chains; use a local or with target for existing async/virtual calls. Properties/private fields cannot be assigned through an indexed class element. Object[] accepts live Aloe heap Object handles, including class instances and array handles; it does not box int/string/struct or pipe values and rejects Null/dead handles at runtime. Reading object[] yields a statically opaque object without implicit downcasts or member access. Source Object equality remains outside the current VM subset. Class descriptors encode the compile-time allowed runtime names, e.g. class:Base|Derived[]; base first, other assignable classes in ordinal order. The VM validates identifier syntax, uniqueness and exact membership, rather than independently reconstructing inheritance from bytecode. Nested descriptors require an exact immediate child descriptor. Shared handles use existing counted strong edges and retain queued targets/arguments; duplicate references and generic object-array cycles are handled by existing reference groups. Unrooted parent and child groups may require successive existing GC passes for reclamation. Tick/query rules apply to referenced objects as before; this change does not alter newly constructed object Committed-State initialization or add casts, object equality, resizing or direct WASM.</div>
+<pre><code>class Box {
+    field value: int;
+    construct(value: int) { this.value = value; }
+    public property Value: int { get { return this.value; } }
+    public async method update(value: int): void { this.value = value; }
+}
+function identity(values: Box[]): Box[] { return values; }
+function main(args: string[]): int {
+    var boxes = [new Box(1), new Box(22)]; var alias = boxes;
+    with (identity(boxes)[0]) { .update(20); }
+    GC.require(); GC.finish(); tick();
+    var total = 0; foreach (box in alias) { total = total + box.Value; }
+    if (boxes[0].Value == 20) { return total; }
+    return 0;
+}</code></pre>
+<pre><code>function identity(values: string[]): string[] { return values; }
+function main(args: string[]): int {
+    let words: string[] = ["hello", "world"];
+    var alias = words; identity(words)[0] = "Aloe";
+    var count = 0;
+    foreach (word in alias) { print(word); count = count + 1; }
+    if (words[0] == "Aloe" and count == 2) { return 42; }
+    return 0;
+}</code></pre>
+<pre><code>function identity(values: int[][]): int[][] { return values; }
+function main(args: string[]): int {
+    let matrix: int[][] = [[1, 2], [3]];
+    var row = matrix[0]; row[0] = 20;
+    identity(matrix)[1] = [22];
+    var total = 0;
+    foreach (values in matrix) { foreach (value in values) { total = total + value; } }
+    GC.require(); GC.finish();
+    if (matrix[0][0] == 20 and matrix[0].Length == 2 and total == 44) { return matrix[0][0] + matrix[1][0]; }
+    return 0;
+}</code></pre>
+<pre><code>struct Point { field x: int; field y: int; }
+struct Item { field point: Point; }
+function identity(values: Item[]): Item[] { return values; }
+function main(args: string[]): int {
+    var values = [Item { point: Point { x: 1, y: 22 } }];
+    var alias = values; var before = values[0];
+    identity(values)[0].point.x = 20;
+    if (before.point.x == 1 and alias[0].point.y == 22) { return values[0].point.x + values[0].point.y; }
+    return 0;
+}</code></pre>
+<pre><code>struct Point {
+    field x: int; field y: int;
+    method sum(): int { return this.x + this.y; }
+    public property Sum: int { get { return this.x + this.y; } }
+}
+function identity(values: Point[]): Point[] { return values; }
+function main(args: string[]): int {
+    var original = Point { x: 1, y: 2 };
+    let points: Point[] = [original];
+    var copy = points[0]; copy.x = 20;
+    identity(points)[0] = Point { x: 20, y: 22 };
+    var total = 0;
+    foreach (point in points) { total = total + point.Sum; point.x = 0; }
+    if (original.x == 1 and copy.x == 20 and points[0].sum() == 42) { return total; }
+    return 0;
+}</code></pre>
+<pre><code>enum Color { Red, Blue }
+bitfield enum Feature { Read, Write }
+function identity(values: Color[]): Color[] { return values; }
+function main(args: string[]): int {
+    let colors: Color[] = [Color.Red, Color.Blue];
+    identity(colors)[0] = Color.Blue;
+    var features = [Feature.Read, Feature.Read | Feature.Write];
+    features[0] = features[0] | Feature.Write;
+    var count = 0;
+    foreach (color in colors) { if (color == Color.Blue) { count = count + 1; } }
+    if (count == 2 and features[0] == features[1]) { return 42; }
+    return 0;
+}</code></pre>
+<pre><code>function identity(values: int[]): int[] { return values; }
+class Box {
+    field values: int[];
+    construct(values: int[]) { this.values = values; }
+    public property Values: int[] { get { return this.values; } }
+}
+function main(args: string[]): int {
+    var values = [1, 2]; var box = new Box(values);
+    identity(values)[0] = 20;
+    (box.Values)[1] = 22;
+    return values[0] + values[1];
+}</code></pre>
+<pre><code>function main(args: string[]): int {
+    let bytes: byte[] = [0, 255];
+    var chars = ['a', 'z'];
+    var floats = [1.5, 2.5];
+    var decimals = [0.1:d, 0.2:d];
+    bytes[0] = 42;
+    chars[0] = 'b';
+    var total = 0;
+    foreach (value in bytes) { if (value == 42) { total = total + value; } }
+    if (chars[0] == 'b' and floats[1] == 2.5 and decimals[0] + decimals[1] == 0.3:d) { return total; }
+    return 0;
+}</code></pre>
+<pre><code>function values(): int[] { return [10, 20, 12]; }
+function main(args: string[]): int {
+    var total = 0;
+    foreach (value in values()) { total = total + value; }
+    foreach (flag in [true, false]) { if (flag) { return total; } }
+    return 0;
+}</code></pre>
+<pre><code>function values(): int[] { return [40, 2]; }
+function main(args: string[]): int {
+    if ([true, false][0] and values().Length == 2) {
+        return values()[0] + ([1, 2]).Length;
+    }
+    return 0;
+}</code></pre>
+<pre><code>function main(args: string[]): int {
+    let values: int[] = [10, 20, 30];
+    var alias = values;
+    alias[1] = 2;
+    var total = 0;
+    foreach (value in values) { total = total + value; }
+    if (values.Length == 3 and values[1] == 2) { return total; }
+    return 0;
+}</code></pre>
 <pre><code>var arr: int[] = [1, 2, 3];
 var matrix: float[][] = [[1.0, 2.0], [3.0, 4.0]];
 </code></pre>

@@ -1,4 +1,4 @@
-using Aloe.CommonLib;
+﻿using Aloe.CommonLib;
 using Aloe.CommonLib.Constants;
 using Aloe.CompilerLib.Lexer;
 using System.Globalization;
@@ -1047,6 +1047,24 @@ namespace Aloe.CompilerLib
 
             private ExprType ScanType(ref int position, bool allowVoid, out string? className)
             {
+                var type = ScanSingleType(ref position, allowVoid, out className);
+                if (!(TokenAt(position).Kind == TokenKind.LBracket)) return type;
+                if (type == ExprType.Object && className?.StartsWith("pipe<", StringComparison.Ordinal) == true)
+                    throw Error(TokenAt(position), "Pipe values are not heap-object array elements.");
+                if (type is not (ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Enum or ExprType.Struct or ExprType.Object))
+                    throw Error(TokenAt(position), "Array base elements currently support primitive value, string, enum, struct and class/object types.");
+                className = type is ExprType.Enum or ExprType.Struct || type == ExprType.Object && className != null ? className : FormatType(type);
+                while (TokenAt(position).Kind == TokenKind.LBracket)
+                {
+                    position++;
+                    ExpectAt(ref position, TokenKind.RBracket);
+                    className += "[]";
+                }
+                return ExprType.Object;
+            }
+
+            private ExprType ScanSingleType(ref int position, bool allowVoid, out string? className)
+            {
                 var token = TokenAt(position++);
                 className = null;
                 switch (token.Lexeme)
@@ -1123,6 +1141,11 @@ namespace Aloe.CompilerLib
 
             private bool ParseStatement()
             {
+                if (IsArrayAssignmentStatement())
+                {
+                    ParseArrayAssignment();
+                    return true;
+                }
                 if (IsStructFieldAssignment())
                 {
                     ParseStructFieldAssignment();
@@ -1281,6 +1304,11 @@ namespace Aloe.CompilerLib
                     var member = Expect(TokenKind.Identifier);
                     if (!TryResolveTypeWithMember(member.Lexeme, out var targetType))
                         throw Error(member, $"Unknown type-based with member '{member.Lexeme}'.");
+                    if (targetType.InstanceSlot is int structSlot && _structs.TryGetValue(targetType.TypeName, out var structInfo))
+                    {
+                        ParseStructWithMethodStatement(structInfo, structSlot, member);
+                        return true;
+                    }
                     if (!_classes.TryGetValue(targetType.TypeName, out var classInfo))
                         throw Error(member, $"Enum member '{targetType.TypeName}.{member.Lexeme}' cannot be called.");
                     if (targetType.InstanceSlot is int slot)
@@ -1506,7 +1534,7 @@ namespace Aloe.CompilerLib
                 var declaredType = ParseTypeName(out var declaredClassName);
                 Expect(TokenKind.Assign);
                 var expressionStart = _code.Count;
-                var actualType = ParseExpression();
+                var actualType = ParseExpectedArrayExpression(declaredClassName);
                 actualType = AdaptByteLiteral(name, declaredType, actualType, expressionStart);
                 var actualClassName = _lastExpressionClassName;
                 RequireAssignable(name, declaredType, actualType, declaredClassName, actualClassName);
@@ -1524,7 +1552,7 @@ namespace Aloe.CompilerLib
                 var local = ResolveLocal(name);
                 Expect(TokenKind.Assign);
                 var expressionStart = _code.Count;
-                var actualType = ParseExpression();
+                var actualType = ParseExpectedArrayExpression(local.ClassName);
                 actualType = AdaptByteLiteral(name, local.Type, actualType, expressionStart);
                 var actualClassName = _lastExpressionClassName;
                 RequireAssignable(name, local.Type, actualType, local.ClassName, actualClassName);
@@ -1685,6 +1713,18 @@ namespace Aloe.CompilerLib
                 Expect(TokenKind.LParen);
                 var itemName = Expect(TokenKind.Identifier);
                 ExpectLexeme("in");
+                if (!Check(TokenKind.Identifier) || Peek(1).Kind != TokenKind.RParen ||
+                    !TryResolveLocal(Current.Lexeme, out var pipeSource) || !TryGetPipeElementType(pipeSource.ClassName, out _))
+                {
+                    var sourceToken = Current;
+                    var sourceType = ParseExpression();
+                    var arrayName = _lastExpressionClassName;
+                    if (sourceType != ExprType.Object || !TryGetArrayElementType(arrayName, out var arrayElementType))
+                        throw Error(sourceToken, "foreach requires a supported array expression or a pipe<T> local.");
+                    ParseArrayForeach(itemName, arrayName!, arrayElementType);
+                    RestoreConstructorLoopEntry(constructorEntry);
+                    return;
+                }
                 var sourceName = Expect(TokenKind.Identifier);
                 var source = ResolveLocal(sourceName);
                 if (!TryGetPipeElementType(source.ClassName, out var elementType))
@@ -2688,11 +2728,31 @@ namespace Aloe.CompilerLib
 
             private ExprType ParsePrimary()
             {
+                var type = ParsePrimaryValue();
+                if (type == ExprType.Object && TryGetArrayElementType(_lastExpressionClassName, out var elementType) &&
+                    Current.Kind is TokenKind.LBracket or TokenKind.Dot)
+                    return ParseArrayResultRead(elementType);
+                return type;
+            }
+
+            private ExprType ParsePrimaryValue()
+            {
+                if (Check(TokenKind.LBracket)) return ParseArrayLiteral();
+                if (Check(TokenKind.Identifier) && TryResolveLocal(Current.Lexeme, out var arrayLocal) &&
+                    TryGetArrayElementType(arrayLocal.ClassName, out _) &&
+                    Peek(1).Kind is TokenKind.LBracket or TokenKind.Dot)
+                {
+                    Advance();
+                    Emit(EnumOpcode.LoadLocal, arrayLocal.Slot);
+                    _lastExpressionClassName = arrayLocal.ClassName;
+                    return arrayLocal.Type;
+                }
                 if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.LBrace && _structs.ContainsKey(Current.Lexeme))
                     return ParseStructLiteral();
                 if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.Dot &&
                     TryResolveLocal(Current.Lexeme, out var structTarget) && structTarget.Type == ExprType.Struct)
                 {
+                    var structInfo = _structs[structTarget.ClassName!];
                     if (Peek(3).Kind == TokenKind.LParen)
                     {
                         var member = Peek(2);
@@ -2700,7 +2760,17 @@ namespace Aloe.CompilerLib
                         Advance();
                         Expect(TokenKind.Dot);
                         Expect(TokenKind.Identifier);
-                        return ParseStructMethodCall(_structs[structTarget.ClassName!], member, requireValue: true);
+                        return ParseStructMethodCall(structInfo, member, requireValue: true);
+                    }
+                    var property = structInfo.Properties.FirstOrDefault(candidate => candidate.Name == Peek(2).Lexeme);
+                    if (property != null)
+                    {
+                        Emit(EnumOpcode.LoadLocal, structTarget.Slot);
+                        Advance();
+                        Expect(TokenKind.Dot);
+                        var member = Expect(TokenKind.Identifier);
+                        var propertyType = ParseStructPropertyRead(structInfo, member);
+                        return ParseStructResultMembers(propertyType, _lastExpressionClassName);
                     }
                     return ParseStructFieldRead();
                 }
@@ -2729,6 +2799,16 @@ namespace Aloe.CompilerLib
                         Expect(TokenKind.Dot);
                         var methodName = Expect(TokenKind.Identifier);
                         return ParseStructMethodCall(_structs[structName], methodName, requireValue: true);
+                    }
+                    if (_currentFunction?.DeclaringStruct is string propertyStructName && Peek(2).Kind == TokenKind.Identifier &&
+                        _structs[propertyStructName].Properties.FirstOrDefault(property => property.Name == Peek(2).Lexeme) is not null)
+                    {
+                        Emit(EnumOpcode.LoadLocal, 0);
+                        Advance();
+                        Expect(TokenKind.Dot);
+                        var propertyName = Expect(TokenKind.Identifier);
+                        var propertyType = ParseStructPropertyRead(_structs[propertyStructName], propertyName);
+                        return ParseStructResultMembers(propertyType, _lastExpressionClassName);
                     }
                     return _constructingStruct != null ? ParseStructConstructorFieldRead() :
                         _currentFunction?.DeclaringStruct != null ? ParseStructMethodThisFieldRead() : ParseThisFieldRead();
@@ -2989,27 +3069,8 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseWithInstanceRead(string className, int slot, AloeToken member)
             {
-                if (_structs.ContainsKey(className))
-                {
-                    var structField = ResolveStructField(className, member);
-                    Emit(EnumOpcode.LoadLocal, slot);
-                    Emit(EnumOpcode.StructGet, structField.Index);
-                    var structType = structField.Type;
-                    var structName = structField.ClassName;
-                    while (Check(TokenKind.Dot))
-                    {
-                        Advance();
-                        var nestedMember = Expect(TokenKind.Identifier);
-                        if (structType != ExprType.Struct)
-                            throw Error(nestedMember, "Nested with field reads require a struct field.");
-                        var nestedField = ResolveStructField(structName, nestedMember);
-                        Emit(EnumOpcode.StructGet, nestedField.Index);
-                        structType = nestedField.Type;
-                        structName = nestedField.ClassName;
-                    }
-                    _lastExpressionClassName = structName;
-                    return structType;
-                }
+                if (_structs.TryGetValue(className, out var structInfo))
+                    return ParseStructWithRead(structInfo, slot, member);
 
                 var property = FindProperty(className, member.Lexeme);
                 Emit(EnumOpcode.LoadLocal, slot);
@@ -3147,7 +3208,9 @@ namespace Aloe.CompilerLib
                                 FindField(candidate.TypeName, memberName) != null ||
                                 FindProperty(candidate.TypeName, memberName) != null;
                         if (!enumOnly && candidate.InstanceSlot != null && _structs.TryGetValue(candidate.TypeName, out var structInfo))
-                            hasMember = structInfo.Fields.Any(field => field.Name == memberName);
+                            hasMember = structInfo.Fields.Any(field => field.Name == memberName) ||
+                                structInfo.Methods.Any(method => method.Name == memberName) ||
+                                structInfo.Properties.Any(property => property.Name == memberName);
                         if (!hasMember)
                             continue;
                         if (match != null)
@@ -3171,6 +3234,24 @@ namespace Aloe.CompilerLib
 
 
             private ExprType ParseTypeName(out string? className)
+            {
+                var type = ParseSingleTypeName(out className);
+                if (!(Check(TokenKind.LBracket))) return type;
+                if (type == ExprType.Object && className?.StartsWith("pipe<", StringComparison.Ordinal) == true)
+                    throw Error(Current, "Pipe values are not heap-object array elements.");
+                if (type is not (ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Enum or ExprType.Struct or ExprType.Object))
+                    throw Error(Current, "Array base elements currently support primitive value, string, enum, struct and class/object types.");
+                className = type is ExprType.Enum or ExprType.Struct || type == ExprType.Object && className != null ? className : FormatType(type);
+                while (Check(TokenKind.LBracket))
+                {
+                    Advance();
+                    Expect(TokenKind.RBracket);
+                    className += "[]";
+                }
+                return ExprType.Object;
+            }
+
+            private ExprType ParseSingleTypeName(out string? className)
             {
                 var token = Advance();
                 className = null;

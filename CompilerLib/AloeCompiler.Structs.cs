@@ -10,6 +10,7 @@ public sealed partial class AloeCompiler
     {
         public FunctionSignature? Constructor { get; set; }
         public List<MethodSignature> Methods { get; } = new();
+        public List<PropertySignature> Properties { get; } = new();
     }
 
     private sealed partial class Parser
@@ -64,17 +65,29 @@ public sealed partial class AloeCompiler
                         CollectStructMethod(signature, ref position);
                         continue;
                     }
+                    if (TokenAt(position).Lexeme == "public" && TokenAt(position + 1).Lexeme == "property")
+                    {
+                        CollectStructProperty(signature, ref position);
+                        continue;
+                    }
                     ExpectLexemeAt(ref position, "field");
                     var name = TokenAt(position++);
                     if (name.Kind != TokenKind.Identifier || signature.Fields.Any(f => f.Name == name.Lexeme))
                         throw Error(name, "Struct field name must be a unique identifier.");
                     ExpectAt(ref position, TokenKind.Colon);
                     var type = ScanType(ref position, allowVoid: false, out var typeName);
-                    if (type is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Struct))
-                        throw Error(name, "Struct fields support primitive value types and other structs; references are forbidden.");
+                    if (type is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Enum or ExprType.Struct))
+                        throw Error(name, "Struct fields support primitive values, enums and other structs; references are forbidden.");
                     ExpectAt(ref position, TokenKind.Semicolon);
                     signature.Fields.Add(new FieldSignature(name.Lexeme, signature.Fields.Count, type, typeName));
                 }
+                var duplicateMember = signature.Fields.Select(field => field.Name)
+                    .Concat(signature.Methods.Select(method => method.Name))
+                    .Concat(signature.Properties.Select(property => property.Name))
+                    .GroupBy(member => member, StringComparer.Ordinal)
+                    .FirstOrDefault(group => group.Count() > 1);
+                if (duplicateMember != null)
+                    throw new AloeCompileException($"Struct '{signature.Name}' has duplicate member '{duplicateMember.Key}'.");
                 _structEndPositions.Add(declaration.Start, position + 1);
             }
             foreach (var signature in _structs.Values)
@@ -99,8 +112,8 @@ public sealed partial class AloeCompiler
                         throw Error(parameterName, "Struct method parameter names must be unique identifiers.");
                     ExpectAt(ref position, TokenKind.Colon);
                     var parameterType = ScanType(ref position, allowVoid: false, out var parameterClassName);
-                    if (parameterType is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Struct))
-                        throw Error(parameterName, "Struct methods support primitive value types and structs as parameters.");
+                    if (parameterType is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Enum or ExprType.Struct))
+                        throw Error(parameterName, "Struct methods support primitive values, enums and structs as parameters.");
                     parameters.Add(new ParameterSignature(parameterName, parameterType, parameterClassName));
                     if (TokenAt(position).Kind != TokenKind.Comma) break;
                     position++;
@@ -109,8 +122,8 @@ public sealed partial class AloeCompiler
             ExpectAt(ref position, TokenKind.RParen);
             ExpectAt(ref position, TokenKind.Colon);
             var returnType = ScanType(ref position, allowVoid: true, out var returnClassName);
-            if (returnType is not (ExprType.Void or ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Struct))
-                throw Error(name, "Struct methods support primitive value types and structs as return values.");
+            if (returnType is not (ExprType.Void or ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Enum or ExprType.Struct))
+                throw Error(name, "Struct methods support void, primitive values, enums and structs as return values.");
             ExpectAt(ref position, TokenKind.LBrace);
             var bodyStart = position;
             var depth = 1;
@@ -128,6 +141,52 @@ public sealed partial class AloeCompiler
             _functions.Add(function);
         }
 
+        private void CollectStructProperty(StructSignature signature, ref int position)
+        {
+            position++; // public
+            position++; // property
+            var name = TokenAt(position++);
+            if (name.Kind != TokenKind.Identifier || signature.Properties.Any(property => property.Name == name.Lexeme) ||
+                signature.Methods.Any(method => method.Name == name.Lexeme))
+                throw Error(name, "Struct property names must be unique identifiers.");
+            ExpectAt(ref position, TokenKind.Colon);
+            var propertyType = ScanType(ref position, allowVoid: false, out var propertyClassName);
+            if (propertyType is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Enum or ExprType.Struct))
+                throw Error(name, "Struct properties support primitive values, enums and structs as return values.");
+            ExpectAt(ref position, TokenKind.LBrace);
+            var getToken = TokenAt(position++);
+            if (getToken.Lexeme != "get")
+                throw Error(getToken, "Struct properties must declare a getter.");
+            ExpectAt(ref position, TokenKind.LBrace);
+            var bodyStart = position;
+            var depth = 1;
+            while (depth > 0)
+            {
+                var bodyToken = TokenAt(position++);
+                if (bodyToken.Kind == TokenKind.EndOfFile)
+                    throw Error(bodyToken, $"Unexpected end of file in struct property '{signature.Name}.{name.Lexeme}'.");
+                if (bodyToken.Kind == TokenKind.LBrace) depth++;
+                else if (bodyToken.Kind == TokenKind.RBrace) depth--;
+            }
+            if (TokenAt(position).Kind != TokenKind.RBrace)
+                throw Error(TokenAt(position), "Struct property setters are not supported; close the property after get { ... }.");
+            position++; // property }
+
+            var getter = new FunctionSignature(
+                Name: $"{signature.Name}.get.{name.Lexeme}",
+                Index: _functions.Count,
+                Parameters: Array.Empty<ParameterSignature>(),
+                ReturnType: propertyType,
+                BodyStart: bodyStart,
+                BodyEnd: position - 2,
+                IsMain: false,
+                ReturnClassName: propertyClassName,
+                IsPropertyGetter: true,
+                DeclaringStruct: signature.Name);
+            _functions.Add(getter);
+            signature.Properties.Add(new PropertySignature(name.Lexeme, propertyType, propertyClassName, getter));
+        }
+
         private void CollectStructConstructor(StructSignature signature, ref int position)
         {
             var token = TokenAt(position++);
@@ -141,8 +200,8 @@ public sealed partial class AloeCompiler
                     throw Error(name, "Constructor parameter names must be unique identifiers.");
                 ExpectAt(ref position, TokenKind.Colon);
                 var type = ScanType(ref position, false, out var typeName);
-                if (type is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Struct))
-                    throw Error(name, "Struct constructor parameters currently support primitive value types and structs.");
+                if (type is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Enum or ExprType.Struct))
+                    throw Error(name, "Struct constructor parameters support primitive values, enums and structs.");
                 parameters.Add(new ParameterSignature(name, type, typeName));
                 if (TokenAt(position).Kind != TokenKind.Comma) break;
                 position++;
@@ -430,6 +489,73 @@ public sealed partial class AloeCompiler
                 throw Error(member, "Field access requires a statically known struct value.");
             return signature.Fields.FirstOrDefault(f => f.Name == member.Lexeme)
                 ?? throw Error(member, $"Struct '{name}' has no field '{member.Lexeme}'.");
+        }
+
+        private void ParseStructWithMethodStatement(StructSignature structInfo, int slot, AloeToken member)
+        {
+            Emit(EnumOpcode.LoadLocal, slot);
+            var type = ParseStructMethodCall(structInfo, member, requireValue: false);
+            if (type != ExprType.Void)
+                throw Error(member, "Ignoring a non-void struct method result is not supported.");
+            Expect(TokenKind.Semicolon);
+        }
+
+        private ExprType ParseStructWithRead(StructSignature structInfo, int slot, AloeToken member)
+        {
+            Emit(EnumOpcode.LoadLocal, slot);
+            ExprType type;
+            if (Check(TokenKind.LParen))
+                type = ParseStructMethodCall(structInfo, member, requireValue: true);
+            else if (structInfo.Properties.Any(property => property.Name == member.Lexeme))
+                type = ParseStructPropertyRead(structInfo, member);
+            else
+            {
+                var field = ResolveStructField(structInfo.Name, member);
+                Emit(EnumOpcode.StructGet, field.Index);
+                type = field.Type;
+                _lastExpressionClassName = field.ClassName;
+            }
+            return ParseStructResultMembers(type, _lastExpressionClassName);
+        }
+
+        private ExprType ParseStructPropertyRead(StructSignature structInfo, AloeToken member)
+        {
+            var property = structInfo.Properties.FirstOrDefault(candidate => candidate.Name == member.Lexeme)
+                ?? throw Error(member, $"Struct '{structInfo.Name}' has no property '{member.Lexeme}'.");
+            Emit(EnumOpcode.Call, property.Getter.Index);
+            _lastExpressionClassName = property.ClassName;
+            return property.Type;
+        }
+
+        private ExprType ParseStructResultMembers(ExprType type, string? className)
+        {
+            while (Check(TokenKind.Dot))
+            {
+                var dot = Current;
+                Advance();
+                var member = Expect(TokenKind.Identifier);
+                if (type != ExprType.Struct || className == null || !_structs.TryGetValue(className, out var structInfo))
+                    throw Error(dot, "Member access after a struct property requires a struct value.");
+                if (Check(TokenKind.LParen))
+                {
+                    type = ParseStructMethodCall(structInfo, member, requireValue: true);
+                    className = _lastExpressionClassName;
+                }
+                else if (structInfo.Properties.Any(property => property.Name == member.Lexeme))
+                {
+                    type = ParseStructPropertyRead(structInfo, member);
+                    className = _lastExpressionClassName;
+                }
+                else
+                {
+                    var field = ResolveStructField(className, member);
+                    Emit(EnumOpcode.StructGet, field.Index);
+                    type = field.Type;
+                    className = field.ClassName;
+                    _lastExpressionClassName = className;
+                }
+            }
+            return type;
         }
 
         private ExprType ParseStructLiteral()

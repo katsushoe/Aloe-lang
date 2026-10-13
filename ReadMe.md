@@ -462,7 +462,9 @@ before sending a PR, so we can keep the overall language design consistent.
 ### Language
 
 
-- “Freeze” the syntax and type system for a 0.x series
+Implemented compiler subset: fixed-length int[]/bool[]/byte[]/char[]/float[]/decimal[]/string[] and normal/bitfield enum or struct array literals, class/object arrays with invariant types and shared instances, nested jagged arrays with shared inner references, array-expression index reads/writes, struct-element field write-back, Length and foreach; typed primitive expressions/functions and control flow; class instances with async methods and getter queries; normal/bitfield enums; value-copy structs with primitive/enum/nested-struct fields, constructors, read-only methods/getters and local `with` members. See the [language specification](Documents/en/Aloe-lang-spec.html#struct-subset) for current limits. These prototypes do not establish full language conformance.
+
+- Extend value types, collections, interfaces/traits and exception handling, then verify full specification coverage before freezing the 0.x syntax and type system
 - Stabilize the standard filter library spec
 - Flesh out the details of collections and standard types
 

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="74">
-  <meta name="edit-date" content="2026-10-12T15:31:27+09:00">
+  <meta name="edit-version" content="88">
+  <meta name="edit-date" content="2026-10-13T11:30:32+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 74)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 88)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 74<br>
-      edit-date: 2026-10-12T15:31:27+09:00</p>
+      edit-version: 88<br>
+      edit-date: 2026-10-13T11:30:32+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -1210,7 +1210,7 @@ var score = Game.score;
 
 
     <h3>7.2 struct</h3>
-    <div class="note" id="struct-subset">現行struct基礎実装（2026-10-12）：<code>struct</code>／<code>sealed struct</code> とfield宣言、<code>Point { x: 1, y: 2 }</code> 形式のリテラル、ローカル経由のフィールド読み書き（入れ子を含む）、代入・関数引数／戻り値・classフィールド・async引数の値コピーに対応します。フィールド型はint、byte、char、float、decimal、bool、他のstructです。全フィールドを一度ずつ初期化し、初期化式は記述順に一度ずつ評価します。空structとstruct型の前方参照は許可し、参照型フィールドと再帰的レイアウトは拒否します。intフィールドはint32範囲を検査します。内部表現は参照フィールドを持たない不変スナップショットとし、フィールド更新時に新しい値を作って入れ子の経路を再構成します。境界ごとに可変領域を複製する方式よりコピー漏れを防ぎやすく、仕様の値コピーを保てるためこの方式を採用します。同期construct(...)とnew Type(...)に対応します。constructorは順次実行するthis.field代入で全フィールドを初期化し、ローカル変数宣言と関数呼び出し、初期化済みフィールド（入れ子を含む）の読み取り・再代入が可能です。引数型はフィールドと同じprimitive／struct型に限定し、呼び出し引数は左から右へ一度ずつ評価して値コピーを保ちます。初期化漏れ、未初期化読み取り、constructor／引数名の重複、引数の型・個数不一致は拒否します。constructor内のif/else、while、foreachに対応し、初期化済みフィールドを全経路で照合します。分岐合流後はすべての継続経路で初期化されたフィールドだけを既知とします。while／foreachは0回実行の可能性があるため、ループ本体内だけの代入はループ後の初期化として数えません。未初期化フィールドの読取は拒否します。constructor内では<code>return;</code>による早期returnを許可し、その地点までに全fieldが初期化済みであることを検査します。<code>this.field.path = expression</code>形式の入れ子代入は、親fieldへ完全なstruct値を代入した後に許可し、不変値を再構成します。未初期化の親fieldへの入れ子代入と、値を返すreturnは拒否します。constructorがない空structはnew Empty()を許可し、フィールドがある場合はconstructorまたは全フィールドリテラルを使用します。constructorを完成した不変値を返す通常の同期関数へ変換するため、既存VM・AloeBC形式を変更せず値コピーを保ちます。structローカルを対象にしたwithブロックでは、単一または複数のローカルからフィールドを読み書きでき、入れ子の読み書きにも対応します。代入時は不変スナップショットを再構成して対象ローカルへ書き戻すため、別の値コピーには影響しません。structローカル以外の式や一時値をターゲットにするwithと、constructor内のwithは拒否します。同期structメソッドは<code>method name(parameters): Type</code>で宣言し、structローカルの<code>value.method(...)</code>またはメソッド内の<code>this.method(...)</code>／<code>method(...)</code>で呼び出せます。戻り値と引数はvoid、int、byte、char、float、decimal、bool、structに限定し、<code>this.field</code>と入れ子フィールドの読み取りに対応します。struct値は値渡しのためメソッドは読み取り専用で、<code>this</code>やそのフィールドへの代入は拒否します。プロパティ、継承、レイアウト注釈、比較、直接WASMは未対応です。以下のconstructor例、with例、メソッド例は現行コンパイラーで対応します。</div>
+    <div class="note" id="struct-subset">現行struct基礎実装（2026-10-12）：<code>struct</code>／<code>sealed struct</code> とfield宣言、<code>Point { x: 1, y: 2 }</code> 形式のリテラル、ローカル経由のフィールド読み書き（入れ子を含む）、代入・関数引数／戻り値・classフィールド・async引数の値コピーに対応します。フィールド型はint、byte、char、float、decimal、bool、通常／bitfield enum、他のstructです。リテラル、フィールド代入、constructor、メソッド引数／戻り値、getterではコンパイラーがenum型の同一性を検査し、整数や別のenum型への置き換えを拒否します。実行時のenumフィールドは既存の符号付きint32整数表現を使用するため、VM命令やAloeBC形式の変更は不要です。全フィールドを一度ずつ初期化し、初期化式は記述順に一度ずつ評価します。空structとstruct型の前方参照は許可し、参照型フィールドと再帰的レイアウトは拒否します。intフィールドはint32範囲を検査します。内部表現は参照フィールドを持たない不変スナップショットとし、フィールド更新時に新しい値を作って入れ子の経路を再構成します。境界ごとに可変領域を複製する方式よりコピー漏れを防ぎやすく、仕様の値コピーを保てるためこの方式を採用します。同期construct(...)とnew Type(...)に対応します。constructorは順次実行するthis.field代入で全フィールドを初期化し、ローカル変数宣言と関数呼び出し、初期化済みフィールド（入れ子を含む）の読み取り・再代入が可能です。引数型はフィールドと同じprimitive／struct型に限定し、呼び出し引数は左から右へ一度ずつ評価して値コピーを保ちます。初期化漏れ、未初期化読み取り、constructor／引数名の重複、引数の型・個数不一致は拒否します。constructor内のif/else、while、foreachに対応し、初期化済みフィールドを全経路で照合します。分岐合流後はすべての継続経路で初期化されたフィールドだけを既知とします。while／foreachは0回実行の可能性があるため、ループ本体内だけの代入はループ後の初期化として数えません。未初期化フィールドの読取は拒否します。constructor内では<code>return;</code>による早期returnを許可し、その地点までに全fieldが初期化済みであることを検査します。<code>this.field.path = expression</code>形式の入れ子代入は、親fieldへ完全なstruct値を代入した後に許可し、不変値を再構成します。未初期化の親fieldへの入れ子代入と、値を返すreturnは拒否します。constructorがない空structはnew Empty()を許可し、フィールドがある場合はconstructorまたは全フィールドリテラルを使用します。constructorを完成した不変値を返す通常の同期関数へ変換するため、既存VM・AloeBC形式を変更せず値コピーを保ちます。structローカルを対象にしたwithブロックでは、単一または複数のローカルからフィールドを読み書きでき、入れ子の読み書きにも対応します。同期<code>.method(...)</code>呼び出しとgetter-onlyの<code>.Property</code>参照にも対応します。voidメソッドは文として呼び出し、void以外の結果は値として使用します。値の式では、struct型の結果や入れ子フィールドから、さらにフィールド・プロパティ・void以外を返すメソッドを参照できます。呼び出しとgetterは先行するフィールド更新を含む対象ローカルの現在値を読み取り、引数は左から右へ一度ずつ評価します。名前解決は内側のブロックを優先し、同じブロック内で名前が重複した場合はメンバー種別が異なってもエラーにします。プロパティへの代入は拒否します。代入時は不変スナップショットを再構成して対象ローカルへ書き戻すため、別の値コピーには影響しません。structローカル以外の式や一時値をターゲットにするwithと、constructor内のwithは拒否します。同期structメソッドは<code>method name(parameters): Type</code>で宣言し、structローカルの<code>value.method(...)</code>またはメソッド内の<code>this.method(...)</code>／<code>method(...)</code>で呼び出せます。引数とvoid以外の戻り値はint、byte、char、float、decimal、bool、通常／bitfield enum、structに対応し、メソッドのvoid戻り値も許可します。<code>this.field</code>と入れ子フィールドの読み取りに対応します。struct値は値渡しのためメソッドは読み取り専用で、<code>this</code>やそのフィールドへの代入は拒否します。<code>public property Name: Type { get { ... } }</code>形式のpublic getter-only structプロパティに対応します。structローカル、<code>this</code>、struct型を返すプロパティの結果からプロパティを読み取ると同期getterを呼び出します。getterはprimitive、enum、structを返せ、返却structは値コピーを保ちます。setter、継承、レイアウト注釈、比較、直接WASMは未対応です。以下のconstructor例、with例、メソッド例、プロパティ例は現行コンパイラーで対応します。</div>
 <pre><code>struct Point {
     field x: int;
     field y: int;
@@ -1230,6 +1230,53 @@ function move(point: Point): Point {
         .x = .x + 1;
     }
     return point;
+}</code></pre>
+<pre><code>struct Point {
+    field x: int; field y: int;
+    public property Sum: int { get { return this.x + this.y; } }
+    public property Shifted: Point { get { return Point { x: this.x + 1, y: this.y + 1 }; } }
+}
+function main(args: string[]): int {
+    var point = Point { x: 10, y: 20 };
+    var shifted = point.Shifted;
+    return point.Sum + shifted.x;
+}</code></pre>
+<pre><code>struct Point {
+    field x: int; field y: int;
+    public property Sum: int { get { return this.x + this.y; } }
+    method shifted(delta: int): Point {
+        return Point { x: this.x + delta, y: this.y + delta };
+    }
+    method report(value: int): void { print(value); }
+}
+function main(args: string[]): int {
+    var point = Point { x: 10, y: 20 };
+    with (point) {
+        .x = .x + 1;
+        .report(.Sum);
+        return .shifted(1).Sum;
+    }
+}</code></pre>
+<pre><code>enum Color { Red, Blue }
+bitfield enum Feature { Read, Write }
+struct Options {
+    field color: Color; field features: Feature;
+    construct(color: Color, features: Feature) { this.color = color; this.features = features; }
+    public property Color: Color { get { return this.color; } }
+    public property Features: Feature { get { return this.features; } }
+    method add(value: Feature): Feature { return this.features | value; }
+    method choose(value: Color): Color { return value; }
+}
+function main(args: string[]): int {
+    var original = new Options(Color.Red, Feature.Read);
+    var copy = original;
+    with (copy) {
+        .color = Color.Blue;
+        .features = .add(Feature.Write);
+        if (.Color != Color.Blue or .Features != (Feature.Read | Feature.Write) or .choose(Color.Red) != Color.Red) { return 0; }
+    }
+    if (original.Color == Color.Red and original.Features == Feature.Read) { return 42; }
+    return 0;
 }</code></pre>
     <ul>
       <li>struct は値型。</li>
@@ -1460,6 +1507,128 @@ if (obj is Trait_A) {
 
 
     <h3>10.1 Arrays (T[])</h3>
+<div class="note" id="array-subset">現行配列プロトタイプ（2026-10-13）：固定長int[]／bool[]／byte[]／char[]／float[]／decimal[]／string[]および通常／bitfield enum・struct配列のリテラル、型付き宣言、配列型を返す関数／プロパティの結果、リテラル、ローカル変数、括弧付きの式から添字と読み取り専用Lengthを参照できます。foreachの対象にもこれらの対応配列式を使用でき、開始時に一度だけ評価したハンドルをGC中も含めて反復終了まで保持します。入れ子ループ、break、continue、空配列に対応します。要素はその反復の開始時に読み取るため、別名を通した後続要素の変更を反映します。別名変数の再代入は保持済みの対象へ影響しません。要素の書き込みも、ローカル配列、配列型を返す関数／プロパティ、リテラル、括弧付き式の添字を対象にでき、thisフィールドやwithプロパティの配列参照にも対応します。対象・添字・代入値を左から右へ一度ずつ評価し、範囲・値種別の検査は代入値の評価後の書き込み時に行います。getterから返った参照への書き込みは呼び出し元で実行され、共有する別名にも影響します。getter内の直接書き込みとCommitted Query中の関数経由書き込みは引き続き禁止します。Lengthは読み取り専用で、一般のスカラー式は代入対象にできません。既存pipeのforeachは引き続きpipeローカルを対象とします。constructorの初期化検査は、空でない配列リテラルでも保守的に0回反復の可能性を扱います。空の[]リテラルは型付き宣言または代入の文脈が必要です。要素・添字・代入値はソース順に一度ずつ評価します。配列はヒープ参照で、代入・関数引数／戻り値・classフィールド・async待機引数では同じハンドルを共有します。foreachは対象を開始時に保持し、各要素をその反復の開始時に読みます。対象ローカルの再代入は進行中の反復へ影響しません。配列の書き込みは既存のVolatile／Committed Tick規則に従い、property getter内で実行する添字読み取りはCommitted要素を読みます。getterから返った配列参照への添字読み取りは呼び出し元で実行され、現在の要素を読みます。getterは返却配列を複製・固定しません。getter内の直接書き込みはコンパイルエラー、getterから呼び出す関数を経由する書き込みは実行時エラーです。添字は0..Length-1のintで、不正な添字や要素値はVmExceptionです。int要素は符号付きint32範囲、byteは0..255、charはUTF-16コード単位、floatは有限のbinary32値に限定し、decimalは既存のdecimal表現を維持します。要素の値種別は一致が必要です。byte[]の宣言・代入文脈では0..255の整数リテラルをbyteへ変換し、要素書き込みにも適用します。計算済みint値は暗黙変換しません。他の数値型同士も暗黙変換・混在を許可しません。混合要素型、異なる配列型、Lengthへの代入は拒否します。長さ変更、他の要素型、直接WASM、他のコレクションは未対応です。mainのargs: string[]は引き続き構文上だけの対応です。ヒープ／格納方式は<a href="../decisions/0001-basic-array-subset.md">配列プロトタイプの設計判断（英語）</a>を参照してください。以下の例は現行コンパイラーテストで実行します。 enum配列は最初の要素または型付き宣言／代入の文脈からenum型を決定し、文脈付きの空配列にも対応します。添字読み取りとforeach要素でもenum型を保持し、要素書き込み・リテラル・関数／class境界では異なるenumやint値を拒否します。bitfield要素には既存のマスク／シフト規則を適用します。VMはenum要素を符号付きint32、予約ヒープ型名enum:&lt;Name&gt;[]で保持します。他のenum値と同様にenum型の区別はコンパイラーで検査し、任意のバイトコードの個々の値にenumタグはありません。 struct配列は、入れ子structやenumフィールドを含む既存の参照フィールドを持たないstruct値に対応します。推論／型付きリテラル、文脈付き空配列、添字、foreach、関数／class／async境界でstruct型を保持します。配列の別名はハンドルを共有し、要素は変更不能な値スナップショットです。読み出したローカルやforeachのコピーを変更しても格納済み要素は変わりません。要素全体を代入すると別名にも反映され、以前読み出したコピーは維持されます。添字で得たstructからフィールド・読み取り専用メソッド／getter・入れ子の値メンバー列を参照できます。values[i].fieldや入れ子フィールドへの直接代入に対応します。配列参照・int添字を一度だけ評価して元のstructスナップショットを読み、右辺を評価し、変更不能な値のフィールド列を再構築して要素全体を置き換えます。要素全体への代入とは異なり、ArrayGetが右辺評価前に添字範囲を検査します。右辺が同じ要素を変更した場合は、読み取り済みスナップショットの再構築値で上書きします。別名は置き換えを観測し、以前のコピーは維持されます。byteリテラル変換やstruct／enum型の検査はローカルstructフィールド代入と同じです。propertyやメソッド結果のメンバー列は代入対象にできません。getter内の直接代入はコンパイルエラー、Committed Query内で呼び出した関数経由の代入は実行時エラーです。読み取り・変更・書き込みの一体的な原子性は保証しません。VMは予約記述子struct:&lt;Name&gt;[]を使用し、値種別Structとスナップショット型名の一致を検査します。フィールド構成の検査は既存のstruct生成／ソース型検査に従い、新しいopcodeやバイトコード格納形式は追加しません。 int[][]やPoint[][]のような入れ子配列に対応します。既存のprimitive／string／enum／structを末端の要素型とし、内側の配列はnullでない共有参照です。各階層は固定長で、行ごとに長さが異なる配列に対応します。連続添字、内側のLength、内側配列の置き換え、対象を保持するforeachでも残りの配列型を保持し、末端型や階層数の混在は拒否します。型付き宣言／代入は空配列やbyteリテラルへ内側の型文脈を伝えます。推論では空でない最初の行が後続の空行の型文脈になりますが、文脈のない最初の空行は拒否します。外側・内側の代入は行をコピーせずハンドルを共有し、末端struct値のスナップショットとフィールド書き戻し規則は維持します。VM型名は階層ごとに[]を追加し、int[][]、enum:Color[][]、struct:Point[][]などになります。入れ子要素は有効な配列ハンドルで、その型名は親の型名から最後の[]を除いた型名と完全一致する必要があります。null、classの参照、文字列そのもの、異なる階層数／型を拒否します。各入れ子要素は参照数を持つ強いヒープフィールド参照です。GCは外側からだけ到達可能な内側配列も保持し、同じハンドルの重複を数え、置き換え時に参照を外します。Tickではcommitまで古いCommitted参照と新しいVolatile参照を保持します。既存のヒープ／参照グラフ規則を使用し、class／object配列の対応範囲は以下に記載します。 string配列は型付き／推論リテラル、文脈付き空配列、配列式の添字読み書き、Length、foreach、入れ子配列と既存の関数／class／getter／async境界に対応します。要素はString値である必要があり、int／char／nullや暗黙変換は拒否します。配列の別名は更新を共有し、以前読み出した文字列の内容は維持されます。既存のAloeValue.Stringは変更不能な管理された文字列を保持し、AloeヒープのObjectIdを持たないため、末端の文字列要素は参照グラフのObject辺を追加しません。入れ子のstring配列ハンドルには通常の強参照を使用します。空文字・Unicode文字列・既存のリテラルエスケープはAloeBCを経由して内容を保持します。mainのargs: string[]はコマンドライン引数を注入しない構文上だけの対応のままです。一般のstring配列を追加する変更であり、引数配送や他の文字列APIは追加しません。 class配列とobject[]はリテラル、文脈付き空配列、添字読み書き、Length、対象を保持するforeach、入れ子配列、既存の関数／class／async境界に対応します。class配列は宣言されたclassと派生classのインスタンスを許可し、推論リテラルでは最初の要素の静的class型を使用します。配列型は不変で、Derived[]をBase[]やobject[]へ代入できません。派生インスタンスを格納する場合はBase[]のリテラル型文脈を明示します。添字で得たclassからpublic getterを参照でき、getterが返すstruct／配列のメンバー列にも対応します。既存のasync／virtual呼び出しはローカルまたはwith対象を使用します。添字class要素を経由したproperty／privateフィールド代入には対応しません。object[]はclassインスタンスや配列を含む有効なAloeヒープObjectハンドルを格納し、int／string／struct／pipe値をboxingしません。VMはNullや無効なハンドルを拒否します。object[]からの読み出しは静的に型を限定しないobjectで、暗黙のdowncastやメンバー参照は行えません。Objectのソース等価比較は現行VMの対応範囲外です。class記述子はコンパイル時の許可runtime型名をclass:Base|Derived[]のように格納し、先頭を宣言class、残りを代入可能なclass名のordinal順とします。VMは識別子形式・重複禁止・型名の完全一致を検査し、バイトコードから継承関係を独立に再構築しません。入れ子記述子は直下の配列記述子との完全一致を要求します。共有ハンドルには既存の参照数付き強参照を使用し、待機中の対象／引数を保持します。重複参照やobject配列の循環は既存の参照グループで扱い、rootを失った親・子グループの回収には複数の既存GCパスが必要な場合があります。参照先オブジェクトのTick／Query規則は既存どおりで、新規生成オブジェクトのCommitted State初期化、cast、Object等価比較、長さ変更、直接WASMは変更しません。</div>
+<pre><code>class Box {
+    field value: int;
+    construct(value: int) { this.value = value; }
+    public property Value: int { get { return this.value; } }
+    public async method update(value: int): void { this.value = value; }
+}
+function identity(values: Box[]): Box[] { return values; }
+function main(args: string[]): int {
+    var boxes = [new Box(1), new Box(22)]; var alias = boxes;
+    with (identity(boxes)[0]) { .update(20); }
+    GC.require(); GC.finish(); tick();
+    var total = 0; foreach (box in alias) { total = total + box.Value; }
+    if (boxes[0].Value == 20) { return total; }
+    return 0;
+}</code></pre>
+<pre><code>function identity(values: string[]): string[] { return values; }
+function main(args: string[]): int {
+    let words: string[] = ["hello", "world"];
+    var alias = words; identity(words)[0] = "Aloe";
+    var count = 0;
+    foreach (word in alias) { print(word); count = count + 1; }
+    if (words[0] == "Aloe" and count == 2) { return 42; }
+    return 0;
+}</code></pre>
+<pre><code>function identity(values: int[][]): int[][] { return values; }
+function main(args: string[]): int {
+    let matrix: int[][] = [[1, 2], [3]];
+    var row = matrix[0]; row[0] = 20;
+    identity(matrix)[1] = [22];
+    var total = 0;
+    foreach (values in matrix) { foreach (value in values) { total = total + value; } }
+    GC.require(); GC.finish();
+    if (matrix[0][0] == 20 and matrix[0].Length == 2 and total == 44) { return matrix[0][0] + matrix[1][0]; }
+    return 0;
+}</code></pre>
+<pre><code>struct Point { field x: int; field y: int; }
+struct Item { field point: Point; }
+function identity(values: Item[]): Item[] { return values; }
+function main(args: string[]): int {
+    var values = [Item { point: Point { x: 1, y: 22 } }];
+    var alias = values; var before = values[0];
+    identity(values)[0].point.x = 20;
+    if (before.point.x == 1 and alias[0].point.y == 22) { return values[0].point.x + values[0].point.y; }
+    return 0;
+}</code></pre>
+<pre><code>struct Point {
+    field x: int; field y: int;
+    method sum(): int { return this.x + this.y; }
+    public property Sum: int { get { return this.x + this.y; } }
+}
+function identity(values: Point[]): Point[] { return values; }
+function main(args: string[]): int {
+    var original = Point { x: 1, y: 2 };
+    let points: Point[] = [original];
+    var copy = points[0]; copy.x = 20;
+    identity(points)[0] = Point { x: 20, y: 22 };
+    var total = 0;
+    foreach (point in points) { total = total + point.Sum; point.x = 0; }
+    if (original.x == 1 and copy.x == 20 and points[0].sum() == 42) { return total; }
+    return 0;
+}</code></pre>
+<pre><code>enum Color { Red, Blue }
+bitfield enum Feature { Read, Write }
+function identity(values: Color[]): Color[] { return values; }
+function main(args: string[]): int {
+    let colors: Color[] = [Color.Red, Color.Blue];
+    identity(colors)[0] = Color.Blue;
+    var features = [Feature.Read, Feature.Read | Feature.Write];
+    features[0] = features[0] | Feature.Write;
+    var count = 0;
+    foreach (color in colors) { if (color == Color.Blue) { count = count + 1; } }
+    if (count == 2 and features[0] == features[1]) { return 42; }
+    return 0;
+}</code></pre>
+<pre><code>function identity(values: int[]): int[] { return values; }
+class Box {
+    field values: int[];
+    construct(values: int[]) { this.values = values; }
+    public property Values: int[] { get { return this.values; } }
+}
+function main(args: string[]): int {
+    var values = [1, 2]; var box = new Box(values);
+    identity(values)[0] = 20;
+    (box.Values)[1] = 22;
+    return values[0] + values[1];
+}</code></pre>
+<pre><code>function main(args: string[]): int {
+    let bytes: byte[] = [0, 255];
+    var chars = ['a', 'z'];
+    var floats = [1.5, 2.5];
+    var decimals = [0.1:d, 0.2:d];
+    bytes[0] = 42;
+    chars[0] = 'b';
+    var total = 0;
+    foreach (value in bytes) { if (value == 42) { total = total + value; } }
+    if (chars[0] == 'b' and floats[1] == 2.5 and decimals[0] + decimals[1] == 0.3:d) { return total; }
+    return 0;
+}</code></pre>
+<pre><code>function values(): int[] { return [10, 20, 12]; }
+function main(args: string[]): int {
+    var total = 0;
+    foreach (value in values()) { total = total + value; }
+    foreach (flag in [true, false]) { if (flag) { return total; } }
+    return 0;
+}</code></pre>
+<pre><code>function values(): int[] { return [40, 2]; }
+function main(args: string[]): int {
+    if ([true, false][0] and values().Length == 2) {
+        return values()[0] + ([1, 2]).Length;
+    }
+    return 0;
+}</code></pre>
+<pre><code>function main(args: string[]): int {
+    let values: int[] = [10, 20, 30];
+    var alias = values;
+    alias[1] = 2;
+    var total = 0;
+    foreach (value in values) { total = total + value; }
+    if (values.Length == 3 and values[1] == 2) { return total; }
+    return 0;
+}</code></pre>
 <pre><code>var arr: int[] = [1, 2, 3];
 var matrix: float[][] = [[1.0, 2.0], [3.0, 4.0]];
 </code></pre>

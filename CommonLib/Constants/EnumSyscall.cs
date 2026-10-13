@@ -69,6 +69,15 @@ namespace Aloe.CommonLib.Constants
         /// <summary>Enqueue a public async instance call resolved from the target object's runtime type. Pops a dispatch descriptor constant index and argument count.</summary>
         InstanceVirtualAsyncEnqueue = 20,
 
+        /// <summary>Pop count and primitive array type name, then count elements in reverse; push an array handle.</summary>
+        ArrayCreate = 21,
+        /// <summary>Pop index and array handle; push the element.</summary>
+        ArrayGet = 22,
+        /// <summary>Pop value, index and array handle; replace the element.</summary>
+        ArraySet = 23,
+        /// <summary>Pop array handle; push its fixed length.</summary>
+        ArrayLength = 24,
+
         // 将来拡張:
         // WriteStderr = 2,
         // GetTime     = 3,

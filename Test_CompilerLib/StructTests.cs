@@ -49,6 +49,41 @@ function main(args: string[]): int {
     }
 
     [Test]
+    public void StructProperties_GettersReadFieldsAndReturnIndependentStructCopies()
+    {
+        const string source = """
+struct Point {
+    field x: int; field y: int;
+    public property Sum: int { get { return this.x + this.y; } }
+    public property Shifted: Point { get { return Point { x: this.x + 1, y: this.y + 1 }; } }
+    method total(): int { return this.Sum + this.Sum; }
+}
+function main(args: string[]): int {
+    var point = Point { x: 10, y: 20 };
+    var copy = point.Shifted; copy.x = 100;
+    if (point.Sum == 30 and point.total() == 60 and point.x == 10 and copy.x == 100 and point.Shifted.x == 11) { return 42; }
+    return 0;
+}
+""";
+        Assert.That(Run(source).ExitCode, Is.EqualTo(42));
+    }
+
+    [Test]
+    public void StructProperties_RejectSettersInvalidTypesAndDuplicateMembers()
+    {
+        string[] sources =
+        [
+            "struct S { public property Value: int { get { return 1; } set { } } }",
+            "struct S { public property Value: string { get { return \"x\"; } } }",
+            "struct S { field Value: int; public property Value: int { get { return 1; } } }",
+            "struct S { public property Value: int { get { return 1; } } method Value(): int { return 2; } }",
+            "struct S { public property Value: int { get { return 1; } } } function main(args: string[]): int { var s = S { }; s.Value = 2; return 0; }"
+        ];
+        foreach (var source in sources)
+            Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(source + (source.Contains("function main", StringComparison.Ordinal) ? "" : " function main(args: string[]): int { return 0; }")), source);
+    }
+
+    [Test]
     public void StructValues_LocalAssignmentsAndFunctionBoundariesAreIndependent()
     {
         const string source = """
@@ -179,8 +214,7 @@ function main(args: string[]): int {
             "struct S { field x: pipe<int>; }", "struct S { field x: S; }",
             "struct S { field t: T; } struct T { field s: S; }", "struct S extends Other { }",
             "struct S { field x: int; field x: bool; }", "struct S { } struct S { }",
-            "enum S { A } struct S { }", "struct S { } class S { }",
-            "struct S { public property X: int { get { return 1; } } }"
+            "enum S { A } struct S { }", "struct S { } class S { }"
         ];
         foreach (var declaration in declarations)
             Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(declaration + " function main(args: string[]): int { return 0; }"), declaration);

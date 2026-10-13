@@ -462,7 +462,9 @@ function main(args: string[]): int {
 ### 言語
 
 
-- 0.x 系として一旦の構文・型システムを「凍結」する
+現行コンパイラーの対応範囲：固定長int[]／bool[]／byte[]／char[]／float[]／decimal[]／string[]および通常／bitfield enum・struct配列リテラル、型が不変でインスタンスを共有するclass／object配列、内側参照を共有する入れ子配列、配列式の添字読み書き／struct要素フィールドへの書き戻し／Length／foreach、型付きprimitive式・関数と制御構造、asyncメソッドとgetter Queryを持つclass instance、通常／bitfield enum、primitive／enum／入れ子structフィールド、constructor・読み取り専用メソッド／getter・ローカル`with`メンバーを持つ値コピーstruct。[言語仕様](Documents/ja/Aloe-lang-spec.html#struct-subset)に現行の制約を記載しています。プロトタイプの実装は言語仕様全体への準拠を意味しません。
+
+- 値型・コレクション・interface／trait・例外処理を拡充し、仕様全体の対応を検証してから0.x系の構文・型システムを凍結する
 - 標準フィルタライブラリ仕様を固める
 - コレクションや標準型の詳細仕様を拡充する
 
