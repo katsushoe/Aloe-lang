@@ -41,6 +41,7 @@ Current focus:
   https://stk2k.github.io/Aloe-lang/Documents/en/Aloe-stdlib-spec.html
 - Aloe package specification (HTML)
   https://stk2k.github.io/Aloe-lang/Documents/en/Aloe-package-spec.html
+- Security boundaries, limitations, and vulnerability reporting: [SECURITY.md](SECURITY.md)
 
 
 ---

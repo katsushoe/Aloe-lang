@@ -41,6 +41,7 @@ I/O とデータ変換を第一級機能として設計しています。
   https://stk2k.github.io/Aloe-lang/Documents/ja/Aloe-stdlib-spec.html
 - Aloe パッケージ仕様書 (HTML)
   https://stk2k.github.io/Aloe-lang/Documents/ja/Aloe-package-spec.html
+- セキュリティの保証範囲・制約・脆弱性報告: [SECURITY.ja.md](SECURITY.ja.md)
 
 
 ---
