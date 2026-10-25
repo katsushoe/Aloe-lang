@@ -1,0 +1,23 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.1.0</ProductVersion>
+    <ProductCode Condition="'$(ProductCode)' == '' and '$(ProductVersion)' == '0.1.0'">{0FDC5E40-27FB-4891-997D-255CA29F47E6}</ProductCode>
+    <InitialProductCode>{0FDC5E40-27FB-4891-997D-255CA29F47E6}</InitialProductCode>
+    <PayloadRoot Condition="'$(PayloadRoot)' == ''">$(MSBuildProjectDirectory)\..\.local\installer\payload</PayloadRoot>
+    <DefineConstants>PayloadRoot=$(PayloadRoot);ProjectRoot=$(MSBuildProjectDirectory)\..;ProductVersion=$(ProductVersion);ProductCode=$(ProductCode)</DefineConstants>
+    <OutputPath>$(MSBuildProjectDirectory)\..\.local\installer\out\</OutputPath>
+    <OutputName>Aloe-lang-$(ProductVersion)-x64</OutputName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" />
+  </ItemGroup>
+
+  <Target Name="ValidateProductIdentity" BeforeTargets="Build">
+    <Error Condition="'$(ProductCode)' == ''" Text="ProductCode must be specified for every package after version 0.1.0." />
+    <Error Condition="'$(ProductVersion)' != '0.1.0' and '$(ProductCode)' == '$(InitialProductCode)'" Text="Major upgrades require a new ProductCode." />
+  </Target>
+</Project>

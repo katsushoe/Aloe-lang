@@ -1,4 +1,5 @@
-﻿using Aloe.CompilerLib;
+﻿using Aloe.CommonLib;
+using Aloe.CompilerLib;
 using Aloe.RuntimeLib;
 using System.Diagnostics;
 using System.Text;
@@ -15,21 +16,24 @@ public sealed record AloeReplResult(
 
 
 /// <summary>
-/// Minimal persistent Aloe REPL session.
-///
-/// The current compiler emits a complete main function, so the REPL keeps
-/// successful state-mutating snippets as source history and deterministically
-/// replays them for the next submission. Previous output is treated as a
-/// baseline and is not emitted again to the user.
-///
-/// This is safe for the current compiler subset because its observable
-/// side-effect surface is limited to print. When Host APIs / nondeterministic
-/// effects are introduced, the REPL should migrate to persistent VM state.
+/// Incremental Aloe REPL session. The current module is recompiled as a whole,
+/// while completed main instructions are skipped and the entry locals and VM heap
+/// are retained between successful submissions.
 /// </summary>
 public sealed class AloeReplSession
 {
     private readonly List<string> _history = new();
-    private string _baselineOutput = string.Empty;
+    private readonly AloeVmSettings? _vmSettingsOverride;
+    private AloeVm? _vm;
+    private AloeValue[] _locals = Array.Empty<AloeValue>();
+    private int _executedInstructionCount;
+    private bool _faulted;
+
+
+    public AloeReplSession(AloeVmSettings? vmSettings = null)
+    {
+        _vmSettingsOverride = vmSettings;
+    }
 
 
     public IReadOnlyList<string> History => _history;
@@ -47,6 +51,9 @@ public sealed class AloeReplSession
 
         if (source.StartsWith(':'))
             return ExecuteCommand(source);
+
+        if (_faulted)
+            return new AloeReplResult(false, string.Empty, "REPL session is faulted after a runtime error; use :reset to start a new session.");
 
 
         // A complete program that declares main is executed exactly as entered.
@@ -75,7 +82,10 @@ public sealed class AloeReplSession
     public void Reset()
     {
         _history.Clear();
-        _baselineOutput = string.Empty;
+        _vm = null;
+        _locals = Array.Empty<AloeValue>();
+        _executedInstructionCount = 0;
+        _faulted = false;
     }
 
 
@@ -106,12 +116,17 @@ public sealed class AloeReplSession
         try
         {
             var candidateHistory = _history.Concat(new[] { statement }).ToArray();
-            var fullOutput = Run(BuildProgram(candidateHistory, null));
-            var visible = OutputDelta(fullOutput, _baselineOutput);
-
-
+            var managedStartBytes = System.GC.GetTotalMemory(false);
+            var allocationStart = System.GC.GetTotalAllocatedBytes(false);
+            var compileStarted = Stopwatch.GetTimestamp();
+            var module = new AloeCompiler().Compile(BuildProgram(candidateHistory, null));
+            var compileMs = Stopwatch.GetElapsedTime(compileStarted).TotalMilliseconds;
+            var allocationAfterCompile = System.GC.GetTotalAllocatedBytes(false);
+            var bodyInstructionCount = GetMainBodyInstructionCount(module);
+            var visible = RunIncremental(module, _executedInstructionCount, saveLocals: true,
+                compileMs, allocationStart, allocationAfterCompile, managedStartBytes);
             _history.Add(statement);
-            _baselineOutput = fullOutput;
+            _executedInstructionCount = bodyInstructionCount;
 
 
             return new AloeReplResult(true, visible);
@@ -128,10 +143,17 @@ public sealed class AloeReplSession
         try
         {
             var statement = $"print({expression});";
-            var fullOutput = Run(BuildProgram(_history, statement));
+            var managedStartBytes = System.GC.GetTotalMemory(false);
+            var allocationStart = System.GC.GetTotalAllocatedBytes(false);
+            var compileStarted = Stopwatch.GetTimestamp();
+            var module = new AloeCompiler().Compile(BuildProgram(_history, statement));
+            var compileMs = Stopwatch.GetElapsedTime(compileStarted).TotalMilliseconds;
+            var allocationAfterCompile = System.GC.GetTotalAllocatedBytes(false);
+            var fullOutput = RunIncremental(module, _executedInstructionCount, saveLocals: false,
+                compileMs, allocationStart, allocationAfterCompile, managedStartBytes);
             return new AloeReplResult(
                 true,
-                OutputDelta(fullOutput, _baselineOutput));
+                fullOutput);
         }
         catch (Exception ex)
         {
@@ -240,6 +262,93 @@ public sealed class AloeReplSession
         }
 
         return output.ToString();
+    }
+
+
+    private string RunIncremental(
+        Module module,
+        int instructionOffset,
+        bool saveLocals,
+        double compileMs,
+        long allocationStart,
+        long allocationAfterCompile,
+        long managedStartBytes)
+    {
+        var function = module.Functions[module.EntryPointIndex];
+        var bodyLength = GetMainBodyInstructionCount(module);
+        if (instructionOffset < 0 || instructionOffset > bodyLength)
+            throw new InvalidOperationException("REPL instruction boundary is outside the synthesized main body.");
+
+        var vmCreateStarted = Stopwatch.GetTimestamp();
+        if (_vm == null)
+            _vm = _vmSettingsOverride == null
+                ? new AloeVm(module)
+                : new AloeVm(module, _vmSettingsOverride);
+        else
+            _vm.ReplaceModule(module);
+        var vmCreateMs = Stopwatch.GetElapsedTime(vmCreateStarted).TotalMilliseconds;
+
+        var locals = new AloeValue[function.LocalCount];
+        Array.Copy(_locals, locals, Math.Min(_locals.Length, locals.Length));
+        var output = new StringBuilder();
+        _vm.OutputWriter = line => output.Append(line).Append('\n');
+        _vm.TraceWriter = line => output.Append(line).Append('\n');
+        var allocationAfterVmCreate = System.GC.GetTotalAllocatedBytes(false);
+        var runStarted = Stopwatch.GetTimestamp();
+        try
+        {
+            _vm.RunFromEntryPoint(function.EntryIp + instructionOffset, locals, preserveRuntimeState: true);
+
+            if (_vm.ValueStack.Count != 1)
+                throw new InvalidOperationException($"REPL main left {_vm.ValueStack.Count} values on the VM stack; expected 1 exit code.");
+            var exitCode = _vm.Pop();
+            if (!exitCode.IsInt)
+                throw new InvalidOperationException($"REPL main returned {exitCode.Kind}; expected int.");
+        }
+        catch
+        {
+            _faulted = true;
+            _vm = null;
+            _locals = Array.Empty<AloeValue>();
+            _executedInstructionCount = 0;
+            throw;
+        }
+        var runMs = Stopwatch.GetElapsedTime(runStarted).TotalMilliseconds;
+        var allocationAfterRun = System.GC.GetTotalAllocatedBytes(false);
+        var managedEndBytes = System.GC.GetTotalMemory(false);
+
+        if (saveLocals)
+            _locals = locals;
+
+        if (output.ToString().Contains("[PERF] Program end:", StringComparison.Ordinal))
+        {
+            var compileAllocated = allocationAfterCompile - allocationStart;
+            var vmCreateAllocated = allocationAfterVmCreate - allocationAfterCompile;
+            var runAllocated = allocationAfterRun - allocationAfterVmCreate;
+            var totalAllocated = allocationAfterRun - allocationStart;
+            output.Append(
+                $"[REPL-PERF] compileMs={compileMs:F3}, vmCreateMs={vmCreateMs:F3}, runMs={runMs:F3}, " +
+                $"compileAllocatedBytes={compileAllocated}, vmCreateAllocatedBytes={vmCreateAllocated}, " +
+                $"runAllocatedBytes={runAllocated}, totalAllocatedBytes={totalAllocated}, " +
+                $"managedStartBytes={managedStartBytes}, managedEndBytes={managedEndBytes}, " +
+                $"managedDeltaBytes={managedEndBytes - managedStartBytes}.").Append('\n');
+        }
+
+        return output.ToString();
+    }
+
+
+    private static int GetMainBodyInstructionCount(Module module)
+    {
+        if ((uint)module.EntryPointIndex >= (uint)module.Functions.Count)
+            throw new InvalidOperationException("REPL compiler returned an invalid entry point.");
+        var function = module.Functions[module.EntryPointIndex];
+        var end = module.Code.Count;
+        if (function.EntryIp > end - 2 ||
+            module.Code[end - 2].Opcode != Aloe.CommonLib.Constants.EnumOpcode.PushConst ||
+            module.Code[end - 1].Opcode != Aloe.CommonLib.Constants.EnumOpcode.Return)
+            throw new InvalidOperationException("REPL main does not have the expected synthesized return sequence.");
+        return end - function.EntryIp - 2;
     }
 
 
@@ -354,19 +463,6 @@ public sealed class AloeReplSession
         string? line;
         while ((line = reader.ReadLine()) != null)
             sb.Append("    ").AppendLine(line);
-    }
-
-
-    private static string OutputDelta(string output, string baseline)
-    {
-        if (output.StartsWith(baseline, StringComparison.Ordinal))
-            return output[baseline.Length..];
-
-
-        // This should not happen for the current deterministic subset. Returning
-        // the full output is more useful than hiding data if a future feature
-        // makes replay nondeterministic.
-        return output;
     }
 
 

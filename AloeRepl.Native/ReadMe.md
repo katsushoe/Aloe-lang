@@ -18,4 +18,4 @@ dotnet publish AloeRepl.Native -c Release -r win-x64 /p:PublishAot=true
 
 Examples for other RIDs include `linux-x64`, `linux-arm64`, `osx-x64`, and `osx-arm64`.
 
-The project itself stays a normal `net8.0` console project so development does not require NativeAOT on every build; NativeAOT is selected at publish time.
+The project itself stays a normal `net10.0` console project so development does not require NativeAOT on every build; NativeAOT is selected at publish time.

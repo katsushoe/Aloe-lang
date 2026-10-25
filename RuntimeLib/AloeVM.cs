@@ -6,7 +6,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Net;
 using System.Runtime.ExceptionServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,7 +27,7 @@ namespace Aloe.RuntimeLib
     public sealed partial class AloeVm
     {
         /// <summary>実行対象モジュール（バイトコード＋メタ情報）。</summary>
-        private readonly Module _module;
+        private Module _module;
 
 
         /// <summary>オペコード → コマンド実装 のディスパッチテーブル。</summary>
@@ -72,19 +76,28 @@ namespace Aloe.RuntimeLib
 
         private sealed class FilterBinding
         {
-            public FilterBinding(int functionIndex, long outputPipeId)
+            public FilterBinding(int functionIndex, long outputPipeId, string? stringArgument = null, JsonFilterSchema? jsonSchema = null, SortFilterSchema? sortSchema = null)
             {
                 FunctionIndex = functionIndex;
                 OutputPipeId = outputPipeId;
+                StringArgument = stringArgument;
+                JsonSchema = jsonSchema;
+                SortSchema = sortSchema;
             }
 
             public int FunctionIndex { get; }
+            public string? StringArgument { get; }
+            public JsonFilterSchema? JsonSchema { get; }
+            public SortFilterSchema? SortSchema { get; }
+            public bool IsBuiltinFilter => FunctionIndex is >= -37 and <= -1;
             public long OutputPipeId { get; }
             public VmExecutionContext? Task { get; set; }
         }
 
         private sealed class VmExecutionContext
         {
+            private const int StreamingHashInputBufferSize = 4096;
+
             public VmExecutionContext(long inputPipeId = 0, FilterBinding? binding = null)
             {
                 InputPipeId = inputPipeId;
@@ -101,6 +114,33 @@ namespace Aloe.RuntimeLib
             public bool Started { get; set; }
             public bool IsCompleted { get; set; }
             public bool IsScheduled { get; set; }
+            public Queue<string> PendingLines { get; } = new();
+            public StringBuilder LineBuffer { get; } = new();
+            public StringBuilder JoinedStrings { get; } = new();
+            public bool HasJoinedString { get; set; }
+            public bool JoinOutputEmitted { get; set; }
+            public List<byte> JoinedBytes { get; } = new();
+            public bool ByteAggregateOutputEmitted { get; set; }
+            public byte[]? DecodedBytes { get; set; }
+            public int DecodedByteIndex { get; set; }
+            public string? DecodedText { get; set; }
+            public bool Utf8OutputEmitted { get; set; }
+            public byte[]? HashResult { get; set; }
+            public int HashResultIndex { get; set; }
+            public IncrementalHash? StreamingHash { get; set; }
+            // Batch updates without retaining the complete pipe contents.
+            public byte[] HashInputBuffer { get; } = new byte[StreamingHashInputBufferSize];
+            public int HashInputCount { get; set; }
+            public Md4HashState? Md4Hash { get; set; }
+            public List<long>? SortValues { get; set; }
+            public List<AloeValue>? SortItemValues { get; set; }
+            public bool SortReady { get; set; }
+            public int SortOutputIndex { get; set; }
+            public List<AloeValue>? ShuffleValues { get; set; }
+            public bool ShuffleInputClosed { get; set; }
+            public int ShufflePermutationIndex { get; set; }
+            public int ShuffleOutputIndex { get; set; }
+            public int JsonInputIndex { get; set; }
         }
 
         private sealed class PipeState
@@ -327,6 +367,12 @@ namespace Aloe.RuntimeLib
                 { EnumOpcode.Call,        new CallCommand()        },
                 { EnumOpcode.Return,      new ReturnCommand()      },
 
+                { EnumOpcode.TryBegin,    new ExceptionCommand()   },
+                { EnumOpcode.TryEnd,      new ExceptionCommand()   },
+                { EnumOpcode.CatchEnd,    new ExceptionCommand()   },
+                { EnumOpcode.Rethrow,     new ExceptionCommand()   },
+                { EnumOpcode.TryCatch,    new ExceptionCommand()   },
+
 
                 { EnumOpcode.Syscall,     new SyscallCommand()     },
                 { EnumOpcode.Halt,        new HaltCommand()        },
@@ -483,6 +529,30 @@ namespace Aloe.RuntimeLib
         /// </summary>
         public void RunFromEntryPoint()
         {
+            var entry = GetEntryFunction();
+            RunFromEntryPoint(entry.EntryIp, new AloeValue[entry.LocalCount]);
+        }
+
+        /// <summary>
+        /// Rebinds a quiescent VM to a verified module while preserving its heap.
+        /// This is used by incremental hosts that keep live object handles between submissions.
+        /// </summary>
+        public void ReplaceModule(Module module)
+        {
+            ArgumentNullException.ThrowIfNull(module);
+            if (!_callStack.IsEmpty || _valueStack.Count != 0 || _tickCoordinatorActive || _tickInFlight != 0)
+                throw new InvalidOperationException("A running VM cannot replace its module.");
+            AloeBytecodeVerifier.Verify(module);
+            _module = module;
+        }
+
+        /// <summary>
+        /// Runs the entry function from an instruction boundary with caller-owned locals.
+        /// The VM heap is preserved; the supplied local array remains the entry frame's storage.
+        /// </summary>
+        public void RunFromEntryPoint(int instructionPointer, AloeValue[] locals, bool preserveRuntimeState = false)
+        {
+            ArgumentNullException.ThrowIfNull(locals);
             var programStarted = Stopwatch.GetTimestamp();
             var managedBytesAtStart = System.GC.GetTotalMemory(false);
             var allocatedBytesAtStart = System.GC.GetTotalAllocatedBytes(false);
@@ -493,34 +563,18 @@ namespace Aloe.RuntimeLib
             _diagnosticsRequestedDuringRun = GarbageCollector.DebugEnabled;
 
             // エントリポイントの FunctionInfo を取得
-            if (_module.EntryPointIndex < 0 || _module.EntryPointIndex >= _module.Functions.Count)
-            {
-                throw new VmException(
-                    $"EntryPointIndex is out of range. index={_module.EntryPointIndex}, count={_module.Functions.Count}");
-            }
-
-
-            var entryFunction = _module.Functions[_module.EntryPointIndex];
-
-
-            // ローカル変数領域の確保
-            var localCount = entryFunction.LocalCount;   // FunctionInfo に LocalCount プロパティがある前提
-            var locals = localCount > 0
-                ? new AloeValue[localCount]
-                : Array.Empty<AloeValue>();
-
-
-            // 関数エントリの IP（命令インデックス）
-            // ※ FunctionInfo 側のプロパティ名に合わせてここは調整してください。
-            //   たとえば EntryIp / CodeOffset / EntryPoint など。
-            var entryIp = entryFunction.EntryIp; // もし EntryIp が無ければ適宜修正
+            var entryFunction = GetEntryFunction();
+            if (locals.Length != entryFunction.LocalCount)
+                throw new ArgumentException($"Entry locals length {locals.Length} does not match function local count {entryFunction.LocalCount}.", nameof(locals));
+            if (instructionPointer < entryFunction.EntryIp || instructionPointer >= _module.Code.Count)
+                throw new ArgumentOutOfRangeException(nameof(instructionPointer));
 
 
             // ★ ここがポイント：returnAddress を追加で渡す（エントリフレームなので -1 などの番兵値）
             var frame = new CallFrame(
                 module: _module,
                 function: entryFunction,
-                ip: entryIp,
+                ip: instructionPointer,
                 returnAddress: -1,   // 「戻り先なし」を意味する値
                 locals: locals
             );
@@ -528,31 +582,42 @@ namespace Aloe.RuntimeLib
 
             _callStack.Clear();
             _valueStack.Clear();
-            lock (_callBufferGate)
+            if (!preserveRuntimeState)
             {
-                _instanceCallBuffer.Clear();
-                _staticCallBuffers.Clear();
-                _readyStaticCallTypes.Clear();
-                _runningInstanceObjects.Clear();
-                _runningStaticTypes.Clear();
-                _tickFailure = null;
-                _tickFaulted = false;
-                _tickInFlight = 0;
-                _tickCoordinatorActive = false;
+                lock (_callBufferGate)
+                {
+                    _instanceCallBuffer.Clear();
+                    _staticCallBuffers.Clear();
+                    _readyStaticCallTypes.Clear();
+                    _runningInstanceObjects.Clear();
+                    _runningStaticTypes.Clear();
+                    _tickFailure = null;
+                    _tickFaulted = false;
+                    _tickInFlight = 0;
+                    _tickCoordinatorActive = false;
+                }
+                _pipes.Clear();
+                _readyContexts.Clear();
+                _allContexts.Clear();
+                _runningContext = null;
+                _contextSuspendRequested = false;
+                _suspendCurrentInstruction = false;
+                _tickActive = false;
+                _committedQueryDepth = 0;
+                _synchronousCallDepth = 0;
             }
-            _pipes.Clear();
-            _readyContexts.Clear();
-            _allContexts.Clear();
-            _runningContext = null;
-            _contextSuspendRequested = false;
-            _suspendCurrentInstruction = false;
-            _tickActive = false;
-            _committedQueryDepth = 0;
-            _synchronousCallDepth = 0;
             _haltRequested = false;
 
 
             _callStack.Push(frame);
+
+            if (preserveRuntimeState)
+            {
+                if (_allContexts.Any(context => !context.IsCompleted))
+                    throw new InvalidOperationException("A persistent REPL submission cannot start while an earlier pipe context is still active.");
+                _readyContexts.Clear();
+                _allContexts.Clear();
+            }
 
 
             Run();
@@ -572,6 +637,13 @@ namespace Aloe.RuntimeLib
                     $"managedDeltaBytes={managedBytesAtEnd - managedBytesAtStart}, allocatedDeltaBytes={allocatedBytesAtEnd - allocatedBytesAtStart}, " +
                     $"hostGcGen0={gen0Collections}, hostGcGen1={gen1Collections}, hostGcGen2={gen2Collections}.");
             }
+        }
+
+        private FunctionInfo GetEntryFunction()
+        {
+            if (_module.EntryPointIndex < 0 || _module.EntryPointIndex >= _module.Functions.Count)
+                throw new VmException($"EntryPointIndex is out of range. index={_module.EntryPointIndex}, count={_module.Functions.Count}");
+            return _module.Functions[_module.EntryPointIndex];
         }
 
 
@@ -656,6 +728,8 @@ namespace Aloe.RuntimeLib
             if (ip > codeCount)
                 throw new VmException($"Instruction pointer out of range. ip={ip}, codeCount={codeCount}");
 
+            ExpireExceptionHandlers(frame, ip);
+
             var instruction = code[ip];
             if (!_opcodeCommands.TryGetValue(instruction.Opcode, out var command))
                 throw new VmException($"Unknown opcode: {instruction.Opcode}");
@@ -668,7 +742,14 @@ namespace Aloe.RuntimeLib
 
             var beforeIp = ip;
             var beforeFrame = frame;
-            command.Execute(this, frame, in instruction);
+            try
+            {
+                command.Execute(this, frame, in instruction);
+            }
+            catch (Exception exception) when (DispatchException(exception))
+            {
+                return;
+            }
 
             if (_haltRequested || _callStack.IsEmpty)
                 return;
@@ -676,6 +757,153 @@ namespace Aloe.RuntimeLib
             var currentTop = _callStack.Peek();
             if (!_suspendCurrentInstruction && ReferenceEquals(currentTop, beforeFrame) && currentTop.Ip == beforeIp)
                 currentTop.Ip = beforeIp + 1;
+        }
+
+        public void BeginExceptionHandler(CallFrame frame, int catchIp, int exceptionTypeConstantIndex = -1)
+        {
+            if (frame == null) throw new ArgumentNullException(nameof(frame));
+            if (catchIp < 0 || catchIp >= frame.Module.Code.Count)
+                throw new VmException("TRY_BEGIN has an invalid catch target.");
+
+            var hasCatchTable = frame.Module.Code[catchIp].Opcode == EnumOpcode.TryCatch;
+            Type? exceptionType = null;
+            if (!hasCatchTable && exceptionTypeConstantIndex >= 0)
+            {
+                if ((uint)exceptionTypeConstantIndex >= (uint)frame.Module.Constants.Count ||
+                    frame.Module.Constants[exceptionTypeConstantIndex].Kind != EnumValueKind.String ||
+                    !AloeExceptionTypes.TryResolve(frame.Module.Constants[exceptionTypeConstantIndex].AsString, out exceptionType))
+                    throw new VmException("TRY_BEGIN has an invalid exception type descriptor.");
+            }
+            frame.ExceptionHandlers.Push(new ExceptionHandlerFrame(
+                catchIp,
+                exceptionType,
+                frame.Ip + 1,
+                catchIp,
+                frame.ControlStack.Count,
+                _valueStack.ToArray(),
+                frame.CaughtExceptions.Count));
+        }
+
+        public void EndExceptionHandler(CallFrame frame)
+        {
+            if (frame.ExceptionHandlers.Count == 0)
+                throw new VmException("TRY_END has no active exception handler.");
+            frame.ExceptionHandlers.Pop();
+        }
+
+        public void EndCatch(CallFrame frame)
+        {
+            if (frame.CaughtExceptions.Count == 0)
+                throw new VmException("CATCH_END is outside a catch block.");
+            frame.CaughtExceptions.Pop();
+        }
+
+        public void Rethrow(CallFrame frame)
+        {
+            if (frame.CaughtExceptions.Count == 0)
+                throw new VmException("Rethrow is outside a catch block.");
+            // An inner try can handle this rethrow and resume inside the same catch.
+            // Dispatch removes only contexts exited on the way to its selected handler.
+            var exception = frame.CaughtExceptions.Peek();
+            exception.Throw();
+        }
+
+        private void ExpireExceptionHandlers(CallFrame frame, int instructionPointer)
+        {
+            while (frame.ExceptionHandlers.TryPeek(out var handler) &&
+                   (instructionPointer < handler.TryStartIp || instructionPointer >= handler.TryEndIp))
+            {
+                frame.ExceptionHandlers.Pop();
+            }
+        }
+
+        private bool DispatchException(Exception exception)
+        {
+            var frames = _callStack.EnumerateFrames().ToArray();
+            var framesToUnwind = 0;
+            CallFrame? targetFrame = null;
+            ExceptionHandlerFrame? targetHandler = null;
+            var selectedCatchIp = -1;
+
+            foreach (var candidate in frames)
+            {
+                ExpireExceptionHandlers(candidate, candidate.Ip);
+                while (candidate.ExceptionHandlers.TryPeek(out var handler))
+                {
+                    if (!TryFindMatchingCatchTarget(candidate, handler, exception, out var catchIp))
+                    {
+                        candidate.ExceptionHandlers.Pop();
+                        continue;
+                    }
+                    targetFrame = candidate;
+                    targetHandler = handler;
+                    selectedCatchIp = catchIp;
+                    break;
+                }
+                if (targetHandler != null) break;
+                framesToUnwind++;
+            }
+
+            if (targetFrame == null || targetHandler == null)
+                return false;
+
+            while (framesToUnwind-- > 0)
+                _callStack.Pop();
+            targetFrame.ExceptionHandlers.Pop();
+            while (targetFrame.ControlStack.Count > targetHandler.ControlDepth)
+                targetFrame.ControlStack.Pop();
+            while (_valueStack.Count > 0)
+                _valueStack.Pop();
+            for (var i = targetHandler.ValueStackTopFirst.Count - 1; i >= 0; i--)
+                _valueStack.Push(targetHandler.ValueStackTopFirst[i]);
+
+            while (targetFrame.CaughtExceptions.Count > targetHandler.CaughtExceptionDepth)
+                targetFrame.CaughtExceptions.Pop();
+            targetFrame.CaughtExceptions.Push(ExceptionDispatchInfo.Capture(exception));
+            targetFrame.Ip = selectedCatchIp;
+            return true;
+        }
+
+        private static bool TryFindMatchingCatchTarget(
+            CallFrame frame,
+            ExceptionHandlerFrame handler,
+            Exception exception,
+            out int catchIp)
+        {
+            catchIp = -1;
+            var code = frame.Module.Code;
+            if ((uint)handler.CatchIp < (uint)code.Count &&
+                code[handler.CatchIp].Opcode == EnumOpcode.TryCatch)
+            {
+                for (var index = handler.CatchIp; index < code.Count; index++)
+                {
+                    var descriptor = code[index];
+                    if (descriptor.Opcode != EnumOpcode.TryCatch) break;
+
+                    Type? exceptionType = null;
+                    if (descriptor.Operand1 != 0)
+                    {
+                        var constantIndex = descriptor.Operand1 - 1;
+                        if ((uint)constantIndex >= (uint)frame.Module.Constants.Count ||
+                            frame.Module.Constants[constantIndex].Kind != EnumValueKind.String ||
+                            !AloeExceptionTypes.TryResolve(
+                                frame.Module.Constants[constantIndex].AsString, out exceptionType))
+                            throw new VmException("TRY_CATCH has an invalid exception type descriptor.");
+                    }
+
+                    if (exceptionType == null || exceptionType.IsInstanceOfType(exception))
+                    {
+                        catchIp = descriptor.Operand0;
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            if (handler.ExceptionType != null && !handler.ExceptionType.IsInstanceOfType(exception))
+                return false;
+            catchIp = handler.CatchIp;
+            return true;
         }
 
         private string FormatTrace(CallFrame frame, in Instruction instruction)
@@ -771,6 +999,63 @@ namespace Aloe.RuntimeLib
                 case EnumSyscall.ArrayLength:
                     InvokeArraySyscall(syscallId);
                     break;
+                case EnumSyscall.ListAdd:
+                case EnumSyscall.ListRemoveAt:
+                    InvokeListMutation(syscallId);
+                    break;
+                case EnumSyscall.SetAdd:
+                case EnumSyscall.SetRemove:
+                    InvokeSetMutation(syscallId);
+                    break;
+                case EnumSyscall.SetClear:
+                    InvokeSetClear();
+                    break;
+                case EnumSyscall.SetUnionWith:
+                case EnumSyscall.SetIntersectWith:
+                case EnumSyscall.SetExceptWith:
+                    InvokeSetAlgebra(syscallId);
+                    break;
+                case EnumSyscall.MapCreate:
+                case EnumSyscall.MapGet:
+                case EnumSyscall.MapSet:
+                case EnumSyscall.MapRemove:
+                case EnumSyscall.MapContainsKey:
+                case EnumSyscall.MapCount:
+                case EnumSyscall.MapKeyAt:
+                    InvokeMapSyscall(syscallId);
+                    break;
+                case EnumSyscall.SetContains:
+                    InvokeSetContains();
+                    break;
+                case EnumSyscall.ObjectCast:
+                case EnumSyscall.ObjectTryCast:
+                    InvokeObjectCast(syscallId);
+                    break;
+                  case EnumSyscall.PrimitiveCast:
+                  case EnumSyscall.PrimitiveTryCast:
+                      InvokePrimitiveCast(syscallId);
+                      break;
+                  case EnumSyscall.PrimitiveBox:
+                      InvokePrimitiveBox();
+                      break;
+                  case EnumSyscall.PrimitiveUnbox:
+                      InvokeConsumingUnbox();
+                      break;
+                  case EnumSyscall.ReferenceRequireLive:
+                      {
+                          var reference = Pop();
+                          RequireLiveReference(reference);
+                          Push(reference);
+                          break;
+                      }
+                  case EnumSyscall.ReferenceInvalid:
+                      Push(AloeValue.Null);
+                      break;
+                  case EnumSyscall.ReferenceArrayInvalidate:
+                  case EnumSyscall.ReferenceFieldInvalidate:
+                  case EnumSyscall.ReferenceFieldGet:
+                      InvokeReferenceSlot(syscallId);
+                      break;
                 case EnumSyscall.Print:
                     {
                         // スタックトップを取り出して、そのまま ToString() して出力
@@ -1107,13 +1392,113 @@ namespace Aloe.RuntimeLib
                 case EnumSyscall.PipeBindFilter:
                     {
                         var functionIndexValue = Pop();
+                        if (!functionIndexValue.IsInt || functionIndexValue.AsInt < -37 || functionIndexValue.AsInt >= _module.Functions.Count)
+                            throw new VmException("PipeBindFilter expects a valid filter function index.");
+                        string? stringArgument = null;
+                        if (functionIndexValue.AsInt is -7 or -8 or -9 or -10 or -30 or -34 or -35)
+                        {
+                            var argumentValue = Pop();
+                            if (!argumentValue.IsString)
+                                throw new VmException("Parameterized string filters require a string argument.");
+                            stringArgument = argumentValue.AsString;
+                        }
                         var outputValue = Pop();
                         var inputValue = Pop();
-                        if (!functionIndexValue.IsInt || functionIndexValue.AsInt < 0 || functionIndexValue.AsInt >= _module.Functions.Count)
-                            throw new VmException("PipeBindFilter expects a valid filter function index.");
                         var input = GetPipe(inputValue);
-                        GetPipe(outputValue);
-                        input.Filters.Add(new FilterBinding((int)functionIndexValue.AsInt, outputValue.AsObjectId));
+                        var output = GetPipe(outputValue);
+                        JsonFilterSchema? jsonSchema = null;
+                        SortFilterSchema? sortSchema = null;
+                        if (functionIndexValue.AsInt is -15 or -16)
+                        {
+                            if (input.TypeName != "pipe<byte>" || output.TypeName != "pipe<string>")
+                                throw new VmException("The bin2hex/base64encode standard filters require pipe<byte> input and pipe<string> output.");
+                        }
+                        else if (functionIndexValue.AsInt == -17)
+                        {
+                            if (input.TypeName != "pipe<string>" || output.TypeName != "pipe<byte>")
+                                throw new VmException("The base64decode standard filter requires pipe<string> input and pipe<byte> output.");
+                        }
+                        else if (functionIndexValue.AsInt == -18)
+                        {
+                            if (input.TypeName != "pipe<byte>" || output.TypeName != "pipe<string>")
+                                throw new VmException("The utf8 standard filter requires pipe<byte> input and pipe<string> output.");
+                        }
+                        else if (functionIndexValue.AsInt == -21)
+                        {
+                            if (input.TypeName != "pipe<byte>" || output.TypeName != "pipe<byte>")
+                                throw new VmException("The sha256 standard filter requires pipe<byte> input and output.");
+                        }
+                        else if (functionIndexValue.AsInt == -24)
+                        {
+                            if (input.TypeName != "pipe<byte>" || output.TypeName != "pipe<byte>")
+                                throw new VmException("The sha1 standard filter requires pipe<byte> input and output.");
+                        }
+                        else if (functionIndexValue.AsInt == -27)
+                        {
+                            if (input.TypeName != "pipe<string[]>" || output.TypeName != "pipe<string>")
+                                throw new VmException("The csvenode standard filter requires pipe<string[]> input and pipe<string> output.");
+                        }
+                        else if (functionIndexValue.AsInt == -28)
+                        {
+                            if (input.TypeName != "pipe<string>" || output.TypeName != "pipe<string[]>")
+                                throw new VmException("The csvdecode standard filter requires pipe<string> input and pipe<string[]> output.");
+                        }
+                        else if (functionIndexValue.AsInt == -29)
+                        {
+                            if (input.TypeName != "pipe<string>" || output.TypeName != "pipe<map<string/string>>")
+                                throw new VmException("The parse_str standard filter requires pipe<string> input and pipe<map<string/string>> output.");
+                        }
+                        else if (functionIndexValue.AsInt == -30)
+                        {
+                            if (input.TypeName != "pipe<decimal>" || output.TypeName != "pipe<string>")
+                                throw new VmException("The number_format standard filter requires pipe<decimal> input and pipe<string> output.");
+                        }
+                        else if (functionIndexValue.AsInt == -32)
+                        {
+                            if (stringArgument != null || input.TypeName != "pipe<int>" || output.TypeName != "pipe<int>")
+                                throw new VmException("The sort standard filter requires pipe<int> input and output and accepts no argument.");
+                        }
+                        else if (functionIndexValue.AsInt == -35)
+                        {
+                            if (stringArgument == null)
+                                throw new VmException("The keyed sort standard filter requires a field schema.");
+                            sortSchema = ParseSortFilterSchema(stringArgument);
+                            var expectedPipe = $"pipe<{sortSchema.TypeName}>";
+                            if (input.TypeName != expectedPipe || output.TypeName != expectedPipe)
+                                throw new VmException("The keyed sort standard filter requires matching struct pipes.");
+                        }
+                        else if (functionIndexValue.AsInt == -36)
+                        {
+                            if (stringArgument != null || input.TypeName != "pipe<string>" || output.TypeName != "pipe<string>")
+                                throw new VmException("The string sort standard filter requires pipe<string> input and output and accepts no argument.");
+                        }
+                        else if (functionIndexValue.AsInt == -37)
+                        {
+                            if (stringArgument != null || input.TypeName != "pipe<string>" || output.TypeName != "pipe<string>")
+                                throw new VmException("The string shuffle standard filter requires pipe<string> input and output and accepts no argument.");
+                        }
+                        else if (functionIndexValue.AsInt == -33)
+                        {
+                            if (input.TypeName != "pipe<int>" || output.TypeName != "pipe<int>")
+                                throw new VmException("The shuffle standard filter requires pipe<int> input and output.");
+                        }
+                        else if (functionIndexValue.AsInt == -34)
+                        {
+                            if (stringArgument == null || input.TypeName != "pipe<string>")
+                                throw new VmException("The json standard filter requires a valid struct schema, pipe<string> input and matching struct output.");
+                            jsonSchema = ParseJsonFilterSchema(stringArgument);
+                            if (output.TypeName != $"pipe<{jsonSchema.TypeName}>")
+                                throw new VmException("The json standard filter requires a valid struct schema, pipe<string> input and matching struct output.");
+                        }
+                        else if (functionIndexValue.AsInt == -31)
+                        {
+                            if (input.TypeName != "pipe<byte>" || output.TypeName != "pipe<byte>")
+                                throw new VmException("The md4 standard filter requires pipe<byte> input and output.");
+                        }
+                        else if ((functionIndexValue.AsInt is >= -20 and <= -1 or -22 or -23 or -25 or -26) &&
+                            (input.TypeName != "pipe<string>" || output.TypeName != "pipe<string>"))
+                            throw new VmException("Standard string filters require pipe<string> input and output.");
+                        input.Filters.Add(new FilterBinding((int)functionIndexValue.AsInt, outputValue.AsObjectId, stringArgument, jsonSchema, sortSchema));
                         if (input.IsClosed || input.Values.Count > 0)
                             SchedulePipeFilters(inputValue.AsObjectId, input);
                         break;
@@ -1222,6 +1607,23 @@ namespace Aloe.RuntimeLib
         {
             if (!_callStack.IsEmpty || _valueStack.Count != 0)
                 throw new VmException("Scheduler encountered a nonempty shared VM stack.");
+            if (context.Binding?.IsBuiltinFilter == true)
+            {
+                _runningContext = context;
+                _contextSuspendRequested = false;
+                try
+                {
+                    RunStringTransformFilterQuantum(context);
+                }
+                finally
+                {
+                    _runningContext = null;
+                }
+                if (!context.IsCompleted && !_contextSuspendRequested)
+                    EnqueueContext(context);
+                _contextSuspendRequested = false;
+                return;
+            }
             if (!context.Started)
             {
                 StartFilterContextFrame(context);
@@ -1260,6 +1662,907 @@ namespace Aloe.RuntimeLib
             if (!context.IsCompleted && !_contextSuspendRequested)
                 EnqueueContext(context);
             _contextSuspendRequested = false;
+        }
+
+        private void RunStringTransformFilterQuantum(VmExecutionContext context)
+        {
+            if (context.Binding!.FunctionIndex == -34)
+            {
+                RunJsonFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex is -33 or -37)
+            {
+                RunShuffleFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex is -32 or -35 or -36)
+            {
+                RunSortFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -30)
+            {
+                RunNumberFormatFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -6)
+            {
+                RunLineSplitFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -10)
+            {
+                RunJoinFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -27)
+            {
+                RunCsvEncodeFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -28)
+            {
+                RunCsvDecodeFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -29)
+            {
+                RunParseStrFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex is -15 or -16)
+            {
+                RunByteAggregateToStringFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -17)
+            {
+                RunBase64DecodeFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -18)
+            {
+                RunUtf8DecodeFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -21)
+            {
+                RunSha256FilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -24)
+            {
+                RunSha1FilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -31)
+            {
+                RunMd4FilterQuantum(context);
+                return;
+            }
+
+            var input = _pipes[context.InputPipeId];
+            var outputId = context.Binding!.OutputPipeId;
+            var output = _pipes[outputId];
+
+            if (input.Values.Count == 0)
+            {
+                if (!input.IsClosed)
+                {
+                    WaitForPipeRead(context.InputPipeId, input, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+
+                output.IsClosed = true;
+                WakeAllPipeWriters(outputId, output);
+                WakeAllPipeReaders(outputId, output);
+                SchedulePipeFilters(outputId, output);
+                context.IsCompleted = true;
+                return;
+            }
+
+            if (output.IsClosed)
+                throw new VmException("Cannot write to a closed pipe.");
+            if (output.IsFull)
+            {
+                WaitForPipeWrite(outputId, output, context);
+                _contextSuspendRequested = true;
+                return;
+            }
+
+            var value = input.Values.Dequeue();
+            if (!value.IsString)
+                throw new VmException("The standard string filter expects string values.");
+            if (context.Binding!.FunctionIndex is -7 or -8 or -9)
+            {
+                var argument = context.Binding!.StringArgument ?? throw new VmException("Missing string-filter argument.");
+                var index = value.AsString.IndexOf(argument, StringComparison.Ordinal);
+                var matches = context.Binding!.FunctionIndex switch
+                {
+                    -7 => value.AsString.StartsWith(argument, StringComparison.Ordinal),
+                    -8 => index >= 0,
+                    -9 => index >= 0,
+                    _ => false
+                };
+                if (matches)
+                {
+                    var result = context.Binding!.FunctionIndex == -9
+                        ? value.AsString[index..]
+                        : value.AsString;
+                    output.Values.Enqueue(AloeValue.FromString(result));
+                    WakeOnePipeReader(outputId, output);
+                }
+                WakeOnePipeWriter(context.InputPipeId, input);
+                SchedulePipeFilters(outputId, output);
+                return;
+            }
+            var converted = context.Binding!.FunctionIndex switch
+            {
+                -1 => value.AsString.ToLowerInvariant(),
+                -2 => value.AsString.ToUpperInvariant(),
+                -3 => value.AsString.TrimStart(),
+                -4 => value.AsString.TrimEnd(),
+                -5 => value.AsString.Trim(),
+                -11 or -12 or -13 => ConvertCaseStyle(value.AsString, context.Binding!.FunctionIndex),
+                -14 => Regex.Escape(value.AsString),
+                -19 => UrlEncodeComponent(value.AsString),
+                -20 => UrlDecodeComponent(value.AsString),
+                -22 => HtmlEscapeText(value.AsString),
+                -23 => HtmlUnescapeCanonicalText(value.AsString),
+                -25 => WebUtility.HtmlDecode(value.AsString),
+                -26 => StripHtmlTags(value.AsString),
+                _ => throw new VmException("Unknown standard string filter.")
+            };
+            output.Values.Enqueue(AloeValue.FromString(converted));
+            WakeOnePipeWriter(context.InputPipeId, input);
+            WakeOnePipeReader(outputId, output);
+            SchedulePipeFilters(outputId, output);
+        }
+
+        private void RunCsvEncodeFilterQuantum(VmExecutionContext context)
+        {
+            var input = _pipes[context.InputPipeId];
+            var outputId = context.Binding!.OutputPipeId;
+            var output = _pipes[outputId];
+            if (input.Values.Count == 0)
+            {
+                if (!input.IsClosed)
+                {
+                    WaitForPipeRead(context.InputPipeId, input, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+                output.IsClosed = true;
+                WakeAllPipeWriters(outputId, output);
+                WakeAllPipeReaders(outputId, output);
+                SchedulePipeFilters(outputId, output);
+                context.IsCompleted = true;
+                return;
+            }
+            if (output.IsClosed) throw new VmException("Cannot write to a closed pipe.");
+            if (output.IsFull)
+            {
+                WaitForPipeWrite(outputId, output, context);
+                _contextSuspendRequested = true;
+                return;
+            }
+
+            var row = input.Values.Dequeue();
+            if (!row.IsObject || !Heap.ContainsObject(row.AsObjectId) ||
+                Heap.GetEntry(row.AsObjectId).TypeName != "string[]")
+                throw new VmException("The csvenode standard filter expects a string[] value.");
+            var entry = Heap.GetEntry(row.AsObjectId);
+            var fields = new string[entry.FieldCount];
+            for (var i = 0; i < fields.Length; i++)
+            {
+                var field = entry.GetCurrentField(i);
+                if (!field.IsString) throw new VmException("The csvenode standard filter expects string[] elements.");
+                fields[i] = field.AsString;
+            }
+            output.Values.Enqueue(AloeValue.FromString(EncodeCsvRecord(fields)));
+            WakeOnePipeWriter(context.InputPipeId, input);
+            WakeOnePipeReader(outputId, output);
+            SchedulePipeFilters(outputId, output);
+        }
+
+        private static string EncodeCsvRecord(IReadOnlyList<string> fields)
+        {
+            if (fields.Count == 0) return string.Empty;
+            var output = new StringBuilder();
+            for (var i = 0; i < fields.Count; i++)
+            {
+                if (i > 0) output.Append(',');
+                var field = fields[i];
+                if (fields.Count == 1 && field.Length == 0)
+                {
+                    output.Append("\"\"");
+                    continue;
+                }
+                if (field.IndexOfAny([',', '"', '\r', '\n']) < 0)
+                {
+                    output.Append(field);
+                    continue;
+                }
+                output.Append('"');
+                foreach (var character in field)
+                {
+                    if (character == '"') output.Append("\"\"");
+                    else output.Append(character);
+                }
+                output.Append('"');
+            }
+            return output.ToString();
+        }
+
+        private void RunCsvDecodeFilterQuantum(VmExecutionContext context)
+        {
+            var input = _pipes[context.InputPipeId];
+            var outputId = context.Binding!.OutputPipeId;
+            var output = _pipes[outputId];
+            if (input.Values.Count == 0)
+            {
+                if (!input.IsClosed)
+                {
+                    WaitForPipeRead(context.InputPipeId, input, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+                output.IsClosed = true;
+                WakeAllPipeWriters(outputId, output);
+                WakeAllPipeReaders(outputId, output);
+                SchedulePipeFilters(outputId, output);
+                context.IsCompleted = true;
+                return;
+            }
+            if (output.IsClosed) throw new VmException("Cannot write to a closed pipe.");
+            if (output.IsFull)
+            {
+                WaitForPipeWrite(outputId, output, context);
+                _contextSuspendRequested = true;
+                return;
+            }
+
+            var value = input.Values.Peek();
+            if (!value.IsString) throw new VmException("The csvdecode standard filter expects string values.");
+            var fields = DecodeCsvRecord(value.AsString);
+            var handle = Heap.Allocate(ReadOnlySpan<byte>.Empty, fieldCount: fields.Count, typeName: "string[]");
+            for (var i = 0; i < fields.Count; i++) Heap.SetField(handle, i, AloeValue.FromString(fields[i]));
+            input.Values.Dequeue();
+            output.Values.Enqueue(AloeValue.FromObject(handle));
+            WakeOnePipeWriter(context.InputPipeId, input);
+            WakeOnePipeReader(outputId, output);
+            SchedulePipeFilters(outputId, output);
+        }
+
+        private static List<string> DecodeCsvRecord(string record)
+        {
+            var fields = new List<string>();
+            if (record.Length == 0) return fields;
+            var field = new StringBuilder();
+            var position = 0;
+            while (true)
+            {
+                if (position < record.Length && record[position] == '"')
+                {
+                    position++;
+                    var closed = false;
+                    while (position < record.Length)
+                    {
+                        var character = record[position++];
+                        if (character != '"')
+                        {
+                            field.Append(character);
+                            continue;
+                        }
+                        if (position < record.Length && record[position] == '"')
+                        {
+                            field.Append('"');
+                            position++;
+                            continue;
+                        }
+                        closed = true;
+                        break;
+                    }
+                    if (!closed) throw new VmException("The csvdecode standard filter received an unterminated quoted field.");
+                    if (position < record.Length && record[position] != ',')
+                        throw new VmException("The csvdecode standard filter received characters after a quoted field.");
+                }
+                else
+                {
+                    while (position < record.Length && record[position] != ',')
+                    {
+                        var character = record[position++];
+                        if (character is '"' or '\r' or '\n')
+                            throw new VmException("The csvdecode standard filter received an invalid unquoted field.");
+                        field.Append(character);
+                    }
+                }
+                fields.Add(field.ToString());
+                field.Clear();
+                if (position == record.Length) break;
+                position++; // comma
+                if (position == record.Length)
+                {
+                    fields.Add(string.Empty);
+                    break;
+                }
+            }
+            return fields;
+        }
+
+        private void RunJoinFilterQuantum(VmExecutionContext context)
+        {
+            var input = _pipes[context.InputPipeId];
+            var outputId = context.Binding!.OutputPipeId;
+            var output = _pipes[outputId];
+
+            if (input.Values.Count > 0)
+            {
+                var value = input.Values.Dequeue();
+                if (!value.IsString)
+                    throw new VmException("The join standard filter expects string values.");
+                if (context.HasJoinedString)
+                    context.JoinedStrings.Append(context.Binding!.StringArgument ?? throw new VmException("Missing join separator."));
+                context.JoinedStrings.Append(value.AsString);
+                context.HasJoinedString = true;
+                WakeOnePipeWriter(context.InputPipeId, input);
+                return;
+            }
+
+            if (!input.IsClosed)
+            {
+                WaitForPipeRead(context.InputPipeId, input, context);
+                _contextSuspendRequested = true;
+                return;
+            }
+
+            if (!context.JoinOutputEmitted)
+            {
+                if (output.IsClosed)
+                    throw new VmException("Cannot write to a closed pipe.");
+                if (output.IsFull)
+                {
+                    WaitForPipeWrite(outputId, output, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+                output.Values.Enqueue(AloeValue.FromString(context.JoinedStrings.ToString()));
+                context.JoinOutputEmitted = true;
+                WakeOnePipeReader(outputId, output);
+                SchedulePipeFilters(outputId, output);
+                return;
+            }
+
+            output.IsClosed = true;
+            WakeAllPipeWriters(outputId, output);
+            WakeAllPipeReaders(outputId, output);
+            SchedulePipeFilters(outputId, output);
+            context.IsCompleted = true;
+        }
+
+        private void RunByteAggregateToStringFilterQuantum(VmExecutionContext context)
+        {
+            var input = _pipes[context.InputPipeId];
+            var outputId = context.Binding!.OutputPipeId;
+            var output = _pipes[outputId];
+            if (input.Values.Count > 0)
+            {
+                var value = input.Values.Dequeue();
+                if (!value.IsByte)
+                throw new VmException("The bin2hex/base64encode standard filters expect byte values.");
+                context.JoinedBytes.Add(value.AsByte);
+                WakeOnePipeWriter(context.InputPipeId, input);
+                return;
+            }
+
+            if (!input.IsClosed)
+            {
+                WaitForPipeRead(context.InputPipeId, input, context);
+                _contextSuspendRequested = true;
+                return;
+            }
+
+            if (!context.ByteAggregateOutputEmitted)
+            {
+                if (output.IsClosed)
+                    throw new VmException("Cannot write to a closed pipe.");
+                if (output.IsFull)
+                {
+                    WaitForPipeWrite(outputId, output, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+                var bytes = context.JoinedBytes.ToArray();
+                var result = context.Binding!.FunctionIndex == -15
+                    ? Convert.ToHexString(bytes)
+                    : Convert.ToBase64String(bytes);
+                output.Values.Enqueue(AloeValue.FromString(result));
+                context.ByteAggregateOutputEmitted = true;
+                WakeOnePipeReader(outputId, output);
+                SchedulePipeFilters(outputId, output);
+                return;
+            }
+
+            output.IsClosed = true;
+            WakeAllPipeWriters(outputId, output);
+            WakeAllPipeReaders(outputId, output);
+            SchedulePipeFilters(outputId, output);
+            context.IsCompleted = true;
+        }
+
+        private void RunBase64DecodeFilterQuantum(VmExecutionContext context)
+        {
+            var input = _pipes[context.InputPipeId];
+            var outputId = context.Binding!.OutputPipeId;
+            var output = _pipes[outputId];
+
+            if (context.DecodedBytes == null)
+            {
+                if (input.Values.Count > 0)
+                {
+                    var value = input.Values.Dequeue();
+                    if (!value.IsString)
+                        throw new VmException("The base64decode standard filter expects string values.");
+                    context.JoinedStrings.Append(value.AsString);
+                    WakeOnePipeWriter(context.InputPipeId, input);
+                    return;
+                }
+
+                if (!input.IsClosed)
+                {
+                    WaitForPipeRead(context.InputPipeId, input, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+
+                try
+                {
+                    context.DecodedBytes = Convert.FromBase64String(context.JoinedStrings.ToString());
+                }
+                catch (FormatException ex)
+                {
+                    throw new VmException("The base64decode standard filter received invalid Base64 data.", ex);
+                }
+            }
+
+            if (context.DecodedByteIndex < context.DecodedBytes.Length)
+            {
+                if (output.IsClosed)
+                    throw new VmException("Cannot write to a closed pipe.");
+                if (output.IsFull)
+                {
+                    WaitForPipeWrite(outputId, output, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+                output.Values.Enqueue(AloeValue.FromByte(context.DecodedBytes[context.DecodedByteIndex++]));
+                WakeOnePipeReader(outputId, output);
+                SchedulePipeFilters(outputId, output);
+                return;
+            }
+
+            output.IsClosed = true;
+            WakeAllPipeWriters(outputId, output);
+            WakeAllPipeReaders(outputId, output);
+            SchedulePipeFilters(outputId, output);
+            context.IsCompleted = true;
+        }
+
+        private void RunUtf8DecodeFilterQuantum(VmExecutionContext context)
+        {
+            var input = _pipes[context.InputPipeId];
+            var outputId = context.Binding!.OutputPipeId;
+            var output = _pipes[outputId];
+
+            if (context.DecodedText == null)
+            {
+                if (input.Values.Count > 0)
+                {
+                    var value = input.Values.Dequeue();
+                    if (!value.IsByte)
+                        throw new VmException("The utf8 standard filter expects byte values.");
+                    context.JoinedBytes.Add(value.AsByte);
+                    WakeOnePipeWriter(context.InputPipeId, input);
+                    return;
+                }
+
+                if (!input.IsClosed)
+                {
+                    WaitForPipeRead(context.InputPipeId, input, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+
+                try
+                {
+                    context.DecodedText = new UTF8Encoding(false, true).GetString(context.JoinedBytes.ToArray());
+                }
+                catch (DecoderFallbackException ex)
+                {
+                    throw new VmException("The utf8 standard filter received invalid UTF-8 data.", ex);
+                }
+            }
+
+            if (!context.Utf8OutputEmitted)
+            {
+                if (output.IsClosed)
+                    throw new VmException("Cannot write to a closed pipe.");
+                if (output.IsFull)
+                {
+                    WaitForPipeWrite(outputId, output, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+                output.Values.Enqueue(AloeValue.FromString(context.DecodedText));
+                context.Utf8OutputEmitted = true;
+                WakeOnePipeReader(outputId, output);
+                SchedulePipeFilters(outputId, output);
+                return;
+            }
+
+            output.IsClosed = true;
+            WakeAllPipeWriters(outputId, output);
+            WakeAllPipeReaders(outputId, output);
+            SchedulePipeFilters(outputId, output);
+            context.IsCompleted = true;
+        }
+
+        private void RunSha256FilterQuantum(VmExecutionContext context)
+        {
+            RunStreamingHashFilterQuantum(context, HashAlgorithmName.SHA256, "sha256");
+        }
+
+        private void RunSha1FilterQuantum(VmExecutionContext context)
+        {
+            RunStreamingHashFilterQuantum(context, HashAlgorithmName.SHA1, "sha1");
+        }
+
+        private void RunStreamingHashFilterQuantum(VmExecutionContext context, HashAlgorithmName algorithm, string filterName)
+        {
+            var input = _pipes[context.InputPipeId];
+            var outputId = context.Binding!.OutputPipeId;
+            var output = _pipes[outputId];
+
+            if (context.HashResult == null)
+            {
+                while (context.HashInputCount < context.HashInputBuffer.Length && input.Values.Count > 0)
+                {
+                    var value = input.Values.Dequeue();
+                    if (!value.IsByte)
+                        throw new VmException($"The {filterName} standard filter expects byte values.");
+                    context.StreamingHash ??= IncrementalHash.CreateHash(algorithm);
+                    context.HashInputBuffer[context.HashInputCount++] = value.AsByte;
+                    WakeOnePipeWriter(context.InputPipeId, input);
+                }
+
+                if (context.HashInputCount == context.HashInputBuffer.Length)
+                {
+                    context.StreamingHash!.AppendData(context.HashInputBuffer, 0, context.HashInputCount);
+                    context.HashInputCount = 0;
+                    return;
+                }
+
+                if (!input.IsClosed)
+                {
+                    WaitForPipeRead(context.InputPipeId, input, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+
+                context.StreamingHash ??= IncrementalHash.CreateHash(algorithm);
+                if (context.HashInputCount > 0)
+                {
+                    context.StreamingHash.AppendData(context.HashInputBuffer, 0, context.HashInputCount);
+                    context.HashInputCount = 0;
+                }
+                context.HashResult = context.StreamingHash.GetHashAndReset();
+                context.StreamingHash.Dispose();
+                context.StreamingHash = null;
+            }
+
+            if (context.HashResultIndex < context.HashResult.Length)
+            {
+                if (output.IsClosed)
+                    throw new VmException("Cannot write to a closed pipe.");
+                if (output.IsFull)
+                {
+                    WaitForPipeWrite(outputId, output, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+                output.Values.Enqueue(AloeValue.FromByte(context.HashResult[context.HashResultIndex++]));
+                WakeOnePipeReader(outputId, output);
+                SchedulePipeFilters(outputId, output);
+                return;
+            }
+
+            output.IsClosed = true;
+            WakeAllPipeWriters(outputId, output);
+            WakeAllPipeReaders(outputId, output);
+            SchedulePipeFilters(outputId, output);
+            context.IsCompleted = true;
+        }
+
+        private static string UrlEncodeComponent(string value)
+        {
+            byte[] bytes;
+            try
+            {
+                bytes = new UTF8Encoding(false, true).GetBytes(value);
+            }
+            catch (EncoderFallbackException ex)
+            {
+                throw new VmException("The urlencode standard filter received invalid UTF-16 text.", ex);
+            }
+
+            const string hex = "0123456789ABCDEF";
+            var encoded = new StringBuilder(bytes.Length);
+            foreach (var b in bytes)
+            {
+                if (b >= (byte)'A' && b <= (byte)'Z' || b >= (byte)'a' && b <= (byte)'z' ||
+                    b >= (byte)'0' && b <= (byte)'9' || b == (byte)'-' || b == (byte)'.' ||
+                    b == (byte)'_' || b == (byte)'~')
+                {
+                    encoded.Append((char)b);
+                }
+                else
+                {
+                    encoded.Append('%').Append(hex[b >> 4]).Append(hex[b & 0x0F]);
+                }
+            }
+            return encoded.ToString();
+        }
+
+        private static string UrlDecodeComponent(string value)
+        {
+            byte[] source;
+            try
+            {
+                source = new UTF8Encoding(false, true).GetBytes(value);
+            }
+            catch (EncoderFallbackException ex)
+            {
+                throw new VmException("The urldecode standard filter received invalid UTF-16 text.", ex);
+            }
+
+            var decoded = new List<byte>(source.Length);
+            for (var i = 0; i < source.Length; i++)
+            {
+                if (source[i] != (byte)'%')
+                {
+                    decoded.Add(source[i]);
+                    continue;
+                }
+
+                if (i + 2 >= source.Length || !TryHex(source[i + 1], out var high) || !TryHex(source[i + 2], out var low))
+                    throw new VmException("The urldecode standard filter received a malformed percent escape.");
+                decoded.Add((byte)((high << 4) | low));
+                i += 2;
+            }
+
+            try
+            {
+                return new UTF8Encoding(false, true).GetString(decoded.ToArray());
+            }
+            catch (DecoderFallbackException ex)
+            {
+                throw new VmException("The urldecode standard filter decoded invalid UTF-8 data.", ex);
+            }
+
+            static bool TryHex(byte value, out int digit)
+            {
+                if (value is >= (byte)'0' and <= (byte)'9') digit = value - (byte)'0';
+                else if (value is >= (byte)'A' and <= (byte)'F') digit = value - (byte)'A' + 10;
+                else if (value is >= (byte)'a' and <= (byte)'f') digit = value - (byte)'a' + 10;
+                else { digit = 0; return false; }
+                return true;
+            }
+        }
+
+        private static string HtmlEscapeText(string value)
+        {
+            var escaped = new StringBuilder(value.Length);
+            foreach (var ch in value)
+                escaped.Append(ch switch
+                {
+                    '&' => "&amp;",
+                    '<' => "&lt;",
+                    '>' => "&gt;",
+                    '"' => "&quot;",
+                    '\'' => "&#39;",
+                    _ => ch.ToString()
+                });
+            return escaped.ToString();
+        }
+
+        private static string StripHtmlTags(string value)
+        {
+            var output = new StringBuilder(value.Length);
+            for (var position = 0; position < value.Length; position++)
+            {
+                if (value[position] != '<' || !TryFindHtmlMarkupEnd(value, position, out var end))
+                {
+                    output.Append(value[position]);
+                    continue;
+                }
+                position = end;
+            }
+            return output.ToString();
+        }
+
+        private static bool TryFindHtmlMarkupEnd(string value, int start, out int end)
+        {
+            end = start;
+            if (value.AsSpan(start).StartsWith("<!--", StringComparison.Ordinal))
+            {
+                var commentEnd = value.IndexOf("-->", start + 4, StringComparison.Ordinal);
+                if (commentEnd < 0) return false;
+                end = commentEnd + 2;
+                return true;
+            }
+
+            var position = start + 1;
+            if (position >= value.Length) return false;
+            if (value[position] == '/') position++;
+            else if (value[position] is '!' or '?')
+            {
+                position++;
+                if (position >= value.Length || char.IsWhiteSpace(value[position]) || value[position] == '>') return false;
+                return TryFindMarkupDelimiter(value, position, out end);
+            }
+            else if (!IsHtmlTagNameStart(value[position])) return false;
+
+            if (position >= value.Length || !IsHtmlTagNameStart(value[position])) return false;
+            position++;
+            while (position < value.Length && IsHtmlTagNamePart(value[position])) position++;
+            if (position < value.Length && !char.IsWhiteSpace(value[position]) && value[position] is not ('/' or '>'))
+                return false;
+
+            char quote = '\0';
+            for (; position < value.Length; position++)
+            {
+                var current = value[position];
+                if (quote != '\0')
+                {
+                    if (current == quote) quote = '\0';
+                }
+                else if (current is '\'' or '"') quote = current;
+                else if (current == '>')
+                {
+                    end = position;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool TryFindMarkupDelimiter(string value, int position, out int end)
+        {
+            char quote = '\0';
+            for (; position < value.Length; position++)
+            {
+                var current = value[position];
+                if (quote != '\0')
+                {
+                    if (current == quote) quote = '\0';
+                }
+                else if (current is '\'' or '"') quote = current;
+                else if (current == '>')
+                {
+                    end = position;
+                    return true;
+                }
+            }
+            end = 0;
+            return false;
+        }
+
+        private static bool IsHtmlTagNameStart(char value)
+            => value is >= 'A' and <= 'Z' or >= 'a' and <= 'z';
+
+        private static bool IsHtmlTagNamePart(char value)
+            => IsHtmlTagNameStart(value) || value is >= '0' and <= '9' or '-' or '_' or ':' or '.';
+
+        private static string HtmlUnescapeCanonicalText(string value)
+            => value.Replace("&quot;", "\"", StringComparison.Ordinal)
+                .Replace("&#39;", "'", StringComparison.Ordinal)
+                .Replace("&gt;", ">", StringComparison.Ordinal)
+                .Replace("&lt;", "<", StringComparison.Ordinal)
+                .Replace("&amp;", "&", StringComparison.Ordinal);
+
+        private static string ConvertCaseStyle(string value, int functionIndex)
+        {
+            var words = value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) return string.Empty;
+            if (functionIndex == -13)
+                return string.Join("_", words.Select(word => word.ToLowerInvariant()));
+            if (functionIndex == -11)
+                return words[0].ToLowerInvariant() + string.Concat(words.Skip(1).Select(ToTitleWord));
+            if (functionIndex == -12)
+                return string.Concat(words.Select(ToTitleWord));
+            throw new VmException("Unknown case-style standard filter.");
+
+            static string ToTitleWord(string word)
+            {
+                var lower = word.ToLowerInvariant();
+                return lower[..1].ToUpperInvariant() + lower[1..];
+            }
+        }
+
+        private void RunLineSplitFilterQuantum(VmExecutionContext context)
+        {
+            var input = _pipes[context.InputPipeId];
+            var outputId = context.Binding!.OutputPipeId;
+            var output = _pipes[outputId];
+
+            if (context.PendingLines.Count == 0)
+            {
+                if (input.Values.Count > 0)
+                {
+                    var chunk = input.Values.Dequeue();
+                    if (!chunk.IsString)
+                        throw new VmException("The lineSplit standard filter expects string values.");
+                    foreach (var character in chunk.AsString)
+                    {
+                        if (character == '\n')
+                        {
+                            var line = context.LineBuffer.ToString();
+                            if (line.EndsWith('\r')) line = line[..^1];
+                            context.PendingLines.Enqueue(line);
+                            context.LineBuffer.Clear();
+                        }
+                        else context.LineBuffer.Append(character);
+                    }
+                    WakeOnePipeWriter(context.InputPipeId, input);
+                }
+                else if (input.IsClosed)
+                {
+                    if (context.LineBuffer.Length > 0)
+                    {
+                        context.PendingLines.Enqueue(context.LineBuffer.ToString());
+                        context.LineBuffer.Clear();
+                    }
+                    else
+                    {
+                        output.IsClosed = true;
+                        WakeAllPipeWriters(outputId, output);
+                        WakeAllPipeReaders(outputId, output);
+                        SchedulePipeFilters(outputId, output);
+                        context.IsCompleted = true;
+                        return;
+                    }
+                }
+                else
+                {
+                    WaitForPipeRead(context.InputPipeId, input, context);
+                    _contextSuspendRequested = true;
+                    return;
+                }
+            }
+
+            if (context.PendingLines.Count == 0)
+            {
+                if (input.Values.Count == 0 && !input.IsClosed)
+                {
+                    WaitForPipeRead(context.InputPipeId, input, context);
+                    _contextSuspendRequested = true;
+                }
+                return;
+            }
+            if (output.IsClosed)
+                throw new VmException("Cannot write to a closed pipe.");
+            if (output.IsFull)
+            {
+                WaitForPipeWrite(outputId, output, context);
+                _contextSuspendRequested = true;
+                return;
+            }
+
+            output.Values.Enqueue(AloeValue.FromString(context.PendingLines.Dequeue()));
+            WakeOnePipeReader(outputId, output);
+            SchedulePipeFilters(outputId, output);
         }
 
         private void StartFilterContextFrame(VmExecutionContext context)
@@ -1305,22 +2608,31 @@ namespace Aloe.RuntimeLib
         }
 
         private static bool IsSupportedPipeTypeName(string typeName)
-            => typeName is "pipe<int>" or "pipe<string>" or "pipe<bool>";
+            => typeName is "pipe<int>" or "pipe<decimal>" or "pipe<byte>" or "pipe<string>" or "pipe<bool>" or "pipe<string[]>" or "pipe<map<string/string>>" ||
+                typeName.StartsWith("pipe<", StringComparison.Ordinal) && typeName.EndsWith('>') && typeName.Length > 6;
 
-        private static bool MatchesPipeElement(string typeName, AloeValue value)
+        private bool MatchesPipeElement(string typeName, AloeValue value)
             => typeName switch
             {
                 "pipe<int>" => value.IsInt,
+                "pipe<decimal>" => value.IsDecimal,
+                "pipe<byte>" => value.IsByte,
                 "pipe<string>" => value.IsString,
                 "pipe<bool>" => value.IsBool,
+                "pipe<string[]>" => value.IsObject && Heap.ContainsObject(value.AsObjectId) &&
+                    Heap.GetEntry(value.AsObjectId).TypeName == "string[]",
+                "pipe<map<string/string>>" => value.IsObject && Heap.ContainsObject(value.AsObjectId) &&
+                    Heap.GetEntry(value.AsObjectId).TypeName == "map:string[]|string[]",
+                _ when typeName.StartsWith("pipe<", StringComparison.Ordinal) && typeName.EndsWith('>') && typeName.Length > 6 =>
+                    value.Kind == Aloe.CommonLib.Constants.EnumValueKind.Struct && value.AsStruct.TypeName == typeName[5..^1],
                 _ => false
             };
 
 
         /// <summary>
-        /// Runs one Tick worth of GC work. VM stack, frame-local Object handles, and
-        /// pending Instance CallBuffer Object handles are refreshed as Runtime Temporary
-        /// References before the three GC phases run.
+        /// Runs one budgeted GC work step, separate from Aloe tick(). VM stack, frame-local
+        /// Object handles, and pending Instance CallBuffer Object handles are refreshed as
+        /// Runtime Temporary References before the three GC phases run.
         /// </summary>
         public AloeGcTickResult RunGcTick()
         {
@@ -1329,7 +2641,7 @@ namespace Aloe.RuntimeLib
 
         /// <summary>
         /// Implements Aloe GC.require(): refresh roots and perform one normal budgeted
-        /// Plan -> Sweep/Move -> FreeBlock GC pass.
+        /// Plan -> Sweep/Move -> FreeBlock GC work step.
         /// </summary>
         public AloeGcTickResult RequireGc()
         {
@@ -1502,14 +2814,14 @@ namespace Aloe.RuntimeLib
             for (var i = 0; i < queuedCount; i++)
             {
                 var candidate = _instanceCallBuffer.Dequeue();
-                if (_runningInstanceObjects.Add(candidate.TargetObjectId))
+                if (call == null && _runningInstanceObjects.Add(candidate.TargetObjectId))
                 {
                     call = candidate;
-                    return true;
                 }
-                _instanceCallBuffer.Enqueue(candidate);
+                else _instanceCallBuffer.Enqueue(candidate);
             }
-            return false;
+            // Complete the pass so skipped busy calls keep their order before later calls.
+            return call != null;
         }
 
         private bool TryTakeRunnableStatic(out PendingStaticCall? call)
@@ -1719,6 +3031,14 @@ namespace Aloe.RuntimeLib
                     if (value.IsObject)
                         roots.Add(value.AsObjectId);
                 }
+                foreach (var handler in frame.ExceptionHandlers)
+                {
+                    foreach (var value in handler.ValueStackTopFirst)
+                    {
+                        if (value.IsObject)
+                            roots.Add(value.AsObjectId);
+                    }
+                }
             }
 
             foreach (var pending in _instanceCallBuffer)
@@ -1767,8 +3087,13 @@ namespace Aloe.RuntimeLib
                 foreach (var value in context.SuspendedValuesTopFirst)
                     if (value.IsObject) roots.Add(value.AsObjectId);
                 foreach (var frame in context.SuspendedFramesTopFirst)
+                {
                     foreach (var value in frame.Locals)
                         if (value.IsObject) roots.Add(value.AsObjectId);
+                    foreach (var handler in frame.ExceptionHandlers)
+                        foreach (var value in handler.ValueStackTopFirst)
+                            if (value.IsObject) roots.Add(value.AsObjectId);
+                }
             }
 
             Heap.SetRuntimeTemporaryRoots(roots);

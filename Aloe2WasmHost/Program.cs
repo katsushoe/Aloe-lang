@@ -70,6 +70,6 @@ internal static class Program
     {
         Console.WriteLine("Aloe to WebAssembly compiler");
         Console.WriteLine("  aloe2wasm <source.aloe|module.aloebc> [-o output.wasm]");
-        Console.WriteLine("  Source subset: synchronous int/bool/enum functions; main args must be unused.");
+        Console.WriteLine("  Source subset: synchronous int/float/bool/byte/char/enum functions with structured control flow; main args must be unused.");
     }
 }

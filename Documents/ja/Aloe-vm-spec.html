@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="edit-version" content="34" />
-  <meta name="edit-date" content="2026-10-13T11:32:45+09:00" />
+  <meta name="edit-version" content="61" />
+  <meta name="edit-date" content="2026-10-22T15:41:34+09:00" />
   <title>AloeVM 仕様書（ドラフト）</title>
   <style>
     * { box-sizing: border-box; }
@@ -347,7 +347,7 @@
             <tr>
               <td>char</td>
               <td><code>char</code></td>
-              <td>Unicode コードポイント（実装は UTF-16 でも UTF-32 でもよい）。</td>
+              <td>16bit の UTF-16 コード単位1個。サロゲートコード単位も表現できるため、1つの <code>char</code> が Unicode スカラー値1個を表すとは限りません。</td>
             </tr>
             <tr>
               <td>オブジェクト参照</td>
@@ -552,6 +552,9 @@
     <section id="vm-ch4" class="chapter">
       <h2>4. ヒープと参照・寿命管理方針（C# 実装 VM）</h2>
 <div class="note" id="array-runtime-subset">2026-10-13配列プロトタイプ：primitive／string／enum／struct配列は通常のAloeヒープハンドルと固定フィールド数を使用し、別名はハンドルを共有します。組み込みSYSCALL 21 ArrayCreateは個数・型名文字列・個数分の要素を逆順にpopしてハンドルをpush、22 ArrayGetは添字・ハンドルをpopして要素をpush、23 ArraySetは値・添字・ハンドルをpopして要素を更新、24 ArrayLengthはハンドルをpopして長さをpushします。型名はint[]、bool[]、byte[]、char[]、float[]、decimal[]、string[]、enum:&lt;Name&gt;[]、struct:&lt;Name&gt;[]です。enum記述子のNameは空でない識別子（先頭は文字またはアンダースコア、以降は文字・数字・アンダースコア）を要求します。enum要素は符号付きint32で、enum型の区別はコンパイラーが検査します。VMは記述子・int値種別・範囲を検査し、個々のenumタグや宣言照合は行いません。有効な配列ハンドル、添字範囲、要素の値種別、int要素の符号付きint32範囲、float要素の有限binary32値を検査し、不正オペランドはVmExceptionです。property QueryではCommitted State、それ以外は現在状態を読みます。Tick中はVolatile State、Tick外ではCommitted Stateに書き込み、property Query中の書き込みは拒否します。内部操作なのでhost capabilityは不要で、既存Syscall／AloeBC形式を再利用します。直接WASMは未対応です。class／object配列の検査は以下に記載します。<a href="../decisions/0001-basic-array-subset.md">設計判断（英語）</a>を参照してください。 struct記述子の型名も同じ識別子規則で検査し、生成／読み取り／書き込みにはTypeNameが一致するStructスナップショットを要求します。既存の変更不能・参照フィールドを持たない値を保持するため独立した値コピーを維持し、間接GC辺は追加しません。要素全体の置き換えは配列の別名に反映され、以前の値コピーは維持されます。フィールド構成の検査は既存のstruct生成／ソース型検査に従います。 入れ子配列は内側のVM型名へ[]を追加し、int[][]やstruct:Point[][]などとします。生成／読み取り／書き込みには有効なObject配列ハンドルと、親の型名から最後の[]を除いた内側型名の完全一致を要求します。null、異なる型／階層数、無効なハンドルは拒否します。配列フィールドは既存の参照数付き強参照を使用し、重複要素も数えます。置き換え時に参照を更新し、TickのcommitまでCommitted／Volatile双方の内側参照を保持します。GCは外側から内側へ参照をたどり、外側のrootだけでも内側の配列を保持します。各階層の長さは個別に固定で、Syscall ID・opcode・AloeBC形式は変更しません。 string配列の記述子はstring[]とstring[][]などの入れ子型です。末端要素の生成／読み取り／書き込みはString値を要求し、Null・char・他の値種別を拒否します。既存の変更不能な管理文字列を保持するAloeValue.String表現を使用し、Aloe ObjectIdやObjectへの参照辺は追加しません。配列ハンドル共有、添字範囲、Tick状態、Committed Query中の書き込み禁止、入れ子配列の強参照規則は維持します。 class末端記述子はclass:&lt;Base&gt;|&lt;Derived&gt;[]やclass:&lt;Name&gt;[]で、有効な識別子の空でない重複のないリストを要求します。生成／読み取り／書き込みは有効なObjectと、そのヒープTypeNameがリスト内の型名に完全一致することを要求します。コンパイラーが閉じた継承許可リストを供給し、生のバイトコード／runtime呼び出し元はこの記述子契約を供給します。VMの独立した継承表や真正性検査は追加しません。object[]は有効なAloeヒープObjectハンドルを要求し、Null・scalar／string／struct／pipe値を拒否します。[]を重ねた型は他の入れ子配列と同じく直下の記述子一致を要求します。class／object要素は通常の参照数付き強参照を追加し、object配列の循環は既存SCC／参照グループGCで扱います。間接参照先の回収には複数パスが必要な場合があります。Syscall ID・opcode・codec・Tick／Query・インスタンス状態初期化規則は変更しません。</div>
+<div class="note" id="list-runtime-subset">List runtime記述子は通常配列と単一階層Listの既存名（int[][]、list:int[]）を維持します。入れ子階層にはnested:list:&lt;child&gt;またはnested:array:&lt;child&gt;を使います。例：int()()はnested:list:list:int[]、int()[]（配列のList）はnested:array:list:int[]です。入れ子要素はchild記述子とTypeNameが完全一致する有効なObject handleである必要があります。既存ArrayCreate／Get／Set／Length Syscallが各階層を検査し、参照edge、GC、TickのVolatile／Committed状態、Query書き込み禁止を再利用します。opcode／Syscall ID／codec形式は変更せず、旧runtimeは新記述子を拒否します。<a href="../decisions/0012-nested-list-collections.md">入れ子コレクションの設計判断（英語）</a>を参照してください。</div>
+
+<div class="note" id="object-equality-runtime">Object等価比較プロトタイプ：CmpEq／CmpNeは2つのObject値の安定したObjectIdを比較し、ヒープを読み取らず有効性も検査しません。GC移動後も同じIDは同じ参照を表し、classフィールド、配列内容、class名は比較しません。生のruntimeで異なる値種別はfalse、Null同士はtrueという既存規則を維持します。Object順序比較とStruct等価比較は未対応です。opcode／codec、参照グラフ、割り当て、Tick状態は変更しません。<a href="../decisions/0002-object-identity-equality.md">設計判断（英語）</a>を参照してください。</div>
 
 
       <h3>4.1 スロットベースのヒープレイアウト</h3>
@@ -606,7 +609,7 @@
         <li>Reference 型 member が変更された Object / Group を <strong>Reference Dirty</strong> として記録できる。</li>
         <li>Tick 終了時は Dirty 領域を優先的に再解析し、全 Object Graph を毎 Tick SCC 解析する必要はない。</li>
         <li>新規 edge により複数 SCC が一つになった場合は Group merge、edge 削除で SCC が分割された場合は Group split を行う。</li>
-        <li>Array / List / Map / struct 等を経由する間接 Object Reference を Graph edge として扱う詳細は未決事項とする。</li>
+        <li>Map の class／object 値は既存の collection 強参照と Volatile／Committed snapshot 機構を使用する。Array／List／struct 経由の Object Reference の詳細な扱いは引き続き未決事項とする。</li>
       </ul>
 
 
@@ -633,7 +636,7 @@
 
 
       <h3>4.8 GC の 3 フェーズ</h3>
-      <p>C# VM の GC は、Tick 境界で次の 3 フェーズに分けて処理する。</p>
+      <p>C# VM は <code>GC.require()</code> や <code>GC.finish()</code> など GC work を明示的に要求された場合だけ、次の物理 GC 3 フェーズを進める。Tick 境界では実行しない。Tick 境界の Reference Graph / Reference Group 更新はこれと分離する。</p>
       <ol>
         <li><strong>Plan phase</strong>
           <ul>
@@ -647,7 +650,7 @@
           <ul>
             <li>Plan に従って dead slot を Available にし、必要な live Object を別 Bank へ移動する。</li>
             <li>Object 移動ごとに Object table の物理 location を更新する。</li>
-            <li>Tick の移動予算に達した場合、その時点で Move を中断し、未完了の計画を次 Tick へ持ち越してよい。</li>
+            <li>GC work step の移動予算に達した場合、その時点で Move を中断し、未完了の計画を次の明示的な GC work step へ持ち越してよい。</li>
           </ul>
         </li>
         <li><strong>FreeBlock phase</strong>
@@ -659,13 +662,13 @@
       </ol>
 
 
-      <h3>4.9 Tick ごとの GC budget</h3>
+      <h3>4.9 GC work step ごとの budget</h3>
       <ul>
-        <li>GC は 1 Tick 中に過大なメモリ移動を行ってはならない。Sweep / Move phase には必ず Tick ごとの有限な移動予算を設ける。</li>
-        <li>少なくとも移動 Object 数または移動 byte 数のいずれかを制限し、実装は両方を制限してよい。</li>
-        <li>たとえば 1 Tick あたり最大 256 Object の移動という上限を設定できるが、具体的な上限値は実装およびランタイム設定に依存する。</li>
-        <li>Plan phase 自体も巨大 heap を毎 Tick 全走査しないよう、走査 Bank 数・処理 Object 数・処理時間等の budget を持ってよい。</li>
-        <li>budget 到達により evacuation が複数 Tick にまたがってもよい。途中状態でも、すでに移動した Object の ObjectId / Handle は有効でなければならない。</li>
+        <li>GC は 1 回の GC work step 中に過大なメモリ移動を行ってはならない。Sweep / Move phase には必ず work step ごとの有限な移動予算を設ける。</li>
+        <li>少なくとも移動 Object 数または移動 byte 数のいずれかを work step ごとに制限し、実装は両方を制限してよい。</li>
+        <li>たとえば GC work step あたり最大 256 Object の移動という上限を設定できるが、具体的な上限値は実装およびランタイム設定に依存する。</li>
+        <li>Plan phase 自体も 1 回の GC work step で巨大 heap を全走査しないよう、走査 Bank 数・処理 Object 数・処理時間等の budget を持ってよい。</li>
+        <li>budget 到達により evacuation が複数の GC work step にまたがってもよい。途中状態でも、すでに移動した Object の ObjectId / Handle は有効でなければならない。</li>
         <li>完全に dead な Bank を一括解放できる場合、その処理は Object 移動 budget を消費しない。</li>
       </ul>
 
@@ -1304,6 +1307,9 @@ Section:
           <ul>
             <li>Aloe ソース → 中間 IR → WASM という <strong>ネイティブ WASM ビルド</strong> 経路を用意する。</li>
           </ul>
+      <div class="note" id="wasm-scalar-subset">公開bool引数は入口で0/1を検査し、それ以外のi32値はtrapにします。現行の直接WASMスカラープロトタイプ（2026-10-20）：aloe2wasmは型付きInt／Float／Bool／Byte／Char／enumの引数、local、戻り値を持つ同期free functionに対応します。Intはi64、FloatはIEEE 754 binary32（WASM f32）、Bool／Byte／Charはi32へ対応付け、CharはUTF-16コード単位をゼロ拡張します。関数入口ではIntのsigned-int32範囲、Byteの0..255とCharの0..65535を検査し、surrogateコード単位も保持します。Intをi64へ格納しても言語上の値域は拡張しません。Floatを1つ以上含む数値演算はFloat／Int／Byteオペランドに対応し、算術演算はVMと同じbinary32へ昇格します。比較はf64へ拡張してint32対FloatのVM順序を保ちます。非有限値、非ゼロオペランドによる乗除算結果のゼロへのunderflow、ゼロ除算、範囲外数値オペランド、非有限Float引数は実行時guardでtrapになります。Float剰余はbinary32の精度を保つ段階的な2倍化と減算で実行し、被除数の符号を維持します。非有限被除数、NaNの除数、ゼロ除数はtrapになり、無限大の除数では有限な被除数を返します。引数なしのtick()、GC.require()、GC.finish()は、heap objectとasync CallBufferを持たない現行範囲ではno-opへloweringします。GC.debugのbool状態は、初期値falseの非公開なインスタンス別globalへloweringします。同じインスタンスの呼び出し間とtrap前に完了した書き込みを保持し、別インスタンスとは分離します（決定0027）。heapを持たない直接バックエンドはGC phase／timingログを出力せず、host debug設定の注入も行いません。スカラーprintは決定0029の明示的な型別host importに対応し、他のhost import、decimal演算、数値変換、配列／object操作はlowering対象外です。AloeBCの型検査では物理WASM型が同じ場合もscalar種別を区別します。</div>
+<div class="note" id="wasm-scalar-print">スカラーprint import（決定0029）：print(Int)／print(Float)／print(Bool)／print(Byte)／print(Char)を、同期host関数aloe.print_int(i64)／aloe.print_float(f32)／aloe.print_bool(i32)／aloe.print_byte(i32)／aloe.print_char(i32)へそれぞれ対応付けます。戻り値はvoidです。実際に使う型だけを最初の出現順で型ごとに1回importし、内部callとexportにはimport関数数のoffsetを加え、export名は維持します。hostはモジュール生成時にaloeオブジェクトを渡します。callback1回が出力1行に対応し、元の型付き値を受け取ります（JavaScriptではIntはBigInt、他はNumber。Boolは0/1、CharはUTF-16コード単位1個）。文字列化と出力先はhostが担当し、host間で同一の小数表記は保証しません。不足または呼出し不能なimportは標準WASMの生成時検査で失敗します。callback例外は伝播し、それ以前に完了したGC.debug書込みを保持します。スカラーprintを使わないモジュールはimport不要です。string／object／arrayのprintと他のhost機能は未対応です。</div>
+
         </li>
         <li>このとき、AloeVM 命令セットと WASM 命令セットが近いほど、コンパイラ実装が単純になる。</li>
         <li>理想的には「AloeVM 命令列をそのまま WASM にシリアライズするだけ」で動作するレベルを目指す。</li>
@@ -1571,5 +1577,14 @@ tick() return
 
   </main>
 </div>
+<div class="note" id="reference-cast-runtime">参照cast runtimeプロトタイプ（2026-10-13）：Syscall 25 ObjectCastはString記述子、値の順にpopし、有効な元のObject参照を返します。値種別、Null、無効なハンドル、runtime型が不適合ならInvalidCastExceptionです。Syscall 26 ObjectTryCastは同じ入力を取り、参照（失敗時はNull）、成功Boolの順にpushします。両方とも記述子不正はVmExceptionです。object記述子は有効なヒープObject全般、class:Base|Derivedは重複のない識別子とruntime TypeNameの完全一致、array:int[]等は対応済みの配列型名の完全一致を要求し、末端の型名と階層数も検査します。class対象リストはコンパイラーの既存の型名許可リストを再利用し、独立した継承／真正性メタデータは追加しません。検査は割り当て、ヒープ変更、オブジェクト複製、参照の消費を行いません。コンパイラーはtryの成功フラグで分岐してifnot代替式を失敗時だけ評価し、代替参照もObjectCastで検査します。getter Query内の検査は読み取り専用で、rootと後続の状態読み取りは既存VM規則に従います。scalar変換、直接WASMは未対応です。boxing／非消費取り出しは以下に記載します。<a href="../decisions/0003-checked-reference-casts.md">参照castの設計判断（英語）</a>を参照してください。</div>
+<div class="note" id="primitive-cast-runtime">primitive同型cast runtimeプロトタイプ（2026-10-13）：Syscall 27 PrimitiveCastと28 PrimitiveTryCastはString記述子、値の順にpopします。正規記述子はint、byte、char、float、decimal、string、boolで、ソースbooleanはboolへ正規化します。値種別の完全一致を要求し、intは符号付きint32範囲、floatは有限binary32値を検査します。Castは元の値を返すかInvalidCastException、TryCastは値／Null、成功Boolの順にpushします。不正またはString以外の記述子はVmExceptionです。scalar同型検査は変換や解析を行いません。型一致boxの取り出しとboxingは以下に記載します。コンパイラーの分岐でifnotを遅延評価し、代替値も再検査します。ソースenum／struct／pipe検査で型境界を維持し、任意バイトコードのInt値にenumタグはありません。直接WASMは未対応です。<a href="../decisions/0004-primitive-identity-casts.md">primitive castの設計判断（英語）</a>を参照してください。</div>
+<div class="note" id="boxing-runtime">primitive boxing runtimeプロトタイプ（2026-10-13）：Syscall29 PrimitiveBoxは有効なprimitiveをpopし、box:&lt;正規型名&gt;の新しい1フィールドヒープobjectを割り当て、Committed値を初期化してハンドルをpushします。既存ヒープロック内で完了します。型名はint／byte／char／float／decimal／string／boolで、int32／有限float範囲を割り当て前に検査し、不正な生の入力はVmExceptionです。Syscall27／28は、有効な型一致・1フィールドbox値の取り出し後にも値種別と範囲を検査します。参照は消費しません。無効参照、未初期化、構成／値種別不一致、不正な値はInvalidCastExceptionまたはtryのNull／falseです。getter内はCommitted、他は現在値を読み、ソースにbox書き込みAPIはありません。生のhostはヒープ値を変更でき、記述子・構成・値の整合に責任を持ちます。任意のIntバイトコードからソースenum型を復元しません。既存rootと参照数付きヒープ辺がboxを保持し、primitive／String値は出方向のObject辺を追加しません。codec／opcodeは変更せず、直接WASMは残作業です。名前付きbox APIは以下に記載します。<a href="../decisions/0005-primitive-boxing.md">boxingの設計判断（英語）</a>を参照してください。</div>
+<div class="note" id="named-box-runtime">名前付きbox runtimeプロトタイプ（2026-10-13）：ObjectCast／ObjectTryCastは正規対象box:int／byte／char／float／decimal／string／boolにも対応し、有効参照・記述子完全一致・1フィールド構成・primitive値種別／範囲を検査します。記述子不正はVmException、型不一致・無効参照・値不正はInvalidCastExceptionまたはtryのNull／falseです。名前付きconstructor／ToXxxは既存PrimitiveBox／PrimitiveCastと参照castを再利用し、格納構成とIDを維持します。末端box配列記述子box:int[]等も同じ有効なbox値を検査し、入れ子階層は完全一致を要求します。既存参照辺／rootとCommitted／現在値の規則に従い、新しいopcode、syscall ID、codec形式、ソースからの値変更APIは追加しません。生の呼び出し元は記述子・構成・値の整合に責任を持ちます。<a href="../decisions/0006-named-box-types.md">名前付きboxの設計判断（英語）</a>を参照してください。</div>
+<div class="note" id="local-reference-runtime">ローカル参照有効性runtimeプロトタイプ（2026-10-13）：Syscall30 PrimitiveUnboxは正規primitive String記述子、参照の順にpopし、有効なObjectと型一致box値を検査してprimitiveをpushします。無効参照はInvalidReferenceException、型不一致／値不正boxはInvalidCastException、記述子不正はVmExceptionです。Syscall自体はローカル／ヒープを変更せず、コンパイラーが成功後だけ無効マーカー生成／StoreLocalで元のローカルを消費します。Syscall31 ReferenceRequireLiveは有効なヒープハンドルを保持して返すかInvalidReferenceExceptionです。Syscall32 ReferenceInvalidは既存AloeValue.Nullをソース無効マーカーとしてpushし、AloeBC定数形式を維持します（Null定数は未対応のままです）。既存StoreLocalと比較規則で繰り返し可能なdeleteと==／!= invalid検査を実装します。既存root／強参照／GCを使用し、マーカー生成をソース上の代入許可と混同しないでください。旧VMは新しいSyscall IDを実行できません。<a href="../decisions/0007-local-reference-validity.md">ローカル参照有効性の設計判断（英語）</a>を参照してください。</div>
+<div class="note" id="reference-slot-runtime">参照slot runtimeプロトタイプ（2026-10-13）：Syscall33 ReferenceArrayInvalidateと34 ReferenceFieldInvalidateは添字、ownerの順にpopし、有効owner／範囲内参照slotを検査してQuery書き込みを拒否し、既存Volatile／Committedヒープsetterでslotを無効化します。Syscall35 ReferenceFieldGetはObject／Null参照fieldを現在／Committed状態から読み、primitiveの生のfield読み取り契約は維持します。参照配列のArrayGetは無効Nullマーカーを許可し、ArrayCreate／ArraySetはNull参照要素を引き続き拒否します。コンパイラーはowner／添字を一度評価してroot付きで保持し、Syscall30で取り出した後だけ無効化し、deleteでは要素読み取りを行いません。既存参照辺の処理で古いCommitted参照をTick commitまで保持します。物理破壊、新しいGC方式、値種別、codec／opcode格納形式は追加しません。旧VMは新しいID33／34／35を実行できません。独立したfield型表を追加しないため、生のfield helperは呼び出し元のfield／値整合を信頼します。<a href="../decisions/0008-reference-slot-consumption.md">参照slot消費の設計判断（英語）</a>を参照してください。</div>
+<div class="note" id="list-mutation-runtime">変更可能List runtime（2026-10-14）：Syscall36 ListAddは値・List handleをpopし、厳密な要素型検査後に同じList ObjectIdへ末尾追加します。Syscall37 ListRemoveAtはint添字・handleをpopし、既存範囲を検査して該当要素を除き後続を左へ詰めます。別名は同じruntime objectを参照し、Lengthと要素の更新を共有します。Tick中はVolatile全体snapshotとして可視化し、property Queryは旧Committed snapshotを読みます。commitまで旧／新双方の参照辺を保持し、commit時に旧辺を除きます。property Query中は両syscallを拒否します。Heap field容量は安定ObjectIdを保ったまま必要に応じて再配置します。opcode／codecは変更しません。旧runtimeはSyscall36／37を認識しません。<a href="../decisions/0014-resizable-list-operations.md">設計判断（英語）</a>を参照してください。</div>
+<div class="note" id="set-runtime">基本Set runtime（2026-10-14）：記述子はset:&lt;element-array-descriptor&gt;です。ArrayCreateは要素を検証し、値の等価性で重複を除き、最初の挿入順を保持します。Syscall38 SetAdd／39 SetRemoveは値、live Set handleの順にpopし、記述子に対する要素型検証後、同じobjectをresizeします。既存値のAddと未存在値のRemoveはno-opです。Syscall40 SetContainsは値、handleをpopしてBoolをpushし、property query中はCommitted fields、それ以外はcurrent fieldsを読みます。Syscall48 SetClearはlive Set handleをpopし、全要素を削除してSet ObjectIdを維持します。空SetのClearはno-opです。Syscall49～51 SetUnionWith／SetIntersectWith／SetExceptWithはsource、destination handleの順にpopし、Set descriptorの完全一致を要求してdestinationを変更します。ObjectIdと挿入順を保ち、和集合はsourceにある新しい要素だけ追加します。同一Setを両引数に指定しても安全です。ArrayLengthはSet Countを返し、ArrayGetはforeach反復に使えます。ArraySetはSet handleを拒否します。変更はObjectId、別名、heap edge、Volatile／Committed Tick snapshotを維持し、Committed property query中は禁止です。sourceはprimitive scalar、string、enum、静的に名前を指定したclass referenceに対応し、class referenceはObjectId identityで比較します。struct、generic object reference、その他の参照は未対応です。opcode／AloeBC形式は変更せず、旧VMはSyscall38～40と48～51を認識しません。直接WASMは未対応です。<a href="../decisions/0015-basic-set-subset.md">基本Setの設計判断（英語）</a>を参照してください。</div>
+<div class="note" id="map-runtime">基本Map runtime（2026-10-14）：map:&lt;key-array-descriptor&gt;|&lt;value-array-descriptor&gt;はkey/valueペアを交互のheap fieldに格納します。class key／value descriptorには内部区切り|が含まれるため、keyとvalue descriptorの候補検証によりMap delimiterを決定します。keyはprimitive scalar／enum／class配列descriptor、valueは加えてobject[]、class配列、名前付きbox配列に対応します。Syscall41 MapCreateはペア数・descriptor・逆順のkey/valueペアをpopし、記述子と各値を検査して有効なMap handleをpushします。重複キーは最初の位置と最後の値を保ちます。Syscall42 MapGetはkeyとhandleをpopして値をpushし、存在しないkeyはVmExceptionです。Syscall43 MapSetはvalue・key・handleをpopして追加または上書きします。Syscall44 MapRemoveはkey・handleをpopし、存在しないkeyは何もしません。Syscall45 MapContainsKeyはkey・handleをpopしてBoolをpushします。Syscall46 MapCountはhandleをpopしてペア数をpushします。Syscall47 MapKeyAtはint index・handleをpopして挿入順のkeyをpushし、有効handle・ペア構成・index範囲を検査します。property query中はCommitted field、それ以外は現在fieldを読みます。Mapの参照keyとvalueは既存の強参照edgeとVolatile／Committed snapshotを使います。変更はObjectId／別名を維持し、Committed property query中は失敗します。Map descriptor完全一致のcastに対応します。検索は線形でhash／性能保証はありません。旧VMはSyscall41～47を認識せず、opcode／AloeBC形式は変わりません。直接WASMは未対応です。<a href="../decisions/0016-basic-map-subset.md">基本Mapの設計判断（英語）</a>を参照してください。</div>
 </body>
 </html>

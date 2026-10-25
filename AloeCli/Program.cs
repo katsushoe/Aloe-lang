@@ -23,6 +23,7 @@ internal static class Program
             {
                 "build" => Build(args, logger),
                 "run" => Run(args, logger),
+                "package-db" => PackageDb(args),
                 _ => UnknownCommand(args[0])
             };
         }
@@ -73,6 +74,73 @@ internal static class Program
         return 0;
     }
 
+    private static int PackageDb(string[] args)
+    {
+        if (args.Length < 2)
+            throw new ArgumentException("Usage: aloec package-db <list|add|remove|resolve> [options]");
+
+        var operation = args[1].ToLowerInvariant();
+        var allowed = operation switch
+        {
+            "list" => new HashSet<string>(["--name", "--package-db"], StringComparer.Ordinal),
+            "add" => new HashSet<string>(["--name", "--version", "--abc", "--meta", "--package-db"], StringComparer.Ordinal),
+            "remove" => new HashSet<string>(["--name", "--version", "--package-db"], StringComparer.Ordinal),
+            "resolve" => new HashSet<string>(["--name", "--version", "--package-db"], StringComparer.Ordinal),
+            _ => throw new ArgumentException($"Unknown package-db operation: {operation}")
+        };
+        var options = ParsePackageDbOptions(args, allowed);
+        var databasePath = options.TryGetValue("--package-db", out var explicitPath)
+            ? Path.GetFullPath(explicitPath)
+            : Path.Combine(Environment.CurrentDirectory, "package-db.json");
+
+        switch (operation)
+        {
+            case "resolve":
+                var plan = AloePackageDatabase.Resolve(databasePath,
+                    RequirePackageDbOption(options, "--name"), RequirePackageDbOption(options, "--version"));
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(plan,
+                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                break;
+            case "list":
+                foreach (var package in AloePackageDatabase.List(databasePath, options.GetValueOrDefault("--name"))
+                             .OrderBy(package => package.Name, StringComparer.Ordinal)
+                             .ThenBy(package => package.Version, StringComparer.Ordinal))
+                    Console.WriteLine($"{package.Name}\t{package.Version}\t{package.AbcPath}\t{package.MetaPath}");
+                break;
+            case "add":
+                AloePackageDatabase.Add(databasePath,
+                    RequirePackageDbOption(options, "--name"), RequirePackageDbOption(options, "--version"),
+                    RequirePackageDbOption(options, "--abc"), RequirePackageDbOption(options, "--meta"));
+                Console.WriteLine($"Added {options["--name"]}@{options["--version"]}");
+                break;
+            case "remove":
+                AloePackageDatabase.Remove(databasePath,
+                    RequirePackageDbOption(options, "--name"), RequirePackageDbOption(options, "--version"));
+                Console.WriteLine($"Removed {options["--name"]}@{options["--version"]}");
+                break;
+        }
+        return 0;
+    }
+
+    private static Dictionary<string, string> ParsePackageDbOptions(string[] args, HashSet<string> allowed)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (var index = 2; index < args.Length; index++)
+        {
+            var name = args[index];
+            if (!allowed.Contains(name)) throw new ArgumentException($"Unknown package-db option: {name}");
+            if (index + 1 >= args.Length || args[index + 1].StartsWith("--", StringComparison.Ordinal))
+                throw new ArgumentException($"Option {name} requires a value.");
+            if (!result.TryAdd(name, args[++index])) throw new ArgumentException($"Option {name} was specified more than once.");
+        }
+        return result;
+    }
+
+    private static string RequirePackageDbOption(Dictionary<string, string> options, string name)
+        => options.TryGetValue(name, out var value) && !string.IsNullOrWhiteSpace(value)
+            ? value
+            : throw new ArgumentException($"Required package-db option is missing: {name}");
+
     private static string RequireSourceFile(string input)
     {
         var path = Path.GetFullPath(input);
@@ -108,5 +176,7 @@ internal static class Program
         Console.WriteLine("Aloe Compiler CLI");
         Console.WriteLine("  aloec build <source.aloe> [-o output.aloebc]");
         Console.WriteLine("  aloec run <source.aloe>");
+        Console.WriteLine("  aloec package-db <list|add|remove|resolve> [--package-db path]");
+        Console.WriteLine("  aloec package-db resolve --name name --version 1.2.3 [--package-db path]");
     }
 }

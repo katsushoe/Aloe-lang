@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Standard Library Specification (Filters – Draft, English)</title>
-  <meta name="edit-version" content="3">
-  <meta name="edit-date" content="2025-12-03T08:15:00+09:00">
+  <meta name="edit-version" content="44">
+  <meta name="edit-date" content="2026-10-22T20:39:43+09:00">
   <style>
     :root {
       color-scheme: light dark;
@@ -196,7 +196,7 @@
     <main class="content">
       <h1>Aloe Standard Library Specification (Filters)</h1>
       <div class="meta">
-        Draft • English • Filters Library • version 3<br>
+        Draft • English • Filters Library • version 40<br>
         This document is a separate “standard filters library specification” independent from the Aloe language specification.
       </div>
 
@@ -220,6 +220,8 @@
         <div class="note">
           <strong>NOTE:</strong> All code examples in this document are Aloe pseudo code and
           may be updated in the future as the language specification evolves.
+        </div>        <div class="note">
+          <strong>Implementation status:</strong> This catalog remains a draft. The current compiler supports user-declared filters as <code>source | filter(name) | destination;</code> and the pipeline-only shorthand <code>source |: name | destination;</code>; documented parameterized standard filters use <code>source |: name: "argument" | destination;</code>. The standard <code>tolower</code> and <code>toupper</code> filters are implemented for <code>pipe&lt;string&gt;</code>, using culture-independent invariant case mapping. The <code>ltrim</code>, <code>rtrim</code>, and <code>trim</code> filters remove leading, trailing, or both-side Unicode whitespace, and <code>lineSplit</code> splits string chunks at LF boundaries while preserving partial lines across chunks. The <code>camelcase</code>, <code>pascalcase</code>, and <code>snakecase</code> filters split input into whitespace-separated words, normalize casing invariantly, and join words without separators or with underscores as appropriate. The <code>startswith</code> and <code>contains</code> filters pass matching strings using ordinal comparison; <code>strstr</code> passes only strings containing the argument and outputs the suffix beginning at its first occurrence. The <code>join</code> filter concatenates its input with the specified separator and emits one string, including an empty string for empty input. The <code>quote_meta</code> filter escapes regular-expression metacharacters for use in a literal pattern. The <code>utf8</code> filter consumes all bytes, strictly decodes UTF-8 across chunk boundaries, and emits one string (empty input emits an empty string; invalid sequences raise a VM exception). The VM implements <code>md4</code> as a full-stream byte filter that emits 16 digest bytes in order for legacy interoperability only, and implements <code>sha1</code> and <code>sha256</code> as full-stream byte filters that emit 20 and 32 digest bytes in order, respectively; MD4 and SHA-1 are not suitable for security-sensitive use. The VM also supports <code>pipe&lt;byte&gt;</code> and implements <code>bin2hex</code>, which consumes the byte stream and emits one uppercase hexadecimal string; empty input emits an empty string. It also implements <code>base64encode</code> over the complete byte stream using the standard Base64 alphabet without line breaks; empty input emits an empty string. The <code>base64decode</code> filter concatenates the complete input string stream, decodes standard Base64, and emits bytes in order; empty input emits no bytes, and invalid data raises a VM exception. URL component filters apply UTF-8 percent encoding/decoding as described below; malformed escapes or decoded UTF-8 raise a VM exception. The <code>htmlspecialchars</code> and <code>htmlspecialchars_decode</code> text filters implement the fixed canonical entity mapping described below. The <code>html_entity_decode</code> filter decodes recognized named and numeric HTML character references per input string and preserves unrecognized references and decodes only once rather than recursively processing newly produced text; it does not sanitize markup. <code>strip_tags</code> removes complete comments and markup-like spans whose tag names begin with an ASCII letter; quotes protect embedded <code>&gt;</code> in attributes. It preserves ordinary text such as <code>2 &lt; 3</code> and unterminated candidates. Each pipe string value is processed independently, so markup is not carried across chunks. Script/style contents remain as text after surrounding tags are removed. This filter is not an HTML sanitizer or a security boundary. The VM also implements <code>csvenode</code> for <code>pipe&lt;string[]&gt;</code>, with the CSV record and escaping rules in section 3.2.1. The VM implements <code>csvdecode</code> per input string using the strict record grammar in section 3.2.2; malformed records raise a VM exception. The VM also implements <code>parse_str</code> per item with form-style decoding into <code>map&lt;string, string&gt;</code>, and <code>number_format(spec)</code> for <code>pipe&lt;decimal&gt;</code> using invariant-culture .NET decimal formatting. Other listed standard filters remain unimplemented. This draft also references <code>uint32</code>, <code>BlowfishContext</code>, and <code>AESContext</code> without defining their public type contracts. The examples below are conceptual and are not all executable with the current compiler.
         </div>
       </section>
 
@@ -318,6 +320,7 @@ stdin
         <h2>2. Text / Encoding</h2>
 
         <h3>2.1 <code>utf8</code></h3>
+        <p>The VM implementation consumes the complete byte stream and emits one string. UTF-8 is decoded strictly across input chunk boundaries; empty input emits an empty string, and invalid byte sequences raise a VM exception.</p>
         <p class="filter-header">Namespace / Signature</p>
         <p class="sig">
           Namespace: <code>aloe.encoding</code><br>
@@ -337,9 +340,10 @@ stdin
           filter lineSplit : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
         </p>
         <p>
-          Splits string chunks into individual lines and emits one line per element.
-          The handling of line endings (<code>\n</code> / <code>\r\n</code>) is
-          implementation-dependent, but at minimum <code>\n</code> must be treated as a separator.
+          Splits string chunks at <code>\n</code> and emits one line per element. A preceding
+          <code>\r</code> is removed, empty lines are preserved, and a non-empty final partial
+          line is emitted when the input closes. A trailing line separator does not create an
+          additional final empty line.
         </p>
 
         <pre><code>stdin
@@ -359,8 +363,14 @@ stdin
           filter json&lt;T&gt; : pipe&lt;string&gt; -&gt; pipe&lt;T&gt;
         </p>
         <p>
-          Decodes JSON text into typed objects. At the call site, the type is passed
-          as in <code>filter(json: User)</code>.
+          Decodes each input string as one JSON object into a <code>struct T</code> whose
+          fields are only int, bool, or string. JSON and field names match exactly with
+          case sensitivity, and every field is required exactly once. Unknown, duplicate,
+          or missing names, type mismatches, and malformed JSON fail the filter with the
+          input item and, when available, member name in the error. Coercion and null are
+          unsupported. Int fields accept neither fraction nor exponent notation. Arrays,
+          nesting, enums, and classes are unsupported. At the call site, the type is
+          passed as in <code>source |: json: User | users;</code>.
         </p>
 
         <pre><code>stdin
@@ -376,8 +386,11 @@ stdin
           filter csvenode : pipe&lt;string[]&gt; -&gt; pipe&lt;string&gt;
         </p>
         <p>
-          Encodes a string array into a single CSV line. Separators and escaping rules
-          are implementation-dependent, but should follow a standard CSV specification.
+          Encodes each string array as one CSV record without a trailing line terminator.
+          Fields containing comma, double quote, CR, or LF are quoted, and embedded double
+          quotes are doubled. Other field contents are preserved. An empty array produces an
+          empty record, while a one-element array containing an empty string is emitted as
+          <code>""</code> so the two cases remain distinguishable.
         </p>
 
         <h4>3.2.2 <code>csvdecode</code></h4>
@@ -386,7 +399,13 @@ stdin
           filter csvdecode : pipe&lt;string&gt; -&gt; pipe&lt;string[]&gt;
         </p>
         <p>
-          Parses each line as CSV and emits an array of columns.
+          Parses each input string as one CSV record and emits its fields as a string array.
+          Commas separate fields; a quoted field may contain commas, CR, LF, and escaped
+          double quotes. A quote inside an unquoted field, an unterminated quoted field, or
+          characters between a closing quote and the next comma are invalid and raise a VM
+          exception. An empty input record decodes to an empty array; <code>""</code> decodes
+          to one empty field. Records are processed per pipe value and quoted fields do not
+          span values.
         </p>
 
         <pre><code>stdin
@@ -438,6 +457,9 @@ stdin
         </p>
 
         <h3>4.3 <code>sort</code></h3>
+        <p>Accepted decision 0026 also implements argument-free <code>sort : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;</code>. It buffers through input closure and emits the original strings in stable ascending ordinal UTF-16 code-unit order, independent of culture. Duplicate values, exact contents and normalization forms are preserved; the empty string sorts first. Empty input emits no values and output observes bounded backpressure. No key argument, case folding or normalization is applied.</p>
+        <p>The VM implements argument-free <code>sort : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code>, rejecting values outside signed int32. Under decisions 0025 and 0030, <code>sort: .Field</code> accepts an exact, direct, case-sensitive int or string field of a declared struct. It buffers the complete input until closure and emits original records in stable ascending order: signed int32 for int keys, ordinal UTF-16 code units for string keys. Duplicate records and source order among ties are retained. String contents and normalization forms are preserved without case folding or culture settings. Empty input closes the output without values. Bounded output respects backpressure; buffer memory grows with input count. Other key types, nested paths and key expressions are rejected.</p>
+        <p>Keyed AloeBC schemas retain the legacy three properties typeName, fieldName and fieldIndex for int keys. Optional fieldType accepts exactly int or string; the compiler adds fieldType:string for string keys. Invalid schemas and mismatched record/key values are rejected.</p>
         <p class="filter-header">Namespace / Signature</p>
         <p class="sig">
           Namespace: <code>aloe.collection</code><br>
@@ -454,6 +476,7 @@ stdin
     | stdout;</code></pre>
 
         <h3>4.4 <code>shuffle</code></h3>
+        <p id="shuffle-int-subset">The current VM implements argument-free <code>shuffle : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code> under accepted decision 0023. It buffers the complete input until closure, applies Fisher-Yates using the noncryptographic System.Random.Shared source, and emits the full permutation under output backpressure. Counts and duplicates are preserved; empty input closes without values. Unchanged order is valid. No seed, deterministic replay, random-state persistence, or cryptographic unpredictability is promised. Accepted decision 0028 extends the same algorithm to pipe&lt;string&gt;, preserving exact original string contents, counts and duplicates without normalization or conversion. Other element types and arguments are rejected. Memory grows with input count and the buffer is released on completion. Each shuffle swap yields to the cooperative scheduler; bounded pipes do not bound the aggregate buffer. Do not use this filter to generate secrets.</p>
         <p class="sig">
           Namespace: <code>aloe.collection</code><br>
           filter shuffle : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;
@@ -472,6 +495,7 @@ stdin
         <h2>5. Crypto / Hash / Binary</h2>
 
         <h3>5.1 Hash: <code>md4</code> / <code>sha1</code> / <code>sha256</code></h3>
+        <p>The VM implements <code>md4</code>, <code>sha1</code>, and <code>sha256</code> for <code>pipe&lt;byte&gt;</code>. Each filter consumes input incrementally without retaining the complete stream, waits for input closure before emitting the digest, then emits digest bytes in order (16 bytes for MD4, 20 for SHA-1, and 32 for SHA-256). Empty input emits the standard digest of an empty message. MD4 and SHA-1 are provided only for legacy interoperability and are unsuitable for new security-sensitive applications; prefer SHA-256 for new uses.</p>
         <p class="sig">
           Namespace: <code>aloe.crypto.hash</code><br>
           filter md4    : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
@@ -480,8 +504,7 @@ stdin
         </p>
         <p>
           Computes a hash value for the entire input and outputs the hash as a byte stream.
-          For security purposes, <code>sha256</code> is recommended, while <code>md4</code>
-          and <code>sha1</code> should be treated as legacy/compatibility options.
+          For new security-sensitive hash applications, prefer <code>sha256</code> or another profile-approved modern algorithm. <code>md4</code> is a legacy-only option and was moved to Historic status by <a href="https://www.rfc-editor.org/rfc/rfc6150">RFC 6150</a>. NIST is transitioning away from SHA-1 for cryptographic protection by December 31, 2030; treat <code>sha1</code> as a legacy/compatibility option for new applications (<a href="https://www.nist.gov/news-events/news/2022/12/nist-transitioning-away-sha-1-all-applications">NIST transition plan</a>).
         </p>
 
         <pre><code>stdin
@@ -496,7 +519,7 @@ stdin
           Namespace: <code>aloe.encoding</code><br>
           filter bin2hex : pipe&lt;byte&gt; -&gt; pipe&lt;string&gt;
         </p>
-        <p>Converts a byte stream to a hexadecimal string representation.</p>
+        <p>Consumes the byte stream and emits one uppercase hexadecimal string. Empty input emits an empty string.</p>
 
         <h4>5.2.2 <code>crc32</code></h4>
         <p class="sig">
@@ -508,6 +531,9 @@ stdin
         </p>
 
         <h3>5.3 Base64 / URL</h3>
+        <p>The implemented URL filters use RFC 3986 URI-component rules: UTF-8 bytes outside the unreserved set <code>A-Z a-z 0-9 - . _ ~</code> are encoded as uppercase <code>%HH</code> escapes. Spaces encode as <code>%20</code>; plus signs are literal and are not form-urlencoded spaces. Decoding rejects malformed escapes and invalid UTF-8.</p>
+        <p>The implemented encoder consumes the complete byte stream and emits one standard Base64 string without line breaks. The decoder concatenates the complete string stream, decodes it, and emits bytes in order. Empty input encodes as an empty string and decodes to no bytes; invalid encoded data raises a VM exception.</p>
+        <p>The implemented <code>base64encode</code> filter consumes the complete byte stream and emits one standard Base64 string without line breaks. Empty input emits an empty string.</p>
         <p class="sig">
           Namespace: <code>aloe.encoding</code><br>
           filter base64encode : pipe&lt;byte&gt; -&gt; pipe&lt;string&gt;<br>
@@ -581,6 +607,7 @@ stdin
           <li><strong>pascalcase</strong>: <code>"hello world"</code> → <code>"HelloWorld"</code></li>
           <li><strong>snakecase</strong>: <code>"Hello World"</code> → <code>"hello_world"</code></li>
         </ul>
+        <p>Words are separated by Unicode whitespace; repeated or leading/trailing whitespace is ignored. Each word is normalized with invariant casing.</p>
 
         <h3>6.3 Substring filters: <code>startswith</code> / <code>contains</code> / <code>strstr</code></h3>
         <p class="sig">
@@ -590,9 +617,9 @@ stdin
           filter strstr(needle: string)     : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;
         </p>
         <ul>
-          <li><code>startswith</code>: passes only lines that start with <code>prefix</code>.</li>
-          <li><code>contains</code>: passes only lines that contain <code>needle</code>.</li>
-          <li><code>strstr</code>: returns the substring from the first occurrence of <code>needle</code> to the end (similar to PHP’s <code>strstr</code>).</li>
+          <li><code>startswith</code>: passes only lines that start with <code>prefix</code>, compared ordinally.</li>
+          <li><code>contains</code>: passes only lines that contain <code>needle</code>, compared ordinally.</li>
+          <li><code>strstr</code>: passes only lines containing <code>needle</code> and returns the substring from its first occurrence to the end (similar to PHP’s <code>strstr</code>); matching is ordinal.</li>
         </ul>
 
         <pre><code>lines
@@ -610,8 +637,13 @@ stdin
         </p>
 
         <p>
+          <code>ltrim</code>, <code>rtrim</code>, and <code>trim</code> remove Unicode whitespace
+          from the beginning, end, or both ends of each input string.
+        </p>
+
+        <p>
           <code>join</code> concatenates all input strings using <code>sep</code> and
-          outputs a single string.
+          outputs a single string. Empty input produces one empty string.
         </p>
 
         <pre><code>lines
@@ -654,6 +686,7 @@ stdin
         <h2>8. HTML / Sanitization</h2>
 
         <h3>8.1 Escaping / Unescaping</h3>
+        <p>The VM implements <code>htmlspecialchars</code> by escaping <code>&amp;</code>, <code>&lt;</code>, <code>&gt;</code>, <code>&quot;</code>, and <code>'</code> as <code>&amp;amp;</code>, <code>&amp;lt;</code>, <code>&amp;gt;</code>, <code>&amp;quot;</code>, and <code>&amp;#39;</code>. <code>htmlspecialchars_decode</code> reverses only those canonical spellings, replacing <code>&amp;amp;</code> last so nested text is not decoded twice. These filters escape text characters; they do not sanitize HTML markup. The <code>html_entity_decode</code> filter decodes recognized named and numeric HTML character references per input string and preserves unrecognized references and decodes only once rather than recursively processing newly produced text; it does not sanitize markup. <code>strip_tags</code> removes complete comments and markup-like spans whose tag names begin with an ASCII letter; quotes protect embedded <code>&gt;</code> in attributes. It preserves ordinary text such as <code>2 &lt; 3</code> and unterminated candidates. Each pipe string value is processed independently, so markup is not carried across chunks. Script/style contents remain as text after surrounding tags are removed. This filter is not an HTML sanitizer or a security boundary.</p>
         <p class="sig">
           Namespace: <code>aloe.html</code><br>
           filter htmlspecialchars          : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;<br>
@@ -666,7 +699,7 @@ stdin
           <li><code>htmlspecialchars</code>: converts characters like <code>&lt;</code>, <code>&gt;</code>, <code>&amp;</code>, <code>&quot;</code> to HTML-safe entities.</li>
           <li><code>htmlspecialchars_decode</code>: inverse of the above.</li>
           <li><code>html_entity_decode</code>: decodes a wider range of HTML entities (e.g. <code>&amp;nbsp;</code>).</li>
-          <li><code>strip_tags</code>: removes HTML tags and leaves only text.</li>
+          <li><code>strip_tags</code>: removes complete comment and markup-like spans from each string value; it does not sanitize the remaining text.</li>
         </ul>
 
         <pre><code>htmlLines
@@ -684,8 +717,14 @@ stdin
           filter parse_str : pipe&lt;string&gt; -&gt; pipe&lt;map&lt;string, string&gt;&gt;
         </p>
         <p>
-          Parses query strings such as <code>"foo=1&amp;bar=2"</code> and emits a map
-          of key–value pairs.
+          Parses one query string per input item and emits a map. Pairs are separated
+          by <code>&amp;</code>; the first <code>=</code> separates key and value, and a
+          pair without <code>=</code> has an empty value. Empty segments are ignored;
+          empty keys are allowed; duplicate keys keep their last value. Components
+          use form-style decoding (<code>+</code> is a space and <code>%HH</code> bytes
+          decode as strict UTF-8). Malformed escapes or invalid UTF-8 raise a VM
+          exception. Empty input emits an empty map. This behavior is distinct from
+          the RFC 3986 <code>urldecode</code> filter, which preserves literal plus signs.
         </p>
 
         <h3>9.2 Number formatting: <code>number_format</code></h3>
@@ -694,8 +733,11 @@ stdin
           filter number_format(spec: string) : pipe&lt;decimal&gt; -&gt; pipe&lt;string&gt;
         </p>
         <p>
-          Formats numbers as strings. The format string <code>spec</code> is
-          implementation-dependent; for example, <code>"#,##0.00"</code> can be used.
+          Formats each decimal value as a string. The format string <code>spec</code>
+          is implementation-dependent; for example, <code>"#,##0.00"</code> can be
+          used. The current VM uses .NET decimal custom numeric format strings with
+          invariant culture; an invalid format raises a VM exception. The pipeline
+          preserves item order and applies normal bounded-output backpressure.
         </p>
 
         <h3>9.3 Regex escaping: <code>quote_meta</code></h3>
@@ -705,7 +747,7 @@ stdin
         </p>
         <p>
           Escapes regular-expression meta characters so that the string can be safely
-          used as a literal pattern.
+          used as a literal pattern. This filter is implemented for <code>pipe&lt;string&gt;</code>.
         </p>
 
         <pre><code>patterns

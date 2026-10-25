@@ -1,5 +1,7 @@
 ﻿# AloeSample - Source-to-VM Demo
 
+[English](ReadMe.md) | [日本語](ReadMe-ja.md)
+
 
 This sample is the current minimal end-to-end Aloe execution path.
 

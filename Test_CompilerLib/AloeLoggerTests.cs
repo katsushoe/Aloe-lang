@@ -6,6 +6,34 @@ namespace Aloe.CompilerLib.Tests;
 public sealed class AloeLoggerTests
 {
     [Test]
+    public void AloePaths_UsesEnvironmentInstallRootAndDefaultsWhenUnset()
+    {
+        var original = Environment.GetEnvironmentVariable(AloePaths.InstallRootEnvironmentVariable);
+        var root = Path.Combine(Path.GetTempPath(), "aloe-install-root-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Environment.SetEnvironmentVariable(AloePaths.InstallRootEnvironmentVariable, root);
+            var effectiveRoot = Path.GetFullPath(root);
+            Assert.That(AloePaths.EffectiveInstallRoot, Is.EqualTo(effectiveRoot));
+            Assert.That(AloePaths.BinDirectory, Is.EqualTo(Path.Combine(effectiveRoot, "bin")));
+            Assert.That(AloePaths.ConfigDirectory, Is.EqualTo(Path.Combine(effectiveRoot, "config")));
+            Assert.That(AloePaths.LogsDirectory, Is.EqualTo(Path.Combine(effectiveRoot, "logs")));
+            Assert.That(AloePaths.DataDirectory, Is.EqualTo(Path.Combine(effectiveRoot, "data")));
+
+            Environment.SetEnvironmentVariable(AloePaths.InstallRootEnvironmentVariable, "  ");
+            Assert.That(AloePaths.EffectiveInstallRoot, Is.EqualTo(AloePaths.InstallRoot));
+            Assert.That(AloePaths.BinDirectory, Is.EqualTo(Path.Combine(AloePaths.InstallRoot, "bin")));
+            Assert.That(AloePaths.ConfigDirectory, Is.EqualTo(Path.Combine(AloePaths.InstallRoot, "config")));
+            Assert.That(AloePaths.LogsDirectory, Is.EqualTo(Path.Combine(AloePaths.InstallRoot, "logs")));
+            Assert.That(AloePaths.DataDirectory, Is.EqualTo(Path.Combine(AloePaths.InstallRoot, "data")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(AloePaths.InstallRootEnvironmentVariable, original);
+        }
+    }
+
+    [Test]
     public void Logger_WritesToConfiguredLogsDirectory()
     {
         var root = Path.Combine(Path.GetTempPath(), "aloe-log-test-" + Guid.NewGuid().ToString("N"));

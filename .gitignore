@@ -27,6 +27,8 @@ logs/
 # Build outputs of all projects
 [Bb]in/
 [Oo]bj/
+TestResults/
+test-output/
 
 # Local files kept out of version control
 aloe-src-latest.zip

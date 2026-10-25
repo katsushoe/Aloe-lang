@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    env:
+      ALOE_INSTALL_ROOT: ${{ runner.temp }}/aloe-validation
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8 and .NET 10 SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore locked solution dependencies
+        run: dotnet restore Aloe.sln --locked-mode -m:1 -nr:false -p:AloeInstallRoot="$env:ALOE_INSTALL_ROOT"
+
+      - name: Build all solution projects
+        run: dotnet build Aloe.sln --configuration Release --no-restore -m:1 -nr:false -p:AloeInstallRoot="$env:ALOE_INSTALL_ROOT"
+
+      - name: Run CompilerLib tests
+        run: dotnet test Test_CompilerLib/Test_CompilerLib.csproj --configuration Release --no-build --no-restore -m:1 -nr:false -p:AloeInstallRoot="$env:ALOE_INSTALL_ROOT"
+
+      - name: Audit solution and installer dependencies
+        shell: pwsh
+        run: ./scripts/Test-Dependencies.ps1 -ReportDirectory "$env:RUNNER_TEMP/aloe-dependency-audit"

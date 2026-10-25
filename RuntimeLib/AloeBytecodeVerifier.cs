@@ -1,4 +1,4 @@
-using Aloe.CommonLib;
+﻿using Aloe.CommonLib;
 using Aloe.CommonLib.Constants;
 using Aloe.CommonLib.Exceptions;
 using System;
@@ -72,9 +72,84 @@ namespace Aloe.RuntimeLib
                 : module.Code.Count;
 
             var controls = new Stack<ControlState>();
+            var exceptionRegions = new Stack<int>();
+            var catches = new Stack<int>();
+            var catchTargets = new HashSet<int>();
+            var catchTableStarts = new HashSet<int>();
+            var catchDescriptorIps = new HashSet<int>();
 
             for (var ip = start; ip < end; ip++)
             {
+                var instruction = module.Code[ip];
+                if (instruction.Opcode != EnumOpcode.TryBegin ||
+                    instruction.Operand0 <= ip || instruction.Operand0 >= end ||
+                    module.Code[instruction.Operand0].Opcode != EnumOpcode.TryCatch)
+                    continue;
+
+                var tableStart = instruction.Operand0;
+                if (!catchTableStarts.Add(tableStart))
+                    throw Error(ip, $"Catch table {tableStart} is shared by multiple TRY_BEGIN instructions.");
+
+                var nestedTryDepth = 0;
+                var matchingTryEnd = -1;
+                for (var protectedIp = ip + 1; protectedIp < tableStart; protectedIp++)
+                {
+                    if (module.Code[protectedIp].Opcode == EnumOpcode.TryBegin)
+                    {
+                        nestedTryDepth++;
+                    }
+                    else if (module.Code[protectedIp].Opcode == EnumOpcode.TryEnd)
+                    {
+                        if (nestedTryDepth == 0)
+                        {
+                            matchingTryEnd = protectedIp;
+                            break;
+                        }
+                        nestedTryDepth--;
+                    }
+                }
+                if (matchingTryEnd < 0)
+                    throw Error(ip, "TRY_BEGIN catch table has no matching TRY_END before it.");
+
+                var catchAllSeen = false;
+                var descriptorCount = 0;
+                for (var descriptorIp = tableStart;
+                     descriptorIp < end && module.Code[descriptorIp].Opcode == EnumOpcode.TryCatch;
+                     descriptorIp++)
+                {
+                    descriptorCount++;
+                    catchDescriptorIps.Add(descriptorIp);
+                    var descriptor = module.Code[descriptorIp];
+                    if (descriptor.Operand0 <= matchingTryEnd || descriptor.Operand0 >= tableStart)
+                        throw Error(descriptorIp, "TRY_CATCH target must be after its matching TRY_END and before the catch table.");
+                    if (!catchTargets.Add(descriptor.Operand0))
+                        throw Error(descriptorIp, $"Catch target {descriptor.Operand0} is shared by multiple clauses.");
+                    if (descriptor.Operand1 == 0)
+                    {
+                        if (catchAllSeen)
+                            throw Error(descriptorIp, "A catch-all clause must be the final clause.");
+                        catchAllSeen = true;
+                        continue;
+                    }
+
+                    if (catchAllSeen)
+                        throw Error(descriptorIp, "A catch clause follows a catch-all clause.");
+                    var constantIndex = descriptor.Operand1 - 1;
+                    if ((uint)constantIndex >= (uint)module.Constants.Count ||
+                        module.Constants[constantIndex].Kind != EnumValueKind.String ||
+                        !AloeExceptionTypes.TryResolve(module.Constants[constantIndex].AsString, out _))
+                        throw Error(descriptorIp, "TRY_CATCH has an invalid exception type descriptor.");
+                }
+
+                if (descriptorCount == 0)
+                    throw Error(ip, "TRY_BEGIN catch table is empty.");
+            }
+
+            for (var ip = start; ip < end; ip++)
+            {
+                if (catchTargets.Remove(ip))
+                    catches.Push(ip);
+
                 var instruction = module.Code[ip];
                 var opcode = instruction.Opcode;
 
@@ -103,6 +178,75 @@ namespace Aloe.RuntimeLib
                     case EnumOpcode.CmpGe:
                     case EnumOpcode.Return:
                     case EnumOpcode.Halt:
+                        break;
+
+                    case EnumOpcode.TryBegin:
+                        if (instruction.Operand0 <= ip || instruction.Operand0 >= end ||
+                            instruction.Operand1 < 0 || instruction.Operand1 > module.Constants.Count)
+                            throw Error(ip, "TRY_BEGIN requires a forward catch target within the same function.");
+                        if (catchTableStarts.Contains(instruction.Operand0))
+                        {
+                            if (instruction.Operand1 != 0)
+                                throw Error(ip, "TRY_BEGIN with a catch table must not carry a legacy exception type.");
+                        }
+                        else
+                        {
+                            if (!catchTargets.Add(instruction.Operand0))
+                                throw Error(ip, $"Catch target {instruction.Operand0} is shared by multiple TRY_BEGIN instructions.");
+                            if (instruction.Operand1 > 0)
+                            {
+                                var constantIndex = instruction.Operand1 - 1;
+                                if ((uint)constantIndex >= (uint)module.Constants.Count ||
+                                    module.Constants[constantIndex].Kind != EnumValueKind.String ||
+                                    !AloeExceptionTypes.TryResolve(module.Constants[constantIndex].AsString, out _))
+                                    throw Error(ip, "TRY_BEGIN has an invalid exception type descriptor.");
+                            }
+                        }
+                        exceptionRegions.Push(instruction.Operand0);
+                        break;
+
+                    case EnumOpcode.TryCatch:
+                        if (!catchDescriptorIps.Contains(ip))
+                            throw Error(ip, "TRY_CATCH is outside a catch table.");
+                        break;
+
+                    case EnumOpcode.TryEnd:
+                        if (exceptionRegions.Count == 0)
+                            throw Error(ip, "TRY_END has no matching TRY_BEGIN.");
+                        exceptionRegions.Pop();
+                        break;
+
+                    case EnumOpcode.CatchEnd:
+                        if (catches.Count == 0)
+                            throw Error(ip, "CATCH_END is outside a catch region.");
+                        if (instruction.Operand0 == 0)
+                        {
+                            catches.Pop();
+                        }
+                        else if (instruction.Operand0 == 1)
+                        {
+                            // Transfer cleanup does not close the lexical source catch.
+                            // Other branches still reach its ordinary CATCH_END.
+                            if (ip > start && module.Code[ip - 1].Opcode == EnumOpcode.CatchEnd &&
+                                module.Code[ip - 1].Operand0 == 1)
+                                break;
+                            var cleanupEnd = ip;
+                            while (cleanupEnd < end && module.Code[cleanupEnd].Opcode == EnumOpcode.CatchEnd &&
+                                   module.Code[cleanupEnd].Operand0 == 1)
+                                cleanupEnd++;
+                            if (cleanupEnd - ip > catches.Count || cleanupEnd >= end ||
+                                module.Code[cleanupEnd].Opcode != EnumOpcode.Br)
+                                throw Error(ip, "CATCH_END transfer cleanup requires an immediate branch and sufficient catch depth.");
+                        }
+                        else
+                        {
+                            throw Error(ip, "CATCH_END has an invalid cleanup mode.");
+                        }
+                        break;
+
+                    case EnumOpcode.Rethrow:
+                        if (catches.Count == 0)
+                            throw Error(ip, "RETHROW is outside a catch region.");
                         break;
 
                     case EnumOpcode.PushConst:
@@ -165,6 +309,10 @@ namespace Aloe.RuntimeLib
             if (controls.Count != 0)
                 throw Error(end - 1,
                     $"Function {functionIndex} ('{function.Name}') ends with {controls.Count} unclosed structured-control block(s).");
+            if (exceptionRegions.Count != 0)
+                throw Error(end - 1, $"Function {functionIndex} ('{function.Name}') ends with an unclosed TRY_BEGIN region.");
+            if (catches.Count != 0 || catchTargets.Count != 0)
+                throw Error(end - 1, $"Function {functionIndex} ('{function.Name}') contains an incomplete catch region.");
         }
 
         private static void RequireIndex(int ip, string kind, int index, int count)

@@ -62,6 +62,13 @@ namespace Aloe.CommonLib.Constants
         StructGet = 0x51,
         StructSet = 0x52,
 
+        // Synchronous exception handling prototype.
+        Rethrow = 0xA2,
+        TryBegin = 0xA4,
+        TryEnd = 0xA5,
+        CatchEnd = 0xA6,
+        TryCatch = 0xA7,
+
 
         Syscall = 0x0600,
 

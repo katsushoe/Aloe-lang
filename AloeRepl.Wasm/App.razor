@@ -33,9 +33,16 @@ sum</pre>
 </main>
 
 @code {
-    private readonly AloeReplSession _session = new();
+    private readonly AloeReplSession _session = CreateSession();
     private string Input { get; set; } = string.Empty;
     private string Transcript { get; set; } = "Aloe REPL (WASM)\nType :help for commands.\n\n";
+
+    private static AloeReplSession CreateSession()
+    {
+        var settings = AloeVmSettings.Load();
+        settings.AllowedHostCapabilities = AloeHostCapability.None;
+        return new AloeReplSession(settings);
+    }
 
     private void Run()
     {

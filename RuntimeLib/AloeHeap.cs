@@ -158,6 +158,35 @@ namespace Aloe.RuntimeLib
             }
         }
 
+        internal void ResizeCollection(long objectId, IReadOnlyList<AloeValue> values, bool volatileState)
+        {
+            lock (_gate)
+            {
+                var entry = GetEntry(objectId);
+                if (entry.TypeName is not { } typeName ||
+                    !typeName.StartsWith("list:", StringComparison.Ordinal) && !typeName.StartsWith("nested:list:", StringComparison.Ordinal) &&
+                    !typeName.StartsWith("set:", StringComparison.Ordinal) && !typeName.StartsWith("map:", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Only List, Set or Map heap objects can be resized.");
+                var requiredSlots = GetRequiredSlotCount(Math.Max(entry.DataSizeBytes, checked(values.Count * HeapSlotSize)));
+                if (requiredSlots != entry.SlotCount)
+                {
+                    var oldBank = GetBank(entry.BankId);
+                    var newBank = FindBankWithCapacity(requiredSlots) ?? CreateBank();
+                    var newStart = newBank.Allocate(requiredSlots);
+                    var data = oldBank.Read(entry.StartSlot, entry.DataSizeBytes);
+                    newBank.Write(newStart, requiredSlots, data);
+                    oldBank.Release(entry.StartSlot, entry.SlotCount);
+                    entry.BankId = newBank.BankId;
+                    entry.StartSlot = newStart;
+                    entry.SlotCount = requiredSlots;
+                }
+                entry.ResizeFields(values, volatileState);
+                SetReferences(objectId, entry.GetReferenceValues().Where(x => x.IsObject).Select(x => x.AsObjectId));
+                _allocationVersion++;
+                _lifetimeVersion++;
+            }
+        }
+
         /// <summary>Commit all dirty Volatile fields. The Volatile reference edge becomes the Committed edge.</summary>
         public int CommitVolatileFields()
         {
@@ -166,6 +195,13 @@ namespace Aloe.RuntimeLib
             var committed = 0;
             foreach (var entry in _objects.Values)
             {
+                if (entry.HasVolatileResize)
+                {
+                    entry.CommitVolatileResize();
+                    SetReferences(entry.ObjectId, entry.GetCommittedReferenceValues().Where(x => x.IsObject).Select(x => x.AsObjectId));
+                    committed += entry.FieldCount;
+                    continue;
+                }
                 foreach (var fieldIndex in entry.GetDirtyFieldIndices())
                 {
                     var previousCommitted = entry.GetCommittedField(fieldIndex, allowUninitialized: true);
@@ -415,17 +451,20 @@ namespace Aloe.RuntimeLib
         }
 
         private readonly Dictionary<long, int> _outgoingReferences = new();
-        private readonly AloeValue[] _committedFields;
-        private readonly AloeValue[] _volatileFields;
-        private readonly bool[] _volatileDirty;
+        private AloeValue[] _committedFields;
+        private AloeValue[] _volatileFields;
+        private bool[] _volatileDirty;
+        private bool _volatileResize;
 
         public long ObjectId { get; }
         public int BankId { get; internal set; }
         public int StartSlot { get; internal set; }
-        public int SlotCount { get; }
+        public int SlotCount { get; internal set; }
         public int DataSizeBytes { get; }
         public int AllocatedBytes => SlotCount * AloeHeap.HeapSlotSize;
-        public int FieldCount => _committedFields.Length;
+        public int FieldCount => _volatileResize ? _volatileFields.Length : _committedFields.Length;
+        public int CommittedFieldCount => _committedFields.Length;
+        internal bool HasVolatileResize => _volatileResize;
         public string? TypeName { get; }
         public long ReferenceGroupId { get; internal set; }
         public bool ReferenceDirty { get; internal set; } = true;
@@ -448,7 +487,7 @@ namespace Aloe.RuntimeLib
 
         internal AloeValue GetCurrentField(int fieldIndex, bool allowUninitialized = false)
         {
-            ValidateFieldIndex(fieldIndex);
+            ValidateFieldIndex(fieldIndex, FieldCount);
             var value = _volatileDirty[fieldIndex]
                 ? _volatileFields[fieldIndex]
                 : _committedFields[fieldIndex];
@@ -459,7 +498,7 @@ namespace Aloe.RuntimeLib
 
         internal AloeValue GetCommittedField(int fieldIndex, bool allowUninitialized = false)
         {
-            ValidateFieldIndex(fieldIndex);
+            ValidateFieldIndex(fieldIndex, _committedFields.Length);
             var value = _committedFields[fieldIndex];
             if (!allowUninitialized && value.IsNull)
                 throw new InvalidOperationException($"Field {fieldIndex} of object {ObjectId} is uninitialized.");
@@ -468,7 +507,7 @@ namespace Aloe.RuntimeLib
 
         internal bool TryGetVolatileField(int fieldIndex, out AloeValue value)
         {
-            ValidateFieldIndex(fieldIndex);
+            ValidateFieldIndex(fieldIndex, FieldCount);
             if (_volatileDirty[fieldIndex])
             {
                 value = _volatileFields[fieldIndex];
@@ -480,13 +519,13 @@ namespace Aloe.RuntimeLib
 
         internal void SetCommittedField(int fieldIndex, AloeValue value)
         {
-            ValidateFieldIndex(fieldIndex);
+            ValidateFieldIndex(fieldIndex, _committedFields.Length);
             _committedFields[fieldIndex] = value;
         }
 
         internal void SetVolatileField(int fieldIndex, AloeValue value)
         {
-            ValidateFieldIndex(fieldIndex);
+            ValidateFieldIndex(fieldIndex, FieldCount);
             _volatileFields[fieldIndex] = value;
             _volatileDirty[fieldIndex] = true;
         }
@@ -503,16 +542,49 @@ namespace Aloe.RuntimeLib
 
         internal void CommitVolatileField(int fieldIndex)
         {
-            ValidateFieldIndex(fieldIndex);
+            ValidateFieldIndex(fieldIndex, FieldCount);
             if (!_volatileDirty[fieldIndex]) return;
             _committedFields[fieldIndex] = _volatileFields[fieldIndex];
             _volatileFields[fieldIndex] = AloeValue.Null;
             _volatileDirty[fieldIndex] = false;
         }
 
-        private void ValidateFieldIndex(int fieldIndex)
+        internal void ResizeFields(IReadOnlyList<AloeValue> values, bool volatileState)
         {
-            if ((uint)fieldIndex >= (uint)_committedFields.Length)
+            var next = values.ToArray();
+            if (volatileState)
+            {
+                _volatileFields = next;
+                _volatileDirty = Enumerable.Repeat(true, next.Length).ToArray();
+                _volatileResize = true;
+            }
+            else
+            {
+                _committedFields = next;
+                _volatileFields = Enumerable.Repeat(AloeValue.Null, next.Length).ToArray();
+                _volatileDirty = new bool[next.Length];
+                _volatileResize = false;
+            }
+        }
+
+        internal void CommitVolatileResize()
+        {
+            _committedFields = _volatileFields;
+            _volatileFields = Enumerable.Repeat(AloeValue.Null, _committedFields.Length).ToArray();
+            _volatileDirty = new bool[_committedFields.Length];
+            _volatileResize = false;
+        }
+
+        internal IReadOnlyList<AloeValue> GetReferenceValues()
+            => _volatileResize
+                ? _committedFields.Concat(_volatileFields).ToArray()
+                : _committedFields.Concat(_volatileFields.Where((_, i) => _volatileDirty[i])).ToArray();
+
+        internal IReadOnlyList<AloeValue> GetCommittedReferenceValues() => _committedFields;
+
+        private void ValidateFieldIndex(int fieldIndex, int length)
+        {
+            if ((uint)fieldIndex >= (uint)length)
                 throw new IndexOutOfRangeException($"Field index {fieldIndex} is out of range for object {ObjectId}.");
         }
 

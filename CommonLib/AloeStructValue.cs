@@ -47,7 +47,7 @@ public sealed class AloeStructValue
     private static void ValidateField(AloeValue value)
     {
         if (value.Kind is not (EnumValueKind.Int or EnumValueKind.Byte or EnumValueKind.Char or EnumValueKind.Float or
-            EnumValueKind.Decimal or EnumValueKind.Bool or EnumValueKind.Struct))
+            EnumValueKind.Decimal or EnumValueKind.Bool or EnumValueKind.String or EnumValueKind.Struct))
             throw new VmException("Struct fields cannot contain reference values or uninitialized values.");
         if (value.IsInt && (value.AsInt < int.MinValue || value.AsInt > int.MaxValue))
             throw new VmException("Struct integer field must fit signed int32.");

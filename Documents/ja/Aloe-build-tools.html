@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Aloe ビルドツール仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="1" />
-  <meta name="edit-date" content="2025-12-04T19:00:00+09:00" />
+  <meta name="edit-version" content="2" />
+  <meta name="edit-date" content="2026-10-21T17:12:00+09:00" />
   <style>
     :root {
       color-scheme: light dark;
@@ -613,6 +613,9 @@
       <code>package-db.json</code> の内容を直接操作するためのユーティリティである。<br />
       ここでは基本的なインターフェースのみを定義し、細かな運用ルールは実装に委ねる。
     </p>
+    <p>すべてのサブコマンドは <code>--package-db &lt;path&gt;</code> を受け付ける。省略時はカレントディレクトリの
+      <code>package-db.json</code> を使用する。更新前にformatVersion 1の索引を検証し、原子的に置き換える。
+      不正JSONまたは未対応の項目がある場合はエラーとし、索引を変更しない。</p>
 
     <h3>8.2 <code>list</code></h3>
     <pre><code>aloe package-db list [options]
@@ -621,7 +624,8 @@
       <li><code>--name &lt;pattern&gt;</code>
         <ul>
           <li>パッケージ名でフィルタする。</li>
-          <li>パターンマッチの仕様（プレフィックス一致 / ワイルドカードなど）は実装に委ねる。</li>
+          <li><code>*</code> は0文字以上、<code>?</code> は1文字に一致する。序数・大文字小文字区別ありで照合する。</li>
+          <li>パッケージ名、版の序数順で並べ、name・version・abcPath・metaPathの順にタブ区切りで出力する。DBがない場合は空索引として扱う。</li>
         </ul>
       </li>
     </ul>
@@ -651,6 +655,10 @@
         </ul>
       </li>
     </ul>
+    <p>4つの値はすべて必須。参照ファイルが存在し、拡張子が <code>.abc</code> と <code>.meta.json</code> であることを確認する。
+      メタデータはformatVersion 1で、package name/versionがオプションと完全一致しなければならない。
+      依存配列は索引へコピーする。同一name/versionは重複登録として拒否する。可能な場合、パスはDBディレクトリ相対のスラッシュ区切りで保存する。
+      既存の各項目にもdependencies配列が必要。更新対象は索引だけで、参照先のパッケージファイルは変更しない。</p>
 
     <h3>8.4 <code>remove</code></h3>
     <pre><code>aloe package-db remove [options]
@@ -667,6 +675,7 @@
         </ul>
       </li>
     </ul>
+    <p>name/versionの完全一致が必要。項目の削除はJSON索引だけに反映し、参照先のパッケージファイルは保持する。</p>
 
     <hr />
 

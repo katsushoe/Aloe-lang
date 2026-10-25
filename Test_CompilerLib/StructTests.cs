@@ -183,6 +183,21 @@ function main(args: string[]): int {
     }
 
     [Test]
+    public void StructValues_StringFieldsCanBeInitializedReadAndReplaced()
+    {
+        const string source = """
+struct Label { field text: string; field active: bool; }
+function main(args: string[]): int {
+    var label = Label { text: "before", active: true };
+    label.text = "after";
+    if (label.text == "after" and label.active) { return 42; }
+    return 0;
+}
+""";
+        Assert.That(Run(source).ExitCode, Is.EqualTo(42));
+    }
+
+    [Test]
     public void StructValues_ClassFieldsStoreIndependentSnapshots()
     {
         const string source = """
@@ -210,7 +225,7 @@ function main(args: string[]): int {
     {
         string[] declarations =
         [
-            "struct S { field x: string; }", "struct S { field x: object; }",
+            "struct S { field x: object; }",
             "struct S { field x: pipe<int>; }", "struct S { field x: S; }",
             "struct S { field t: T; } struct T { field s: S; }", "struct S extends Other { }",
             "struct S { field x: int; field x: bool; }", "struct S { } struct S { }",
@@ -244,7 +259,8 @@ function main(args: string[]): int {
         Assert.That(changed.GetField(0).AsInt, Is.EqualTo(2));
         Assert.Throws<VmException>(() => original.WithField(0, AloeValue.FromBool(true)));
         Assert.Throws<VmException>(() => original.GetField(1));
-        foreach (var value in new[] { AloeValue.FromString("ref"), AloeValue.FromObject(1), AloeValue.Null, AloeValue.FromInt(2147483648) })
+        Assert.That(new AloeStructValue("StringField", new[] { AloeValue.FromString("value") }).GetField(0).AsString, Is.EqualTo("value"));
+        foreach (var value in new[] { AloeValue.FromObject(1), AloeValue.Null, AloeValue.FromInt(2147483648) })
             Assert.Throws<VmException>(() => new AloeStructValue("Invalid", new[] { value }));
         foreach (var opcode in new[] { EnumOpcode.StructCreate, EnumOpcode.StructGet, EnumOpcode.StructSet })
         {
@@ -379,7 +395,6 @@ function main(args: string[]): int {
             "struct S { field x: int; construct() { this.x = this.x; } }",
             "struct S { field x: int; construct() { this.y = 1; } }",
             "struct S { field x: int; construct() { this.x = true; } }",
-            "struct S { field x: int; construct() { if (true) { this.x = 1; } } }",
             "struct S { field x: int; construct() { while (false) { this.x = 1; } } }",
             "struct S { field x: int; field y: int; construct() { this.x = 1; return; } }",
             "struct S { field x: int; construct(x: int) { return x; this.x = x; } }",
@@ -396,6 +411,41 @@ function main(args: string[]): int {
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile("struct S { field x: int; } function main(args: string[]): int { var s = new S(); return 0; }"));
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().CompileForWasm("struct S { construct() { } } function main(args: string[]): int { var s = new S(); return 0; }"));
         Assert.Throws<VmException>(() => Run("struct S { field x: int; construct(x: int) { this.x = x; } } function main(args: string[]): int { var s = new S(2147483648); return 0; }"));
+    }
+
+    [TestCase("if (true) { this.x = 1; } else { }", 1)]
+    [TestCase("if (true) { this.x = 3; }", 3)]
+    [TestCase("if (false) { } else { this.x = 2; }", 2)]
+    public void StructConstructorRecognizesConstantSelectedBranchInitialization(string initialization, int expected)
+    {
+        var source = $"struct S {{ field x: int; construct() {{ {initialization} }} }} function main(args: string[]): int {{ var value = new S(); return value.x; }}";
+        Assert.That(Run(source).ExitCode, Is.EqualTo(expected));
+    }
+
+    [TestCase("try { } catch { this.x = 1; }")]
+    [TestCase("try { let zero: int = 1 / 0; } catch { }")]
+    [TestCase("try { this.x = 1; } catch { }")]
+    [TestCase("try { this.x = 1; } catch (ZeroDivisionException) { this.x = 2; } catch { }")]
+    [TestCase("try { this.x = 1; } catch { this.x = this.x + 1; }")]
+    [TestCase("try { } catch (ZeroDivisionException) { this.x = 1; } catch { this.x = 2; }")]
+    [TestCase("try { } catch (Exception) {} catch (ZeroDivisionException) { this.x = 1; }")]
+    public void StructConstructorCatchCannotInventDefiniteInitialization(string body)
+    {
+        var source = $"struct S {{ field x: int; construct() {{ {body} }} }} function main(args: string[]): int {{ return 0; }}";
+        Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(source));
+    }
+
+    [TestCase("this.x = 1; try { } catch { this.x = 2; }", 1)]
+    [TestCase("try { let zero: int = 1 / 0; this.x = 1; } catch { this.x = 2; }", 2)]
+    [TestCase("try { this.x = 1; } catch { this.x = 2; }", 1)]
+    [TestCase("try { this.x = 1; } catch (ZeroDivisionException) { this.x = 2; } catch { this.x = 3; }", 1)]
+    [TestCase("this.x = 1; try { let zero: int = 1 / 0; } catch { this.x = this.x + 1; }", 2)]
+    [TestCase("try { this.x = 1; } catch (Exception) { this.x = 2; } catch (InvalidCastException) {}", 1)]
+    [TestCase("try { this.x = 1; } catch (Exception) { this.x = 2; } catch {}", 1)]
+    public void StructConstructorCatchMergesContinuingInitialization(string body, int expected)
+    {
+        var source = $"struct S {{ field x: int; construct() {{ {body} }} }} function main(args: string[]): int {{ var value = new S(); return value.x; }}";
+        Assert.That(Run(source).ExitCode, Is.EqualTo(expected));
     }
 
     private static (long ExitCode, string Output) Run(string source)

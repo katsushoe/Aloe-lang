@@ -1,4 +1,4 @@
-using Aloe.CompilerLib;
+﻿using Aloe.CompilerLib;
 using Aloe.CommonLib;
 using Aloe.CommonLib.Exceptions;
 using Aloe.CommonLib.Constants;
@@ -86,6 +86,44 @@ function main(args: string[]): int {
                 new[]
                 {
                     new Instruction(EnumOpcode.PushConst, 0),
+                    new Instruction(EnumOpcode.Return),
+                },
+                new[] { new FunctionInfo("main", 0, 0, 0) },
+                entryPointIndex: 0);
+
+            Assert.That(() => new AloeVm(module), Throws.TypeOf<VmException>());
+        }
+
+
+        [TestCase(EnumOpcode.TryEnd)]
+        [TestCase(EnumOpcode.CatchEnd)]
+        [TestCase(EnumOpcode.Rethrow)]
+        [TestCase(EnumOpcode.TryCatch)]
+        public void Verifier_RejectsUnmatchedExceptionOpcode(EnumOpcode opcode)
+        {
+            var module = new Module(
+                Array.Empty<AloeValue>(),
+                new[]
+                {
+                    new Instruction(opcode),
+                    new Instruction(EnumOpcode.Return),
+                },
+                new[] { new FunctionInfo("main", 0, 0, 0) },
+                entryPointIndex: 0);
+
+            Assert.That(() => new AloeVm(module), Throws.TypeOf<VmException>());
+        }
+
+
+        [Test]
+        public void Verifier_RejectsTryWithoutMatchingTryEndAndCatchEnd()
+        {
+            var module = new Module(
+                Array.Empty<AloeValue>(),
+                new[]
+                {
+                    new Instruction(EnumOpcode.TryBegin, 2),
+                    new Instruction(EnumOpcode.Return),
                     new Instruction(EnumOpcode.Return),
                 },
                 new[] { new FunctionInfo("main", 0, 0, 0) },
@@ -1130,6 +1168,111 @@ function main(args: string[]): int {
         }
 
         [Test]
+        public void InterfaceAsyncCall_DispatchesToImplementingClassAndInheritedImplementer()
+        {
+            const string source = """
+interface ILogger {
+    method log(msg: string): void;
+}
+class LoggerBase implements ILogger {
+    public virtual async method log(msg: string): void { print("base"); print(msg); }
+}
+class Logger extends LoggerBase {
+    public override async method log(msg: string): void { print("derived"); print(msg); }
+}
+function dispatch(logger: ILogger): void {
+    logger.log("ready");
+}
+function main(args: string[]): int {
+    let logger: ILogger = new Logger();
+    dispatch(logger);
+    tick();
+    return 0;
+}
+""";
+
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("derived\nready\n"));
+            Assert.That(result.ExitCode, Is.Zero);
+        }
+
+        [Test]
+        public void InterfaceConformance_RejectsMissingOrMismatchedPublicAsyncMethod()
+        {
+            string[] invalidPrograms =
+            [
+                "interface I { method run(): void; } class C implements I { } function main(args: string[]): int { return 0; }",
+                "interface I { method run(value: int): void; } class C implements I { public async method run(value: string): void { } } function main(args: string[]): int { return 0; }",
+                "interface I { method run(): void; } class C implements I { private async method run(): void { } } function main(args: string[]): int { return 0; }",
+                "interface I { method run(): void; } class C implements I, I { public async method run(): void { } } function main(args: string[]): int { return 0; }",
+                "interface I { method run(): void; } class C { } function main(args: string[]): int { let values: I[] = [new C()]; return 0; }"
+            ];
+            foreach (var source in invalidPrograms)
+                Assert.That(() => new AloeCompiler().Compile(source), Throws.TypeOf<AloeCompileException>(), source);
+        }
+
+        [Test]
+        public void InterfaceReferenceCastAndTypeTest_UseKnownImplementerClasses()
+        {
+            const string source = """
+interface ILogger { method log(msg: string): void; }
+interface IUnused { method unused(): void; }
+class Logger implements ILogger { public async method log(msg: string): void { print(msg); } }
+function main(args: string[]): int {
+    let value: object = new Logger();
+    print(value is ILogger);
+    print(value is IUnused);
+    print(value is Logger);
+    let logger: ILogger = value as ILogger;
+    logger.log("cast");
+    tick();
+    return 0;
+}
+""";
+
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("true\nfalse\ntrue\ncast\n"));
+            Assert.That(result.ExitCode, Is.Zero);
+        }
+
+        [Test]
+        public void InterfaceTypeTest_NarrowsDirectLocalConditionInsideThenBlockOnly()
+        {
+            const string source = """
+interface ILogger { method log(msg: string): void; }
+class Logger implements ILogger { public async method log(msg: string): void { print(msg); } }
+function main(args: string[]): int {
+    let value: object = new Logger();
+    if (value is ILogger) { value.log("narrowed"); }
+    tick();
+    return 0;
+}
+""";
+
+            var result = CompileAndRun(source, roundTripAloeBc: true);
+            Assert.That(result.Output, Is.EqualTo("narrowed\n"));
+            Assert.That(result.ExitCode, Is.Zero);
+        }
+
+        [Test]
+        public void InterfaceTypeTest_DoesNotNarrowOutsideDirectThenBlock()
+        {
+            const string source = "interface I { method run(): void; } class C implements I { public async method run(): void { } } function main(args: string[]): int { let value: object = new C(); if (value is I) { } value.run(); return 0; }";
+            Assert.That(() => new AloeCompiler().Compile(source), Throws.TypeOf<AloeCompileException>());
+        }
+
+        [Test]
+        public void InterfaceReferenceTypeTest_RejectsNonReferenceOperandsAndTargets()
+        {
+            Assert.That(
+                () => new AloeCompiler().Compile("interface I { method run(): void; } function main(args: string[]): int { print(1 is I); return 0; }"),
+                Throws.TypeOf<AloeCompileException>());
+            Assert.That(
+                () => new AloeCompiler().Compile("function main(args: string[]): int { print(new object() is int); return 0; }"),
+                Throws.TypeOf<AloeCompileException>());
+        }
+
+        [Test]
         public void InstanceWith_RejectsInvalidTargetsMembersArgumentsAndCycles()
         {
             string[] invalidPrograms =
@@ -1604,6 +1747,105 @@ function main(args: string[]): int {
             Assert.That(
                 () => new AloeCompiler().Compile(source),
                 Throws.TypeOf<AloeCompileException>());
+        }
+
+
+        [TestCase("while (true) { continue; }")]
+        [TestCase("while (true) { continue; break; }")]
+        public void NonVoidFunction_InfiniteLiteralTrueLoopNeedsNoReturn(string loop)
+        {
+            var source = $$"""
+function value(): int {
+    {{loop}}
+}
+
+function main(args: string[]): int { return 0; }
+""";
+
+            Assert.That(() => new AloeCompiler().Compile(source), Throws.Nothing);
+        }
+
+
+        [Test]
+        public void NonVoidFunction_LiteralTrueLoopWithReachableBreakStillRequiresReturn()
+        {
+            const string source = """
+function value(flag: bool): int {
+    while (true) { if (flag) { break; } else { continue; } }
+}
+
+function main(args: string[]): int { return 0; }
+""";
+
+            Assert.That(() => new AloeCompiler().Compile(source), Throws.TypeOf<AloeCompileException>());
+        }
+
+
+        [Test]
+        public void NonVoidFunction_LiteralFalseIfReturnDoesNotSatisfyReturnRequirement()
+        {
+            const string source = """
+function value(): int {
+    if (false) { return 1; }
+}
+
+function main(args: string[]): int { return 0; }
+""";
+
+            Assert.That(() => new AloeCompiler().Compile(source), Throws.TypeOf<AloeCompileException>());
+        }
+
+
+        [Test]
+        public void NonVoidFunction_LiteralFalseIfBreakDoesNotExitInfiniteLoop()
+        {
+            const string source = """
+function value(): int {
+    while (true) {
+        if (false) { break; }
+        continue;
+    }
+}
+
+function main(args: string[]): int { return 0; }
+""";
+
+            Assert.That(() => new AloeCompiler().Compile(source), Throws.Nothing);
+        }
+
+
+        [Test]
+        public void NonVoidFunction_LiteralTrueIfBreakRemainsReachable()
+        {
+            const string source = """
+function value(): int {
+    while (true) {
+        if (true) { break; }
+        continue;
+    }
+}
+
+function main(args: string[]): int { return 0; }
+""";
+
+            Assert.That(() => new AloeCompiler().Compile(source), Throws.TypeOf<AloeCompileException>());
+        }
+
+
+        [Test]
+        public void NonVoidFunction_LiteralFalseIfElseBreakRemainsReachable()
+        {
+            const string source = """
+function value(): int {
+    while (true) {
+        if (false) { continue; } else { break; }
+    }
+}
+
+function main(args: string[]): int { return 0; }
+""";
+
+            Assert.That(() => new AloeCompiler().Compile(source), Throws.TypeOf<AloeCompileException>());
         }
 
 

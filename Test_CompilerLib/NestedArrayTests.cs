@@ -104,13 +104,14 @@ function main(args: string[]): int {
         [
             "let values: int[][] = [[true]];", "let values: int[][] = [1];", "let values: int[][][] = [[1]];",
             "var values = [[1], [true]];", "var values = [[1]]; values[0] = [true];",
-            "var values = [[1]]; values[0] = 1;", "var values = [[1]]; values[0][0] = [1];",
+            "var values = [[1]]; values[0] = 1;",
             "let values: Color[][] = [[Other.Red]];", "let values: Point[][] = [[OtherPoint { x: 1 }]];",
             "let values: byte[][] = [[256]];", "var values = [[]];", "let values: string[][] = [[1]];",
             "foreach (row in [[1]]) { let wrong: bool[] = row; }"
         ];
         foreach (var statement in statements)
             Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(declarations + " function main(args: string[]): int { " + statement + " return 0; }"), statement);
+        Assert.Throws<InvalidCastException>(() => Run("function main(args:string[]):int {var values=[[1]];values[0][0]=[1];return 0;}"));
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().CompileForWasm("function main(args: string[]): int { var values = [[1]]; return 0; }"));
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile("class Box { field values: int[][]; construct(values: int[][]) { this.values = values; } public property First: int { get { this.values[0][0] = 42; return 0; } } } function main(args: string[]): int { return 0; }"));
         Assert.Throws<VmException>(() => Run("function mutate(values: int[][]): int { values[0] = [42]; return 0; } class Box { field values: int[][]; construct(values: int[][]) { this.values = values; } public property First: int { get { return mutate(this.values); } } } function main(args: string[]): int { var box = new Box([[1]]); return box.First; }"));

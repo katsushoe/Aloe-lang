@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Standard Library Specification (Draft, English Version)</title>
-  <meta name="edit-version" content="5">
-  <meta name="edit-date" content="2026-10-06T08:33:38+09:00">
+  <meta name="edit-version" content="7">
+  <meta name="edit-date" content="2026-10-19T05:23:00+09:00">
   <style>
     :root {
       color-scheme: light dark;
@@ -697,7 +697,7 @@ function main(args: string[]): int {
     <ul>
       <li><code>tick()</code> is a Runtime intrinsic or dedicated statement that synchronously executes a VM Tick from main.</li>
       <li><code>tick()</code> is not fixed as an ordinary <code>aloe.system</code> library function.</li>
-      <li>When it returns, async Calls for the current Tick, Volatile Commit, reference processing, and GC have completed.</li>
+      <li>When it returns, async Calls for the current Tick, Volatile Commit, runtime-root refresh, and Reference Graph updates have completed. It does not run physical GC Plan / Sweep / Move / FreeBlock work.</li>
     </ul>
 
 
@@ -732,6 +732,19 @@ function main(args: string[]): int {
       <li>CallBuffer locking / scheduling / Tick Quiescence are AloeVM / Runtime responsibilities.</li>
       <li>Reference Counting, Reference Groups, Destruction Candidates, and Runtime Temporary References are VM lifetime-management mechanisms.</li>
       <li>The standard library does not expose these internal structures as public APIs.</li>
+    </ul>
+
+
+    <h3>7.7 Current VM Host intrinsics</h3>
+    <p>
+      The VM currently exposes <code>readLine()</code> and <code>sleep(ms)</code> as global Host intrinsics;
+      they are not ordinary functions in <code>aloe.system</code> and require no import.
+    </p>
+    <ul>
+      <li><code>readLine(): string</code> synchronously requests one line from the configured Host input provider (default: <code>Console.ReadLine</code>). If the provider returns no line at end-of-input, the intrinsic returns the empty string.</li>
+      <li><code>sleep(ms: int): void</code> accepts a non-negative signed int32 duration in milliseconds and calls the configured Host timer handler (default: <code>Thread.Sleep</code>) synchronously on the calling VM thread.</li>
+      <li><code>readLine</code> requires <code>AloeHostCapability.ConsoleInput</code>; <code>sleep</code> requires <code>AloeHostCapability.Timer</code>. <code>AloeVmSettings.AllowedHostCapabilities</code> controls access and defaults to <code>AloeHostCapability.All</code>. When a capability is denied, the VM raises <code>VmException</code> before invoking the Host handler.</li>
+      <li>The browser REPL disables Host capabilities, so both intrinsics are rejected there; see <a href="../decisions/0019-browser-repl-host-capabilities.md">the browser REPL Host capability decision</a>.</li>
     </ul>
 
 

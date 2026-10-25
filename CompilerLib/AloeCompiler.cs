@@ -1,5 +1,6 @@
 ﻿using Aloe.CommonLib;
 using Aloe.CommonLib.Constants;
+using Aloe.CommonLib.Exceptions;
 using Aloe.CompilerLib.Lexer;
 using System.Globalization;
 using System.Text;
@@ -47,7 +48,7 @@ namespace Aloe.CompilerLib
         }
 
         /// <summary>
-        /// Compile the synchronous Int/Bool/enum subset with WASM type metadata.
+        /// Compile the synchronous Int/Bool/Char/enum subset with WASM type metadata.
         /// The required main string-array declaration remains syntax-only.
         /// </summary>
         public Module CompileForWasm(string source)
@@ -114,11 +115,22 @@ namespace Aloe.CompilerLib
             FunctionSignature Function);
 
 
+        private sealed class InterfaceSignature
+        {
+            public InterfaceSignature(string name) => Name = name;
+            public string Name { get; }
+            public List<string> Parents { get; } = new();
+            public List<MethodSignature> Methods { get; } = new();
+        }
+
+
         private sealed record FilterSignature(
             string Name,
             string InputPipeType,
             string OutputPipeType,
-            FunctionSignature Function);
+            FunctionSignature? Function,
+            int FunctionIndex,
+            string? StringArgument = null);
 
 
         private sealed class ClassSignature
@@ -136,21 +148,26 @@ namespace Aloe.CompilerLib
             public List<PropertySignature> Properties { get; } = new();
             public List<MethodSignature> Methods { get; } = new();
             public List<MethodSignature> StaticAsyncMethods { get; } = new();
+            public List<string> Interfaces { get; } = new();
             public FunctionSignature? Constructor { get; set; }
         }
 
 
         private sealed class LoopContext
         {
-            public LoopContext(int blockLevel, int loopLevel)
+            public LoopContext(int blockLevel, int loopLevel, int catchDepth)
             {
                 BlockLevel = blockLevel;
                 LoopLevel = loopLevel;
+                CatchDepth = catchDepth;
             }
 
             // Structured-control nesting levels at the BLOCK / LOOP labels.
             public int BlockLevel { get; }
             public int LoopLevel { get; }
+            public int CatchDepth { get; }
+            public List<Dictionary<int, LocalInfo>> BreakInterfaceStates { get; } = new();
+            public bool HasReachableContinue { get; set; }
         }
 
 
@@ -160,6 +177,7 @@ namespace Aloe.CompilerLib
             private readonly List<AloeValue> _constants = new();
             private readonly List<Instruction> _code = new();
             private readonly Stack<Dictionary<string, LocalInfo>> _scopes = new();
+            private readonly Dictionary<int, LocalInfo> _declaredLocals = new();
             private readonly Stack<LoopContext> _loops = new();
             private readonly Stack<IReadOnlyList<WithContext>> _typeWithScopes = new();
             private readonly HashSet<string> _bitfieldEnums = new(StringComparer.Ordinal);
@@ -168,6 +186,8 @@ namespace Aloe.CompilerLib
                 new(StringComparer.Ordinal);
             private readonly HashSet<string> _classNames = new(StringComparer.Ordinal);
             private readonly Dictionary<string, ClassSignature> _classes = new(StringComparer.Ordinal);
+            private readonly HashSet<string> _interfaceNames = new(StringComparer.Ordinal);
+            private readonly Dictionary<string, InterfaceSignature> _interfaces = new(StringComparer.Ordinal);
             private readonly Dictionary<string, Dictionary<string, int>> _enumMembers = new(StringComparer.Ordinal);
             private readonly Dictionary<int, int> _enumEndPositions = new();
             private readonly Dictionary<int, HashSet<int>> _asyncCallEdges = new();
@@ -180,6 +200,9 @@ namespace Aloe.CompilerLib
             private readonly Dictionary<int, ExprType> _localTypes = new();
             private readonly bool _forWasm;
             private int _controlDepth;
+            private int _catchDepth;
+            private bool _interfaceFlowReachable = true;
+            private bool _interfaceWriteReachable = true;
             private FunctionSignature? _currentFunction;
             private string? _lastExpressionClassName;
 
@@ -194,8 +217,8 @@ namespace Aloe.CompilerLib
             public Module CompileProgram()
             {
                 CollectFunctionSignatures();
-                if (_forWasm && (_classes.Count != 0 || _structs.Count != 0))
-                    throw new AloeCompileException("Direct WASM source compilation does not support classes or structs.");
+                if (_forWasm && (_classes.Count != 0 || _structs.Count != 0 || _interfaces.Count != 0))
+                    throw new AloeCompileException("Direct WASM source compilation does not support classes, structs or interfaces.");
 
 
                 var main = _functions.SingleOrDefault(f => f.IsMain);
@@ -212,11 +235,14 @@ namespace Aloe.CompilerLib
                     _position = function.BodyStart;
                     _nextLocalSlot = 0;
                     _localTypes.Clear();
+                    _declaredLocals.Clear();
                     _controlDepth = 0;
                     _currentFunction = function;
                     _scopes.Clear();
                     _loops.Clear();
                     _typeWithScopes.Clear();
+                    _interfaceFlowReachable = true;
+                    _interfaceWriteReachable = true;
 
 
                     var entryIp = _code.Count;
@@ -238,8 +264,13 @@ namespace Aloe.CompilerLib
                         if (Check(TokenKind.EndOfFile))
                             throw Error(Current, $"Unexpected end of file in function '{function.Name}'.");
 
-
+                        var enclosingFlowReachability = _interfaceFlowReachable;
+                        var enclosingWriteReachability = _interfaceWriteReachable;
+                        _interfaceFlowReachable = enclosingFlowReachability && bodyCanFallThrough;
+                        _interfaceWriteReachable = enclosingWriteReachability && bodyCanFallThrough;
                         var statementCanFallThrough = ParseStatement();
+                        _interfaceFlowReachable = enclosingFlowReachability;
+                        _interfaceWriteReachable = enclosingWriteReachability;
                         if (bodyCanFallThrough)
                             bodyCanFallThrough = statementCanFallThrough;
                     }
@@ -272,14 +303,28 @@ namespace Aloe.CompilerLib
                         _localTypes.Count == _nextLocalSlot &&
                         _localTypes.Values.All(IsWasmType);
                     if (_forWasm && !canEmitTypes)
-                        throw new AloeCompileException($"Direct WASM source compilation requires Int/Bool/enum parameters, locals and returns in '{function.Name}'.");
+                        throw new AloeCompileException($"Direct WASM source compilation requires Int/Float/Bool/Byte/Char/enum parameters, locals and returns in '{function.Name}'.");
                     if (canEmitTypes)
                     {
                         var locals = Enumerable.Range(0, _nextLocalSlot)
-                            .Select(slot => _localTypes[slot] == ExprType.Bool ? EnumValueKind.Bool : EnumValueKind.Int).ToArray();
+                            .Select(slot => _localTypes[slot] switch
+                            {
+                                ExprType.Bool => EnumValueKind.Bool,
+                                ExprType.Byte => EnumValueKind.Byte,
+                                ExprType.Char => EnumValueKind.Char,
+                                ExprType.Float => EnumValueKind.Float,
+                                _ => EnumValueKind.Int
+                            }).ToArray();
                         functionInfos[function.Index] = new FunctionInfo(function.Name, entryIp,
                             locals.Take(parameterCount).ToArray(), locals,
-                            function.ReturnType == ExprType.Void ? null : function.ReturnType == ExprType.Bool ? EnumValueKind.Bool : EnumValueKind.Int);
+                            function.ReturnType == ExprType.Void ? null : function.ReturnType switch
+                            {
+                                ExprType.Bool => EnumValueKind.Bool,
+                                ExprType.Byte => EnumValueKind.Byte,
+                                ExprType.Char => EnumValueKind.Char,
+                                ExprType.Float => EnumValueKind.Float,
+                                _ => EnumValueKind.Int
+                            });
                     }
                     else
                         functionInfos[function.Index] = new FunctionInfo(function.Name, entryIp, parameterCount, _nextLocalSlot);
@@ -306,11 +351,49 @@ namespace Aloe.CompilerLib
                 _functionByName.Clear();
                 _classNames.Clear();
                 _classes.Clear();
+                _interfaceNames.Clear();
+                _interfaces.Clear();
                 _enumMembers.Clear();
                 _bitfieldEnums.Clear();
                 _enumEndPositions.Clear();
                 _asyncCallEdges.Clear();
                 _filterByName.Clear();
+
+                // Standard filters use negative syscall payloads understood by the VM.
+                _filterByName.Add("tolower", new FilterSignature("tolower", "pipe<string>", "pipe<string>", null, -1));
+                _filterByName.Add("toupper", new FilterSignature("toupper", "pipe<string>", "pipe<string>", null, -2));
+                _filterByName.Add("ltrim", new FilterSignature("ltrim", "pipe<string>", "pipe<string>", null, -3));
+                _filterByName.Add("rtrim", new FilterSignature("rtrim", "pipe<string>", "pipe<string>", null, -4));
+                _filterByName.Add("trim", new FilterSignature("trim", "pipe<string>", "pipe<string>", null, -5));
+                _filterByName.Add("lineSplit", new FilterSignature("lineSplit", "pipe<string>", "pipe<string>", null, -6));
+                _filterByName.Add("startswith", new FilterSignature("startswith", "pipe<string>", "pipe<string>", null, -7));
+                _filterByName.Add("contains", new FilterSignature("contains", "pipe<string>", "pipe<string>", null, -8));
+                _filterByName.Add("strstr", new FilterSignature("strstr", "pipe<string>", "pipe<string>", null, -9));
+                _filterByName.Add("join", new FilterSignature("join", "pipe<string>", "pipe<string>", null, -10));
+                _filterByName.Add("camelcase", new FilterSignature("camelcase", "pipe<string>", "pipe<string>", null, -11));
+                _filterByName.Add("pascalcase", new FilterSignature("pascalcase", "pipe<string>", "pipe<string>", null, -12));
+                _filterByName.Add("snakecase", new FilterSignature("snakecase", "pipe<string>", "pipe<string>", null, -13));
+                _filterByName.Add("quote_meta", new FilterSignature("quote_meta", "pipe<string>", "pipe<string>", null, -14));
+                _filterByName.Add("bin2hex", new FilterSignature("bin2hex", "pipe<byte>", "pipe<string>", null, -15));
+                _filterByName.Add("base64encode", new FilterSignature("base64encode", "pipe<byte>", "pipe<string>", null, -16));
+                _filterByName.Add("base64decode", new FilterSignature("base64decode", "pipe<string>", "pipe<byte>", null, -17));
+                _filterByName.Add("utf8", new FilterSignature("utf8", "pipe<byte>", "pipe<string>", null, -18));
+                _filterByName.Add("urlencode", new FilterSignature("urlencode", "pipe<string>", "pipe<string>", null, -19));
+                _filterByName.Add("urldecode", new FilterSignature("urldecode", "pipe<string>", "pipe<string>", null, -20));
+                _filterByName.Add("sha256", new FilterSignature("sha256", "pipe<byte>", "pipe<byte>", null, -21));
+                _filterByName.Add("htmlspecialchars", new FilterSignature("htmlspecialchars", "pipe<string>", "pipe<string>", null, -22));
+                _filterByName.Add("htmlspecialchars_decode", new FilterSignature("htmlspecialchars_decode", "pipe<string>", "pipe<string>", null, -23));
+                _filterByName.Add("sha1", new FilterSignature("sha1", "pipe<byte>", "pipe<byte>", null, -24));
+                _filterByName.Add("html_entity_decode", new FilterSignature("html_entity_decode", "pipe<string>", "pipe<string>", null, -25));
+                _filterByName.Add("strip_tags", new FilterSignature("strip_tags", "pipe<string>", "pipe<string>", null, -26));
+                _filterByName.Add("csvenode", new FilterSignature("csvenode", "pipe<string[]>", "pipe<string>", null, -27));
+                _filterByName.Add("csvdecode", new FilterSignature("csvdecode", "pipe<string>", "pipe<string[]>", null, -28));
+                _filterByName.Add("parse_str", new FilterSignature("parse_str", "pipe<string>", "pipe<map<string/string>>", null, -29));
+                _filterByName.Add("number_format", new FilterSignature("number_format", "pipe<decimal>", "pipe<string>", null, -30));
+                _filterByName.Add("md4", new FilterSignature("md4", "pipe<byte>", "pipe<byte>", null, -31));
+                _filterByName.Add("sort", new FilterSignature("sort", "pipe<int>", "pipe<int>", null, -32));
+                _filterByName.Add("shuffle", new FilterSignature("shuffle", "pipe<int>", "pipe<int>", null, -33));
+                _filterByName.Add("json", new FilterSignature("json", "pipe<string>", "", null, -34));
 
                 CollectEnumSignatures();
                 CollectStructSignatures();
@@ -345,6 +428,12 @@ namespace Aloe.CompilerLib
                         continue;
                     }
 
+                    if (string.Equals(topLevelToken.Lexeme, "interface", StringComparison.Ordinal))
+                    {
+                        CollectInterfaceSignature(ref position);
+                        continue;
+                    }
+
                     if (string.Equals(topLevelToken.Lexeme, "class", StringComparison.Ordinal))
                     {
                         CollectClassSignature(ref position, isSealed: false);
@@ -373,7 +462,7 @@ namespace Aloe.CompilerLib
                         throw Error(nameToken, $"Expected function name, found '{nameToken.Lexeme}'.");
 
 
-                    if (_functionByName.ContainsKey(nameToken.Lexeme))
+                    if (_functionByName.ContainsKey(nameToken.Lexeme) || _filterByName.ContainsKey(nameToken.Lexeme))
                         throw Error(nameToken, $"Function '{nameToken.Lexeme}' is already declared.");
 
 
@@ -481,6 +570,8 @@ namespace Aloe.CompilerLib
                     var nameToken = TokenAt(position++);
                     if (nameToken.Kind != TokenKind.Identifier)
                         throw Error(nameToken, "Expected enum name.");
+                    if (TryGetNamedBoxType(nameToken.Lexeme, out _))
+                        throw Error(nameToken, "Named box type names are reserved.");
                     if (_enumMembers.ContainsKey(nameToken.Lexeme))
                         throw Error(nameToken, $"Enum '{nameToken.Lexeme}' is already declared.");
 
@@ -739,7 +830,80 @@ namespace Aloe.CompilerLib
                     IsMain: false);
                 _functions.Add(function);
                 _filterByName.Add(nameToken.Lexeme, new FilterSignature(
-                    nameToken.Lexeme, inputPipeType!, outputPipeType!, function));
+                    nameToken.Lexeme, inputPipeType!, outputPipeType!, function, function.Index));
+            }
+
+            private void CollectInterfaceSignature(ref int position)
+            {
+                position++; // interface
+                var nameToken = TokenAt(position++);
+                if (nameToken.Kind != TokenKind.Identifier)
+                    throw Error(nameToken, "Expected interface name.");
+                if (_interfaceNames.Contains(nameToken.Lexeme) || _classNames.Contains(nameToken.Lexeme) ||
+                    _structs.ContainsKey(nameToken.Lexeme) || _enumMembers.ContainsKey(nameToken.Lexeme) ||
+                    TryGetNamedBoxType(nameToken.Lexeme, out _))
+                    throw Error(nameToken, $"Type '{nameToken.Lexeme}' is already declared.");
+
+                var interfaceInfo = new InterfaceSignature(nameToken.Lexeme);
+                _interfaces.Add(interfaceInfo.Name, interfaceInfo);
+                _interfaceNames.Add(interfaceInfo.Name);
+                CollectInterfaceParents(interfaceInfo, ref position);
+                ExpectAt(ref position, TokenKind.LBrace);
+                while (TokenAt(position).Kind != TokenKind.RBrace)
+                {
+                    var methodToken = TokenAt(position++);
+                    if (methodToken.Kind == TokenKind.EndOfFile)
+                        throw Error(methodToken, $"Unexpected end of file in interface '{interfaceInfo.Name}'.");
+                    if (methodToken.Lexeme != "method")
+                        throw Error(methodToken, "Interfaces in this subset may declare only async method contracts.");
+
+                    var name = TokenAt(position++);
+                    if (name.Kind != TokenKind.Identifier)
+                        throw Error(name, "Expected interface method name.");
+                    if (interfaceInfo.Methods.Any(x => x.Name == name.Lexeme))
+                        throw Error(name, $"Interface method '{name.Lexeme}' is already declared or inherited in '{interfaceInfo.Name}'.");
+
+                    ExpectAt(ref position, TokenKind.LParen);
+                    var parameters = new List<ParameterSignature>();
+                    if (TokenAt(position).Kind != TokenKind.RParen)
+                    {
+                        while (true)
+                        {
+                            var parameterName = TokenAt(position++);
+                            if (parameterName.Kind != TokenKind.Identifier)
+                                throw Error(parameterName, "Expected interface parameter name.");
+                            if (parameters.Any(x => x.Name.Lexeme == parameterName.Lexeme))
+                                throw Error(parameterName, $"Parameter '{parameterName.Lexeme}' is already declared.");
+                            ExpectAt(ref position, TokenKind.Colon);
+                            var parameterType = ScanType(ref position, allowVoid: false, out var parameterClassName);
+                            parameters.Add(new ParameterSignature(parameterName, parameterType, parameterClassName));
+                            if (TokenAt(position).Kind != TokenKind.Comma)
+                                break;
+                            position++;
+                        }
+                    }
+                    ExpectAt(ref position, TokenKind.RParen);
+                    ExpectAt(ref position, TokenKind.Colon);
+                    var returnType = ScanType(ref position, allowVoid: true, out var returnClassName);
+                    if (returnType != ExprType.Void)
+                        throw Error(name, "Interface operations currently require void returns, matching public async methods.");
+                    ExpectAt(ref position, TokenKind.Semicolon);
+
+                    var contract = new FunctionSignature(
+                        Name: $"{interfaceInfo.Name}.{name.Lexeme}",
+                        Index: -1,
+                        Parameters: parameters,
+                        ReturnType: returnType,
+                        BodyStart: -1,
+                        BodyEnd: -1,
+                        IsMain: false,
+                        DeclaringClass: interfaceInfo.Name,
+                        ReturnClassName: returnClassName,
+                        IsPublicAsync: true,
+                        IsVirtual: true);
+                    interfaceInfo.Methods.Add(new MethodSignature(name.Lexeme, contract));
+                }
+                position++; // interface }
             }
 
             private void CollectClassSignature(ref int position, bool isSealed)
@@ -748,6 +912,10 @@ namespace Aloe.CompilerLib
                 var classNameToken = TokenAt(position++);
                 if (classNameToken.Kind != TokenKind.Identifier)
                     throw Error(classNameToken, "Expected class name.");
+                if (TryGetNamedBoxType(classNameToken.Lexeme, out _))
+                    throw Error(classNameToken, "Named box type names are reserved.");
+                if (_interfaceNames.Contains(classNameToken.Lexeme))
+                    throw Error(classNameToken, $"Type '{classNameToken.Lexeme}' is already declared as an interface.");
                 if (_enumMembers.ContainsKey(classNameToken.Lexeme))
                     throw Error(classNameToken, $"Type '{classNameToken.Lexeme}' is already declared as an enum.");
                 if (_structs.ContainsKey(classNameToken.Lexeme))
@@ -768,6 +936,22 @@ namespace Aloe.CompilerLib
                 }
 
                 var classInfo = new ClassSignature(classNameToken.Lexeme, baseClassName, isSealed);
+                if (string.Equals(TokenAt(position).Lexeme, "implements", StringComparison.Ordinal))
+                {
+                    position++;
+                    while (true)
+                    {
+                        var interfaceName = TokenAt(position++);
+                        if (interfaceName.Kind != TokenKind.Identifier || !_interfaces.ContainsKey(interfaceName.Lexeme))
+                            throw Error(interfaceName, "Implemented interfaces must be declared before the class.");
+                        if (classInfo.Interfaces.Contains(interfaceName.Lexeme, StringComparer.Ordinal))
+                            throw Error(interfaceName, $"Interface '{interfaceName.Lexeme}' is listed more than once.");
+                        classInfo.Interfaces.Add(interfaceName.Lexeme);
+                        if (TokenAt(position).Kind != TokenKind.Comma)
+                            break;
+                        position++;
+                    }
+                }
                 _classes.Add(classInfo.Name, classInfo);
                 ExpectAt(ref position, TokenKind.LBrace);
 
@@ -1038,6 +1222,23 @@ namespace Aloe.CompilerLib
                 }
 
                 position++; // class }
+                ValidateInterfaceImplementations(classInfo, classNameToken);
+            }
+
+            private void ValidateInterfaceImplementations(ClassSignature classInfo, AloeToken classToken)
+            {
+                foreach (var interfaceName in classInfo.Interfaces)
+                {
+                    foreach (var required in _interfaces[interfaceName].Methods)
+                    {
+                        var implementation = FindMethod(classInfo.Name, required.Name);
+                        if (implementation?.Function.IsPublicAsync != true ||
+                            !HasMatchingMethodSignature(required.Function, implementation.Function.Parameters,
+                                implementation.Function.ReturnType, implementation.Function.ReturnClassName))
+                            throw Error(classToken,
+                                $"Class '{classInfo.Name}' must provide public async method '{required.Name}' matching interface '{interfaceName}'.");
+                    }
+                }
             }
 
 
@@ -1045,20 +1246,33 @@ namespace Aloe.CompilerLib
                 => ScanType(ref position, allowVoid, out _);
 
 
+            private bool IsSetTypeSuffixAt(int position)
+                => TokenAt(position).Kind == TokenKind.LBrace && TokenAt(position + 1).Kind == TokenKind.RBrace &&
+                   TokenAt(position + 2).Kind is TokenKind.Assign or TokenKind.Semicolon or TokenKind.Comma or TokenKind.RParen or TokenKind.LBrace;
+
             private ExprType ScanType(ref int position, bool allowVoid, out string? className)
             {
                 var type = ScanSingleType(ref position, allowVoid, out className);
-                if (!(TokenAt(position).Kind == TokenKind.LBracket)) return type;
-                if (type == ExprType.Object && className?.StartsWith("pipe<", StringComparison.Ordinal) == true)
+                if (TokenAt(position).Kind != TokenKind.LBracket && !IsSetTypeSuffixAt(position) &&
+                    !(TokenAt(position).Kind == TokenKind.LParen && TokenAt(position + 1).Kind == TokenKind.RParen)) return type;
+                if (type == ExprType.Object && (className?.StartsWith("pipe<", StringComparison.Ordinal) == true || IsMapType(className)))
                     throw Error(TokenAt(position), "Pipe values are not heap-object array elements.");
                 if (type is not (ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Enum or ExprType.Struct or ExprType.Object))
                     throw Error(TokenAt(position), "Array base elements currently support primitive value, string, enum, struct and class/object types.");
                 className = type is ExprType.Enum or ExprType.Struct || type == ExprType.Object && className != null ? className : FormatType(type);
-                while (TokenAt(position).Kind == TokenKind.LBracket)
+                while (TokenAt(position).Kind == TokenKind.LBracket || IsSetTypeSuffixAt(position) ||
+                       TokenAt(position).Kind == TokenKind.LParen && TokenAt(position + 1).Kind == TokenKind.RParen)
                 {
+                    var list = TokenAt(position).Kind == TokenKind.LParen;
+                    var set = IsSetTypeSuffixAt(position);
+                    if (list && _forWasm) throw Error(TokenAt(position), "Lists are unsupported by direct WASM.");
+                    if (set && _forWasm) throw Error(TokenAt(position), "Sets are unsupported by direct WASM.");
+                    if (set && (type == ExprType.Struct || type == ExprType.Object &&
+                        !IsClassOrInterface(className)))
+                        throw Error(TokenAt(position), "Set currently supports primitive, string, enum and class/interface-reference values only.");
                     position++;
-                    ExpectAt(ref position, TokenKind.RBracket);
-                    className += "[]";
+                    ExpectAt(ref position, list ? TokenKind.RParen : set ? TokenKind.RBrace : TokenKind.RBracket);
+                    className += list ? "()" : set ? "{}" : "[]";
                 }
                 return ExprType.Object;
             }
@@ -1078,18 +1292,40 @@ namespace Aloe.CompilerLib
                     case "bool":
                     case "boolean": return ExprType.Bool;
                     case "object": return ExprType.Object;
+                    case "map": return ScanMapType(ref position, token, out className);
                     case "pipe":
                         ExpectAt(ref position, TokenKind.Less);
                         var elementToken = TokenAt(position++);
+                        if (elementToken.Lexeme == "map")
+                        {
+                            ScanMapType(ref position, elementToken, out var mapName, out var outerGreaterConsumed);
+                            if (!TryGetMapTypes(mapName, out var mapKeyType, out var mapKeyName, out var mapValueType, out var mapValueName) ||
+                                mapKeyType != ExprType.String || mapValueType != ExprType.String)
+                                throw Error(elementToken, "pipe<map<...>> currently supports map<string/string> elements only.");
+                            if (!outerGreaterConsumed) ExpectAt(ref position, TokenKind.Greater);
+                            className = $"pipe<{mapName}>";
+                            return ExprType.Object;
+                        }
                         var elementType = elementToken.Lexeme switch
                         {
                             "int" => ExprType.Int,
+                            "decimal" => ExprType.Decimal,
+                            "byte" => ExprType.Byte,
                             "string" => ExprType.String,
                             "bool" or "boolean" => ExprType.Bool,
-                            _ => throw Error(elementToken, "pipe<T> currently supports int, string, and bool elements.")
+                            _ when _structs.ContainsKey(elementToken.Lexeme) => ExprType.Struct,
+                            _ => throw Error(elementToken, "pipe<T> currently supports int, decimal, byte, string, string[], bool, and declared struct elements.")
                         };
+                        var elementName = elementType == ExprType.Bool ? "bool" : elementType == ExprType.Struct ? elementToken.Lexeme : FormatType(elementType);
+                        if (elementType == ExprType.String && TokenAt(position).Kind == TokenKind.LBracket &&
+                            TokenAt(position + 1).Kind == TokenKind.RBracket)
+                        {
+                            position += 2;
+                            elementType = ExprType.Object;
+                            elementName = "string[]";
+                        }
                         ExpectAt(ref position, TokenKind.Greater);
-                        className = $"pipe<{FormatType(elementType)}>";
+                        className = $"pipe<{elementName}>";
                         return ExprType.Object;
                     case "void" when allowVoid: return ExprType.Void;
                     default:
@@ -1103,7 +1339,7 @@ namespace Aloe.CompilerLib
                             className = token.Lexeme;
                             return ExprType.Enum;
                         }
-                        if (_classNames.Contains(token.Lexeme))
+                        if ((_classNames.Contains(token.Lexeme) || _interfaceNames.Contains(token.Lexeme) || TryGetNamedBoxType(token.Lexeme, out _)))
                         {
                             className = token.Lexeme;
                             return ExprType.Object;
@@ -1141,6 +1377,11 @@ namespace Aloe.CompilerLib
 
             private bool ParseStatement()
             {
+                if (Current.Lexeme == "delete")
+                {
+                    ParseDeleteLocal();
+                    return true;
+                }
                 if (IsArrayAssignmentStatement())
                 {
                     ParseArrayAssignment();
@@ -1197,6 +1438,19 @@ namespace Aloe.CompilerLib
                 if (Current.Lexeme == "if")
                     return ParseIf();
 
+                if (Current.Lexeme == "try")
+                    return ParseTryCatch();
+
+                if (Current.Lexeme == "throw")
+                {
+                    var throwToken = Advance();
+                    if (_catchDepth == 0)
+                        throw Error(throwToken, "Bare throw is supported only inside a catch block.");
+                    Expect(TokenKind.Semicolon);
+                    Emit(EnumOpcode.Rethrow);
+                    return false;
+                }
+
 
                 if (Current.Lexeme == "foreach")
                 {
@@ -1207,8 +1461,7 @@ namespace Aloe.CompilerLib
 
                 if (Current.Lexeme == "while")
                 {
-                    ParseWhile();
-                    return true;
+                    return ParseWhile();
                 }
 
 
@@ -1261,9 +1514,10 @@ namespace Aloe.CompilerLib
                     var field = ResolveWithField(context.TypeName, member);
                     Expect(TokenKind.Assign);
                     Emit(EnumOpcode.LoadLocal, context.InstanceSlot.Value);
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
                     EmitIntConstant(field.Index);
                     var expressionStart = _code.Count;
-                    var actualType = ParseExpression();
+                    var actualType = ParseExpectedExpression(field.Type, field.ClassName);
                     actualType = AdaptByteLiteral(member, field.Type, actualType, expressionStart);
                     RequireAssignable(member, field.Type, actualType, field.ClassName, _lastExpressionClassName);
                     Expect(TokenKind.Semicolon);
@@ -1312,7 +1566,8 @@ namespace Aloe.CompilerLib
                     if (!_classes.TryGetValue(targetType.TypeName, out var classInfo))
                         throw Error(member, $"Enum member '{targetType.TypeName}.{member.Lexeme}' cannot be called.");
                     if (targetType.InstanceSlot is int slot)
-                        ParseInstanceAsyncMethodCallStatement(new LocalInfo(slot, ExprType.Object, targetType.TypeName), classInfo, member);
+                        ParseInstanceAsyncMethodCallStatement(new LocalInfo(slot, ExprType.Object, targetType.TypeName),
+                            classInfo.Name, FindMethod(classInfo.Name, member.Lexeme), member);
                     else
                         ParseStaticAsyncMethodCallStatement(classInfo, member);
                     return true;
@@ -1380,6 +1635,18 @@ namespace Aloe.CompilerLib
                         Expect(TokenKind.Semicolon);
                         return true;
                     }
+                    if (TryResolveLocal(Current.Lexeme, out var mapTarget) && IsMapType(mapTarget.ClassName))
+                    {
+                        ParseMapMutationStatement(mapTarget);
+                        return true;
+                    }
+                    if (TryResolveLocal(Current.Lexeme, out var listTarget) &&
+                        listTarget.Type == ExprType.Object &&
+                        (listTarget.ClassName?.EndsWith("()", StringComparison.Ordinal) == true || listTarget.ClassName?.EndsWith("{}", StringComparison.Ordinal) == true))
+                    {
+                        ParseListMutationStatement(listTarget);
+                        return true;
+                    }
                     if (_classes.TryGetValue(Current.Lexeme, out _))
                     {
                         ParseStaticAsyncMethodCallStatement();
@@ -1429,16 +1696,7 @@ namespace Aloe.CompilerLib
 
                 EnterScope();
                 _typeWithScopes.Push(contexts);
-                var canFallThrough = true;
-                while (!Check(TokenKind.RBrace))
-                {
-                    if (Check(TokenKind.EndOfFile))
-                        throw Error(Current, "Unexpected end of file in with block.");
-
-                    var statementCanFallThrough = ParseStatement();
-                    if (canFallThrough)
-                        canFallThrough = statementCanFallThrough;
-                }
+                var canFallThrough = ParseStatementBlockContents("with block");
 
                 _typeWithScopes.Pop();
                 ExitScope();
@@ -1501,8 +1759,9 @@ namespace Aloe.CompilerLib
                         type = ParseExpression();
                         className = _lastExpressionClassName;
                     }
-                    if (type != ExprType.Object || className == null || !_classes.ContainsKey(className))
-                        throw Error(typeToken, "Instance with requires a statically known class instance.");
+                    if (type != ExprType.Object || className == null ||
+                        (!_classes.ContainsKey(className) && !TryGetNamedBoxType(className, out _)))
+                        throw Error(typeToken, "Instance with requires a statically known class or named box instance.");
                     var slot = _nextLocalSlot++;
                     Emit(EnumOpcode.StoreLocal, slot);
                     context = new WithContext(className, slot);
@@ -1515,6 +1774,19 @@ namespace Aloe.CompilerLib
             {
                 Advance(); // var
                 var name = Expect(TokenKind.Identifier);
+                if (Check(TokenKind.Colon))
+                {
+                    Advance();
+                    var referenceType = ParseTypeName(out var referenceName);
+                    if (referenceType != ExprType.Object || IsPipeTypeName(referenceName))
+                        throw Error(name, "Uninitialized typed var declarations support heap references only.");
+                    if (_forWasm) throw Error(name, "Reference validity is unsupported by direct WASM.");
+                    Expect(TokenKind.Semicolon);
+                    var reference = DeclareLocal(name, referenceType, referenceName);
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceInvalid);
+                    Emit(EnumOpcode.StoreLocal, reference.Slot);
+                    return;
+                }
                 Expect(TokenKind.Assign);
                 var type = ParseExpression();
                 var className = _lastExpressionClassName;
@@ -1534,7 +1806,7 @@ namespace Aloe.CompilerLib
                 var declaredType = ParseTypeName(out var declaredClassName);
                 Expect(TokenKind.Assign);
                 var expressionStart = _code.Count;
-                var actualType = ParseExpectedArrayExpression(declaredClassName);
+                var actualType = ParseExpectedExpression(declaredType, declaredClassName);
                 actualType = AdaptByteLiteral(name, declaredType, actualType, expressionStart);
                 var actualClassName = _lastExpressionClassName;
                 RequireAssignable(name, declaredType, actualType, declaredClassName, actualClassName);
@@ -1549,15 +1821,16 @@ namespace Aloe.CompilerLib
             private void ParseAssignment()
             {
                 var name = Expect(TokenKind.Identifier);
-                var local = ResolveLocal(name);
+                var local = _declaredLocals[ResolveLocal(name).Slot];
                 Expect(TokenKind.Assign);
                 var expressionStart = _code.Count;
-                var actualType = ParseExpectedArrayExpression(local.ClassName);
+                var actualType = ParseExpectedExpression(local.Type, local.ClassName);
                 actualType = AdaptByteLiteral(name, local.Type, actualType, expressionStart);
                 var actualClassName = _lastExpressionClassName;
                 RequireAssignable(name, local.Type, actualType, local.ClassName, actualClassName);
                 Expect(TokenKind.Semicolon);
                 Emit(EnumOpcode.StoreLocal, local.Slot);
+                ForgetInterfaceNarrowing(local.Slot);
             }
 
 
@@ -1576,7 +1849,7 @@ namespace Aloe.CompilerLib
                 Emit(EnumOpcode.LoadLocal, 0);
                 EmitIntConstant(field.Index);
                 var expressionStart = _code.Count;
-                var actualType = ParseExpression();
+                var actualType = ParseExpectedExpression(field.Type, field.ClassName);
                 actualType = AdaptByteLiteral(fieldToken, field.Type, actualType, expressionStart);
                 var actualClassName = _lastExpressionClassName;
                 RequireAssignable(fieldToken, field.Type, actualType, field.ClassName, actualClassName);
@@ -1652,9 +1925,13 @@ namespace Aloe.CompilerLib
 
             private bool IsClassAssignable(string? actualClassName, string expectedClassName)
             {
+                if (actualClassName != null && _interfaces.ContainsKey(actualClassName))
+                    return IsInterfaceAssignable(actualClassName, expectedClassName);
                 while (actualClassName != null && _classes.TryGetValue(actualClassName, out var classInfo))
                 {
                     if (string.Equals(actualClassName, expectedClassName, StringComparison.Ordinal))
+                        return true;
+                    if (classInfo.Interfaces.Any(name => IsInterfaceAssignable(name, expectedClassName)))
                         return true;
                     actualClassName = classInfo.BaseClassName;
                 }
@@ -1667,51 +1944,293 @@ namespace Aloe.CompilerLib
                 Advance(); // if
                 Expect(TokenKind.LParen);
 
-                var conditionType = ParseExpression();
+                var conditionStart = _position;
+
+                var conditionWrites = new HashSet<int>();
+                _interfaceWriteScopes.Push(conditionWrites);
+                var conditionType = ParseExpectedExpression(ExprType.Bool);
+                _interfaceWriteScopes.Pop();
                 if (conditionType != ExprType.Bool)
                     throw Error(Previous, "if condition must be bool.");
 
+                var conditionEnd = _position;
+                var conditionOutcomes = EvaluateGuaranteedZeroDivisionConditionExpression(conditionStart, conditionEnd);
+                var conditionCanBeTrue = (conditionOutcomes & ConditionEvaluation.True) != 0;
+                var conditionCanBeFalse = (conditionOutcomes & ConditionEvaluation.False) != 0;
                 Expect(TokenKind.RParen);
                 var constructorEntry = _constructingStruct == null ? null : CaptureConstructorInitialization();
 
+                var interfaceEntry = CaptureInterfaceFlowState();
+                var interfaceNarrowings = GetConditionInterfaceNarrowings(conditionStart, conditionEnd, conditionWrites);
+                foreach (var narrowing in interfaceNarrowings)
+                    narrowing.Scope[narrowing.Name] = narrowing.Narrowed;
+
                 Emit(EnumOpcode.If);
                 _controlDepth++;
+                var enclosingReachability = _interfaceFlowReachable;
+                var enclosingWriteReachability = _interfaceWriteReachable;
+                var thenReachable = enclosingReachability && conditionCanBeTrue;
+                _interfaceFlowReachable = thenReachable;
+                _interfaceWriteReachable = enclosingWriteReachability && conditionCanBeTrue;
                 var thenCanFallThrough = ParseBlock();
+                _interfaceFlowReachable = enclosingReachability;
+                _interfaceWriteReachable = enclosingWriteReachability;
+                var thenContinuationState = CaptureInterfaceFlowState();
+                RestoreConditionInterfaceNarrowings(interfaceNarrowings);
+                var thenInterfaceState = CaptureInterfaceFlowState();
                 var thenInitialization = constructorEntry == null ? null : CaptureConstructorInitialization();
 
                 if (Current.Lexeme != "else")
                 {
+                    var thenCanContinue = thenReachable && thenCanFallThrough;
+                    var implicitElseCanContinue = enclosingReachability && conditionCanBeFalse;
+                    MergeInterfaceFlowState(interfaceEntry, thenInterfaceState,
+                        thenCanContinue, interfaceEntry, implicitElseCanContinue);
+                    if (!thenCanContinue && implicitElseCanContinue)
+                        foreach (var narrowing in GetConditionInterfaceNarrowings(conditionStart, conditionEnd, conditionWrites, whenTrue: false))
+                            narrowing.Scope[narrowing.Name] = narrowing.Narrowed;
                     Emit(EnumOpcode.End);
                     _controlDepth--;
                     if (constructorEntry != null && thenInitialization != null)
-                        MergeConstructorBranch(constructorEntry, thenInitialization, thenCanFallThrough, hasElse: false);
-                    return true;
+                        MergeConstructorInitialization(thenInitialization, constructorEntry,
+                            thenCanContinue, implicitElseCanContinue);
+                    return thenCanContinue || implicitElseCanContinue;
                 }
 
                 Emit(EnumOpcode.Else);
                 Advance(); // else
 
+                RestoreInterfaceFlowState(interfaceEntry);
                 if (constructorEntry != null) RestoreConstructorInitialization(constructorEntry);
+                var elseNarrowings = GetConditionInterfaceNarrowings(conditionStart, conditionEnd, conditionWrites, whenTrue: false);
+                foreach (var narrowing in elseNarrowings)
+                    narrowing.Scope[narrowing.Name] = narrowing.Narrowed;
+                var elseReachable = enclosingReachability && conditionCanBeFalse;
+                _interfaceFlowReachable = elseReachable;
+                _interfaceWriteReachable = enclosingWriteReachability && conditionCanBeFalse;
                 var elseCanFallThrough = Current.Lexeme == "if"
                     ? ParseIf()
                     : ParseBlock();
+                _interfaceFlowReachable = enclosingReachability;
+                _interfaceWriteReachable = enclosingWriteReachability;
+                var elseContinuationState = CaptureInterfaceFlowState();
+                RestoreConditionInterfaceNarrowings(elseNarrowings);
+                var thenCanContinueWithElse = thenReachable && thenCanFallThrough;
+                var elseCanContinueWithElse = elseReachable && elseCanFallThrough;
+                MergeInterfaceFlowState(interfaceEntry, thenInterfaceState, thenCanContinueWithElse,
+                    CaptureInterfaceFlowState(), elseCanContinueWithElse);
+                if (thenCanContinueWithElse != elseCanContinueWithElse)
+                    RestoreInterfaceFlowState(thenCanContinueWithElse ? thenContinuationState : elseContinuationState);
+                else if (thenCanContinueWithElse)
+                    JoinInterfaceFlowStates(new[] { thenContinuationState, elseContinuationState });
                 var elseInitialization = constructorEntry == null ? null : CaptureConstructorInitialization();
 
                 Emit(EnumOpcode.End);
                 _controlDepth--;
                 if (constructorEntry != null && thenInitialization != null && elseInitialization != null)
-                    MergeConstructorBranch(thenInitialization, thenCanFallThrough,
-                        elseInitialization, elseCanFallThrough);
-                return thenCanFallThrough || elseCanFallThrough;
+                    MergeConstructorBranch(thenInitialization, thenCanContinueWithElse,
+                        elseInitialization, elseCanContinueWithElse);
+                return thenCanContinueWithElse || elseCanContinueWithElse;
+            }
+
+            private bool ParseTryCatch()
+            {
+                var tryToken = Advance();
+                if (_forWasm)
+                    throw Error(tryToken, "Direct WASM source compilation does not support exception handling.");
+                if (_currentFunction is { IsPublicAsync: true } or { IsPublicStaticAsync: true })
+                    throw Error(tryToken, "Exception handling is not supported inside async functions in this synchronous subset.");
+
+                Emit(EnumOpcode.Block);
+                _controlDepth++;
+                var tryInstruction = EmitPlaceholder(EnumOpcode.TryBegin);
+                var interfaceEntry = CaptureInterfaceFlowState();
+                var constructorEntry = _constructingStruct == null ? null : CaptureConstructorInitialization();
+                var tryBodyOpen = _position;
+                var tryBodyClose = FindInterfaceFlowGroupEnd(tryBodyOpen, TokenKind.LBrace, TokenKind.RBrace);
+                var tryMayThrow = !CanProveTryRangeHasNoExceptionalEdges(tryBodyOpen + 1, tryBodyClose - 1);
+                var possibleArithmeticExceptions = GetPossibleArithmeticExceptions(
+                    tryBodyOpen + 1, tryBodyClose - 1);
+                var enclosingFlowReachability = _interfaceFlowReachable;
+                var enclosingWriteReachability = _interfaceWriteReachable;
+                var tryWrites = new HashSet<int>();
+                _interfaceWriteScopes.Push(tryWrites);
+                var tryCanFallThrough = ParseBlock();
+                _interfaceWriteScopes.Pop();
+                var tryInterfaceState = CaptureInterfaceFlowState();
+                var tryConstructorState = constructorEntry == null ? null : CaptureConstructorInitialization();
+                Emit(EnumOpcode.TryEnd);
+
+                if (Current.Lexeme != "catch")
+                    throw Error(Current, "The synchronous exception subset requires a catch block after try.");
+                var tryExitBranch = EmitPlaceholder(EnumOpcode.Br);
+                var catchDescriptors = new List<(int Target, int TypeOperand)>();
+                var catchExitBranches = new List<int>();
+                var continuingCatchStates = new List<Dictionary<int, LocalInfo>>();
+                var continuingConstructorStates = new List<HashSet<string>>();
+                var handledExceptionTypes = new List<Type>();
+                var catchesCanFallThrough = false;
+                var catchAllSeen = false;
+
+                while (Current.Lexeme == "catch")
+                {
+                    var catchToken = Advance();
+                    if (catchAllSeen)
+                        throw Error(catchToken, "A catch-all clause must be the final catch clause.");
+
+                    var exceptionTypeOperand = 0;
+                    var exceptionType = typeof(Exception);
+                    if (Check(TokenKind.LParen))
+                    {
+                        Advance();
+                        var typeToken = Expect(TokenKind.Identifier);
+                        if (!AloeExceptionTypes.TryResolve(typeToken.Lexeme, out exceptionType))
+                            throw Error(typeToken, $"Unknown or unsupported exception type '{typeToken.Lexeme}'.");
+                        if (Check(TokenKind.Colon))
+                            throw Error(Current, "Catch variables and exception value bindings are not supported in this subset.");
+                        if (Check(TokenKind.RParen)) Advance();
+                        else throw Error(Current, "Expected ')' after exception type.");
+                        exceptionTypeOperand = AddConstant(AloeValue.FromString(typeToken.Lexeme)) + 1;
+                    }
+                    else
+                    {
+                        catchAllSeen = true;
+                    }
+
+                    var catchIsReachable = tryMayThrow &&
+                        (possibleArithmeticExceptions == null || possibleArithmeticExceptions.Any(possible =>
+                            exceptionType.IsAssignableFrom(possible) &&
+                            !handledExceptionTypes.Any(handled => handled.IsAssignableFrom(possible)))) &&
+                        !IsCatchTypeShadowed(exceptionType, handledExceptionTypes);
+                    var rethrowContext = GetArithmeticRethrowContext(exceptionType,
+                        possibleArithmeticExceptions, handledExceptionTypes);
+                    handledExceptionTypes.Add(exceptionType);
+                    var catchStart = _code.Count;
+                    _interfaceFlowReachable = enclosingFlowReachability && catchIsReachable;
+                    _interfaceWriteReachable = enclosingWriteReachability && catchIsReachable;
+                    RestoreInterfaceFlowState(interfaceEntry);
+                    if (constructorEntry != null) RestoreConstructorInitialization(constructorEntry);
+                    foreach (var slot in tryWrites)
+                    {
+                        var entryType = interfaceEntry.GetValueOrDefault(slot);
+                        var isSafeInterfaceWrite = entryType is { Type: ExprType.Object, ClassName: not null } &&
+                            _interfaces.ContainsKey(entryType.ClassName) && tryBodyClose > tryBodyOpen &&
+                            AreTryBlockWritesAssignableToInterface(slot, entryType.ClassName,
+                                tryBodyOpen + 1, tryBodyClose - 1);
+                        if (!isSafeInterfaceWrite) ForgetInterfaceNarrowing(slot);
+                    }
+                    _catchDepth++;
+                    _arithmeticRethrowContexts.Push(rethrowContext);
+                    bool catchCanFallThrough;
+                    try
+                    {
+                        catchCanFallThrough = ParseBlock();
+                    }
+                    finally
+                    {
+                        _arithmeticRethrowContexts.Pop();
+                        _catchDepth--;
+                    }
+                    var catchInterfaceState = CaptureInterfaceFlowState();
+                    _interfaceFlowReachable = enclosingFlowReachability;
+                    _interfaceWriteReachable = enclosingWriteReachability;
+                    catchDescriptors.Add((catchStart, exceptionTypeOperand));
+                    Emit(EnumOpcode.CatchEnd);
+                    catchExitBranches.Add(EmitPlaceholder(EnumOpcode.Br));
+                    if (catchIsReachable && catchCanFallThrough)
+                    {
+                        catchesCanFallThrough = true;
+                        continuingCatchStates.Add(catchInterfaceState);
+                        if (constructorEntry != null)
+                            continuingConstructorStates.Add(CaptureConstructorInitialization());
+                    }
+                }
+
+                if (catchDescriptors.Count == 0)
+                    throw Error(Current, "The synchronous exception subset requires a catch block after try.");
+
+                var catchTableStart = _code.Count;
+                foreach (var descriptor in catchDescriptors)
+                    _code.Add(new Instruction(EnumOpcode.TryCatch, descriptor.Target, descriptor.TypeOperand));
+                _code[tryInstruction] = new Instruction(EnumOpcode.TryBegin, catchTableStart, 0);
+                _code[tryExitBranch] = new Instruction(EnumOpcode.Br, 0);
+                foreach (var branch in catchExitBranches)
+                    _code[branch] = new Instruction(EnumOpcode.Br, 0);
+
+                var continuingStates = new List<Dictionary<int, LocalInfo>>();
+                if (tryCanFallThrough) continuingStates.Add(tryInterfaceState);
+                continuingStates.AddRange(continuingCatchStates);
+                if (tryConstructorState != null && tryCanFallThrough)
+                    continuingConstructorStates.Add(tryConstructorState);
+                if (constructorEntry != null)
+                {
+                    if (continuingConstructorStates.Count == 0)
+                        RestoreConstructorInitialization(constructorEntry);
+                    else
+                    {
+                        var initialized = new HashSet<string>(continuingConstructorStates[0], StringComparer.Ordinal);
+                        foreach (var state in continuingConstructorStates.Skip(1)) initialized.IntersectWith(state);
+                        RestoreConstructorInitialization(initialized);
+                    }
+                }
+                if (continuingStates.Count > 0)
+                {
+                    RestoreInterfaceFlowState(interfaceEntry);
+                    if (continuingStates.Count == 1)
+                        RestoreInterfaceFlowState(continuingStates[0]);
+                    else
+                        JoinInterfaceFlowStates(continuingStates);
+                }
+                Emit(EnumOpcode.End);
+                _controlDepth--;
+
+                return tryCanFallThrough || catchesCanFallThrough;
             }
 
 
             private void ParseForeach()
             {
+                var preLoopInterfaceState = CaptureInterfaceFlowState();
+                var headerEnd = FindInterfaceFlowGroupEnd(_position + 1, TokenKind.LParen, TokenKind.RParen);
+                var bodyEnd = headerEnd < 0 ? -1 : FindInterfaceFlowGroupEnd(headerEnd, TokenKind.LBrace, TokenKind.RBrace);
+                var preserveFirstIterationFacts = headerEnd > 0 && bodyEnd > headerEnd &&
+                    CanProveLoopBodyHasNoBackEdge(headerEnd, bodyEnd);
+                var interfaceEntry = CaptureLoopInterfaceFlowState();
+                if (preserveFirstIterationFacts)
+                    RestoreInterfaceFlowState(preLoopInterfaceState);
+                var breaks = new List<Dictionary<int, LocalInfo>>();
+                _foreachInterfaceFlows.Push((_loops.Count + 1, breaks));
+                Dictionary<int, LocalInfo> sourceInterfaceState;
+                try
+                {
+                    sourceInterfaceState = ParseForeachCore();
+                }
+                finally
+                {
+                    _foreachInterfaceFlows.Pop();
+                }
+                var exhaustionState = preserveFirstIterationFacts ? sourceInterfaceState : interfaceEntry;
+                RestoreInterfaceFlowState(exhaustionState);
+                if (breaks.Count > 0)
+                {
+                    // Exhaustion (including zero iterations) and breaks are distinct exits.
+                    breaks.Add(exhaustionState);
+                    JoinInterfaceFlowStates(breaks);
+                }
+            }
+
+            private Dictionary<int, LocalInfo> ParseForeachCore()
+            {
                 var constructorEntry = _constructingStruct == null ? null : CaptureConstructorInitialization();
                 Advance(); // foreach
                 Expect(TokenKind.LParen);
                 var itemName = Expect(TokenKind.Identifier);
+                AloeToken? valueItemName = null;
+                if (Check(TokenKind.Comma))
+                {
+                    Advance();
+                    valueItemName = Expect(TokenKind.Identifier);
+                }
                 ExpectLexeme("in");
                 if (!Check(TokenKind.Identifier) || Peek(1).Kind != TokenKind.RParen ||
                     !TryResolveLocal(Current.Lexeme, out var pipeSource) || !TryGetPipeElementType(pipeSource.ClassName, out _))
@@ -1719,17 +2238,29 @@ namespace Aloe.CompilerLib
                     var sourceToken = Current;
                     var sourceType = ParseExpression();
                     var arrayName = _lastExpressionClassName;
+                    var sourceInterfaceState = CaptureInterfaceFlowState();
+                    if (sourceType == ExprType.Object && IsMapType(arrayName) &&
+                        TryGetMapTypes(arrayName, out var mapKeyType, out var mapKeyName, out var mapValueType, out var mapValueName))
+                    {
+                        ParseMapForeach(itemName, valueItemName, arrayName!, mapKeyType, mapKeyName, mapValueType, mapValueName);
+                        RestoreConstructorLoopEntry(constructorEntry);
+                        return sourceInterfaceState;
+                    }
+                    if (valueItemName != null)
+                        throw Error(valueItemName, "Key/value foreach requires a Map source.");
                     if (sourceType != ExprType.Object || !TryGetArrayElementType(arrayName, out var arrayElementType))
                         throw Error(sourceToken, "foreach requires a supported array expression or a pipe<T> local.");
                     ParseArrayForeach(itemName, arrayName!, arrayElementType);
                     RestoreConstructorLoopEntry(constructorEntry);
-                    return;
+                    return sourceInterfaceState;
                 }
                 var sourceName = Expect(TokenKind.Identifier);
                 var source = ResolveLocal(sourceName);
                 if (!TryGetPipeElementType(source.ClassName, out var elementType))
                     throw Error(sourceName, $"foreach source '{sourceName.Lexeme}' must be pipe<T>.");
                 Expect(TokenKind.RParen);
+
+                var pipeSourceInterfaceState = CaptureInterfaceFlowState();
 
                 Emit(EnumOpcode.Block);
                 _controlDepth++;
@@ -1741,7 +2272,7 @@ namespace Aloe.CompilerLib
 
                 Expect(TokenKind.LBrace);
                 EnterScope();
-                var itemLocal = DeclareLocal(itemName, elementType);
+                var itemLocal = DeclareLocal(itemName, elementType, GetPipeElementClassName(source.ClassName));
                 var hasValueSlot = _nextLocalSlot++;
 
                 Emit(EnumOpcode.LoadLocal, source.Slot);
@@ -1753,14 +2284,9 @@ namespace Aloe.CompilerLib
                 Emit(EnumOpcode.CmpEq);
                 Emit(EnumOpcode.BrIf, _controlDepth - blockLevel);
 
-                var loop = new LoopContext(blockLevel, loopLevel);
+                var loop = new LoopContext(blockLevel, loopLevel, _catchDepth);
                 _loops.Push(loop);
-                while (!Check(TokenKind.RBrace))
-                {
-                    if (Check(TokenKind.EndOfFile))
-                        throw Error(Current, "Unexpected end of file in foreach block.");
-                    ParseStatement();
-                }
+                ParseStatementBlockContents("foreach");
                 _loops.Pop();
                 Expect(TokenKind.RBrace);
                 ExitScope();
@@ -1771,6 +2297,7 @@ namespace Aloe.CompilerLib
                 Emit(EnumOpcode.End); // BLOCK
                 _controlDepth--;
                 RestoreConstructorLoopEntry(constructorEntry);
+                return pipeSourceInterfaceState;
             }
 
 
@@ -1785,6 +2312,88 @@ namespace Aloe.CompilerLib
                 while (Check(TokenKind.Pipe))
                 {
                     Advance(); // |
+                    if (Check(TokenKind.Colon))
+                    {
+                        Advance(); // pipeline-only shorthand marker
+                        var filterName = Expect(TokenKind.Identifier);
+                        if (!_filterByName.TryGetValue(filterName.Lexeme, out var shorthandFilter))
+                            throw Error(filterName, $"Unknown user-defined filter '{filterName.Lexeme}'.");
+                        if (Check(TokenKind.Colon))
+                        {
+                            Advance();
+                            if (shorthandFilter.FunctionIndex == -34)
+                            {
+                                var typeToken = Expect(TokenKind.Identifier);
+                                if (!_structs.TryGetValue(typeToken.Lexeme, out var structSignature))
+                                    throw Error(typeToken, $"json requires a declared struct type, found '{typeToken.Lexeme}'.");
+                                if (structSignature.Fields.Any(field => field.Type is not (ExprType.Int or ExprType.Bool or ExprType.String)))
+                                    throw Error(typeToken, "json structs may contain only int, bool, and string fields.");
+                                shorthandFilter = shorthandFilter with
+                                {
+                                    OutputPipeType = $"pipe<{structSignature.Name}>",
+                                    StringArgument = System.Text.Json.JsonSerializer.Serialize(new
+                                    {
+                                        typeName = structSignature.Name,
+                                        fields = structSignature.Fields.Select(field => new
+                                        {
+                                            name = field.Name,
+                                            type = field.Type switch
+                                            {
+                                                ExprType.Int => "int",
+                                                ExprType.Bool => "bool",
+                                                ExprType.String => "string",
+                                                _ => throw new InvalidOperationException("Unsupported JSON struct field type.")
+                                            }
+                                        })
+                                    })
+                                };
+                            }
+                            else if (shorthandFilter.FunctionIndex is -7 or -8 or -9 or -10 or -30)
+                            {
+                                var argument = Expect(TokenKind.StringLiteral);
+                                shorthandFilter = shorthandFilter with { StringArgument = ParseString(argument) };
+                            }
+                            else if (shorthandFilter.FunctionIndex == -32)
+                            {
+                                var pipelineType = filters.Count == 0 ? source.ClassName : filters[^1].OutputPipeType;
+                                var elementName = GetPipeElementClassName(pipelineType);
+                                if (elementName == null || !_structs.TryGetValue(elementName, out var structSignature))
+                                    throw Error(filterName, "Keyed sort requires a pipe of a declared struct type.");
+                                Expect(TokenKind.Dot);
+                                var keyToken = Expect(TokenKind.Identifier);
+                                var fieldIndex = structSignature.Fields.FindIndex(field => field.Name == keyToken.Lexeme);
+                                if (fieldIndex < 0)
+                                    throw Error(keyToken, $"Struct '{elementName}' has no field '{keyToken.Lexeme}'.");
+                                var keyField = structSignature.Fields[fieldIndex];
+                                if (keyField.Type is not (ExprType.Int or ExprType.String))
+                                    throw Error(keyToken, $"Sort key '{elementName}.{keyToken.Lexeme}' must have type int or string.");
+                                if (Check(TokenKind.Dot))
+                                    throw Error(Current, "Keyed sort accepts only one direct field name.");
+                                var keySchema = new Dictionary<string, object>
+                                {
+                                    ["typeName"] = elementName,
+                                    ["fieldName"] = keyField.Name,
+                                    ["fieldIndex"] = fieldIndex
+                                };
+                                if (keyField.Type == ExprType.String) keySchema["fieldType"] = "string";
+                                shorthandFilter = shorthandFilter with
+                                {
+                                    FunctionIndex = -35,
+                                    InputPipeType = pipelineType!,
+                                    OutputPipeType = pipelineType!,
+                                    StringArgument = System.Text.Json.JsonSerializer.Serialize(keySchema)
+                                };
+                            }
+                            else
+                                throw Error(filterName, $"Filter '{shorthandFilter.Name}' does not accept an argument.");
+                        }
+                        else if (shorthandFilter.FunctionIndex is -7 or -8 or -9 or -10 or -30 or -34)
+                        {
+                            throw Error(filterName, $"Filter '{shorthandFilter.Name}' requires a string argument.");
+                        }
+                        filters.Add(shorthandFilter);
+                        continue;
+                    }
                     if (string.Equals(Current.Lexeme, "filter", StringComparison.Ordinal))
                     {
                         Advance();
@@ -1810,6 +2419,20 @@ namespace Aloe.CompilerLib
                     for (var i = 0; i < filters.Count; i++)
                     {
                         var filter = filters[i];
+                        if (filter.FunctionIndex == -32 && currentType == "pipe<string>")
+                            filter = filter with
+                            {
+                                FunctionIndex = -36,
+                                InputPipeType = "pipe<string>",
+                                OutputPipeType = "pipe<string>"
+                            };
+                        if (filter.FunctionIndex == -33 && currentType == "pipe<string>")
+                            filter = filter with
+                            {
+                                FunctionIndex = -37,
+                                InputPipeType = "pipe<string>",
+                                OutputPipeType = "pipe<string>"
+                            };
                         if (!string.Equals(currentType, filter.InputPipeType, StringComparison.Ordinal))
                             throw Error(sourceToken, $"Filter '{filter.Name}' expects {filter.InputPipeType}, found {currentType}.");
 
@@ -1831,7 +2454,9 @@ namespace Aloe.CompilerLib
 
                         Emit(EnumOpcode.LoadLocal, currentSlot);
                         Emit(EnumOpcode.LoadLocal, outputSlot);
-                        EmitIntConstant(filter.Function.Index);
+                        if (filter.FunctionIndex is -7 or -8 or -9 or -10 or -30 or -34 or -35)
+                            Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(filter.StringArgument!)));
+                        EmitIntConstant(filter.FunctionIndex);
                         Emit(EnumOpcode.Syscall, (int)EnumSyscall.PipeBindFilter);
                         currentSlot = outputSlot;
                         currentType = filter.OutputPipeType;
@@ -1853,11 +2478,13 @@ namespace Aloe.CompilerLib
                 var member = Expect(TokenKind.Identifier);
                 Expect(TokenKind.LParen);
                 Emit(EnumOpcode.LoadLocal, target.Slot);
+                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
 
                 if (string.Equals(member.Lexeme, "write", StringComparison.Ordinal))
                 {
                     var actualType = ParseExpression();
-                    if (actualType != elementType)
+                    if (actualType != elementType || elementType == ExprType.Object &&
+                        _lastExpressionClassName != GetPipeElementClassName(target.ClassName))
                         throw Error(member, $"pipe<{FormatType(elementType)}>.write expects {FormatType(elementType)}, found {FormatType(actualType)}.");
                     Expect(TokenKind.RParen);
                     Expect(TokenKind.Semicolon);
@@ -1879,11 +2506,20 @@ namespace Aloe.CompilerLib
             }
 
 
-            private void ParseWhile()
+            private bool ParseWhile()
             {
+                var preLoopInterfaceState = CaptureInterfaceFlowState();
+                var loopHeaderEnd = FindInterfaceFlowGroupEnd(_position + 1, TokenKind.LParen, TokenKind.RParen);
+                var loopBodyEnd = loopHeaderEnd < 0 ? -1 : FindInterfaceFlowGroupEnd(loopHeaderEnd, TokenKind.LBrace, TokenKind.RBrace);
+                var preserveFirstIterationFacts = loopHeaderEnd > 0 && loopBodyEnd > loopHeaderEnd &&
+                    CanProveLoopBodyHasNoBackEdge(loopHeaderEnd, loopBodyEnd);
+                var interfaceEntry = CaptureLoopInterfaceFlowState();
+                if (preserveFirstIterationFacts)
+                    RestoreInterfaceFlowState(preLoopInterfaceState);
                 var constructorEntry = _constructingStruct == null ? null : CaptureConstructorInitialization();
                 Advance(); // while
                 Expect(TokenKind.LParen);
+                var conditionStart = _position;
 
                 // while (cond) body
                 //   => BLOCK; LOOP; cond; false == cond; BR_IF break; body; BR continue; END; END
@@ -1895,20 +2531,43 @@ namespace Aloe.CompilerLib
                 _controlDepth++;
                 var loopLevel = _controlDepth;
 
-                var conditionType = ParseExpression();
+                // Separate header consumers from body writes so the zero-iteration edge can
+                // replay only the condition's observed effects.
+                var conditionWrites = new HashSet<int>();
+                _interfaceWriteScopes.Push(conditionWrites);
+                var conditionType = ParseExpectedExpression(ExprType.Bool);
+                _interfaceWriteScopes.Pop();
                 if (conditionType != ExprType.Bool)
                     throw Error(Previous, "while condition must be bool.");
 
+                var conditionEnd = _position;
+                var conditionOutcomes = EvaluateGuaranteedZeroDivisionConditionExpression(conditionStart, conditionEnd);
+                var conditionCanBeTrue = (conditionOutcomes & ConditionEvaluation.True) != 0;
+                var conditionCanBeFalse = (conditionOutcomes & ConditionEvaluation.False) != 0;
                 Expect(TokenKind.RParen);
+                var conditionEvaluationState = CaptureLoopConditionEvaluationState(preLoopInterfaceState,
+                    CaptureInterfaceFlowState(), conditionWrites);
+                var interfaceNarrowings = GetConditionInterfaceNarrowings(conditionStart, conditionEnd, conditionWrites);
 
                 // BR_IF branches on true. Invert the while condition using bool equality.
                 EmitBoolConstant(false);
                 Emit(EnumOpcode.CmpEq);
                 Emit(EnumOpcode.BrIf, _controlDepth - blockLevel);
 
-                var loop = new LoopContext(blockLevel, loopLevel);
+                var loop = new LoopContext(blockLevel, loopLevel, _catchDepth);
                 _loops.Push(loop);
-                ParseBlock();
+                foreach (var narrowing in interfaceNarrowings)
+                    narrowing.Scope[narrowing.Name] = narrowing.Narrowed;
+                var enclosingReachability = _interfaceFlowReachable;
+                var enclosingWriteReachability = _interfaceWriteReachable;
+                _interfaceFlowReachable = enclosingReachability && conditionCanBeTrue;
+                _interfaceWriteReachable = enclosingWriteReachability && conditionCanBeTrue;
+                var bodyCanFallThrough = ParseBlock();
+                var hasLoopBackEdge = conditionCanBeTrue && (bodyCanFallThrough || loop.HasReachableContinue);
+                var hasReachableBreak = loop.BreakInterfaceStates.Count > 0;
+                _interfaceFlowReachable = enclosingReachability;
+                _interfaceWriteReachable = enclosingWriteReachability;
+                RestoreInterfaceFlowState(interfaceEntry);
                 _loops.Pop();
 
                 Emit(EnumOpcode.Br, _controlDepth - loopLevel);
@@ -1917,7 +2576,24 @@ namespace Aloe.CompilerLib
                 _controlDepth--;
                 Emit(EnumOpcode.End); // BLOCK
                 _controlDepth--;
+                var exitStates = new List<Dictionary<int, LocalInfo>>();
+                if (conditionCanBeFalse)
+                {
+                    // If every entered path exits the loop immediately, the false-condition
+                    // edge is only the zero-iteration path and must retain its original facts.
+                    RestoreInterfaceFlowState(hasLoopBackEdge ? interfaceEntry : conditionEvaluationState);
+                    foreach (var narrowing in GetConditionInterfaceNarrowings(conditionStart, conditionEnd, conditionWrites, whenTrue: false))
+                        narrowing.Scope[narrowing.Name] = narrowing.Narrowed;
+                    exitStates.Add(CaptureInterfaceFlowState());
+                }
+                exitStates.AddRange(loop.BreakInterfaceStates);
+                RestoreInterfaceFlowState(interfaceEntry);
+                if (exitStates.Count == 1)
+                    RestoreInterfaceFlowState(exitStates[0]);
+                else if (exitStates.Count > 1)
+                    JoinInterfaceFlowStates(exitStates);
                 RestoreConstructorLoopEntry(constructorEntry);
+                return conditionCanBeFalse || hasReachableBreak;
             }
 
 
@@ -1929,6 +2605,15 @@ namespace Aloe.CompilerLib
 
                 Expect(TokenKind.Semicolon);
                 var loop = _loops.Peek();
+                if (_interfaceFlowReachable)
+                {
+                    var state = CaptureInterfaceFlowState();
+                    loop.BreakInterfaceStates.Add(state);
+                    if (_foreachInterfaceFlows.TryPeek(out var foreachFlow) && foreachFlow.LoopDepth == _loops.Count)
+                        foreachFlow.BreakStates.Add(state);
+                }
+                for (var depth = _catchDepth; depth > loop.CatchDepth; depth--)
+                    Emit(EnumOpcode.CatchEnd, 1);
                 Emit(EnumOpcode.Br, _controlDepth - loop.BlockLevel);
             }
 
@@ -1941,6 +2626,10 @@ namespace Aloe.CompilerLib
 
                 Expect(TokenKind.Semicolon);
                 var loop = _loops.Peek();
+                if (_interfaceFlowReachable)
+                    loop.HasReachableContinue = true;
+                for (var depth = _catchDepth; depth > loop.CatchDepth; depth--)
+                    Emit(EnumOpcode.CatchEnd, 1);
                 Emit(EnumOpcode.Br, _controlDepth - loop.LoopLevel);
             }
 
@@ -1949,23 +2638,30 @@ namespace Aloe.CompilerLib
             {
                 Expect(TokenKind.LBrace);
                 EnterScope();
+                var canFallThrough = ParseStatementBlockContents("block");
+                ExitScope();
+                Expect(TokenKind.RBrace);
+                return canFallThrough;
+            }
 
-
+            private bool ParseStatementBlockContents(string context)
+            {
                 var canFallThrough = true;
+                var enclosingReachability = _interfaceFlowReachable;
+                var enclosingWriteReachability = _interfaceWriteReachable;
                 while (!Check(TokenKind.RBrace))
                 {
                     if (Check(TokenKind.EndOfFile))
-                        throw Error(Current, "Unexpected end of file in block.");
+                        throw Error(Current, $"Unexpected end of file in {context}.");
 
-
+                    _interfaceFlowReachable = enclosingReachability && canFallThrough;
+                    _interfaceWriteReachable = enclosingWriteReachability && canFallThrough;
                     var statementCanFallThrough = ParseStatement();
+                    _interfaceFlowReachable = enclosingReachability;
+                    _interfaceWriteReachable = enclosingWriteReachability;
                     if (canFallThrough)
                         canFallThrough = statementCanFallThrough;
                 }
-
-
-                ExitScope();
-                Expect(TokenKind.RBrace);
                 return canFallThrough;
             }
 
@@ -1998,8 +2694,8 @@ namespace Aloe.CompilerLib
                     if (Check(TokenKind.RParen))
                         throw Error(Current, $"Host intrinsic '{intrinsic.Name}' expects {intrinsic.ParameterTypes.Count} argument(s).");
 
-                    var actualType = ParseExpression();
                     var expectedType = MapHostType(intrinsic.ParameterTypes[i]);
+                    var actualType = ParseExpectedExpression(expectedType);
                     if (actualType != expectedType)
                     {
                         throw Error(
@@ -2121,7 +2817,7 @@ namespace Aloe.CompilerLib
                 else
                 {
                     var expressionStart = _code.Count;
-                    var type = ParseExpression();
+                    var type = ParseExpectedExpression(function.ReturnType, function.ReturnClassName);
                     type = AdaptByteLiteral(returnToken, function.ReturnType, type, expressionStart);
                     var className = _lastExpressionClassName;
                     RequireAssignable(returnToken, function.ReturnType, type, function.ReturnClassName, className);
@@ -2142,11 +2838,15 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseLogicalOr()
             {
+                var expressionStart = _position;
                 var type = ParseLogicalAnd();
 
                 while (Current.Lexeme == "or")
                 {
+                    var rightIsUnreachable = TryEvaluateBooleanConstant(expressionStart, _position,
+                        out var leftConstant) && leftConstant;
                     var op = Advance();
+                    type = EmitOperatorUnbox(op, type, _lastExpressionClassName, ExprType.Bool);
                     RequireBool(op, type);
 
                     // Result-less IF blocks preserve short-circuiting through a hidden local.
@@ -2159,8 +2859,14 @@ namespace Aloe.CompilerLib
                     Emit(EnumOpcode.StoreLocal, tempSlot);
 
                     Emit(EnumOpcode.Else);
+                    var rightEntry = rightIsUnreachable ? CaptureInterfaceFlowState() : null;
+                    var enclosingWriteReachability = _interfaceWriteReachable;
+                    _interfaceWriteReachable = enclosingWriteReachability && !rightIsUnreachable;
                     var right = ParseLogicalAnd();
+                    right = EmitOperatorUnbox(op, right, _lastExpressionClassName, ExprType.Bool);
                     RequireBool(op, right);
+                    _interfaceWriteReachable = enclosingWriteReachability;
+                    if (rightEntry != null) RestoreInterfaceFlowState(rightEntry);
                     Emit(EnumOpcode.StoreLocal, tempSlot);
 
                     Emit(EnumOpcode.End);
@@ -2176,11 +2882,15 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseLogicalAnd()
             {
+                var expressionStart = _position;
                 var type = ParseBitwiseOr();
 
                 while (Current.Lexeme == "and")
                 {
+                    var rightIsUnreachable = TryEvaluateBooleanConstant(expressionStart, _position,
+                        out var leftConstant) && !leftConstant;
                     var op = Advance();
+                    type = EmitOperatorUnbox(op, type, _lastExpressionClassName, ExprType.Bool);
                     RequireBool(op, type);
 
                     var tempSlot = _nextLocalSlot++;
@@ -2188,8 +2898,14 @@ namespace Aloe.CompilerLib
                     Emit(EnumOpcode.If);
                     _controlDepth++;
 
+                    var rightEntry = rightIsUnreachable ? CaptureInterfaceFlowState() : null;
+                    var enclosingWriteReachability = _interfaceWriteReachable;
+                    _interfaceWriteReachable = enclosingWriteReachability && !rightIsUnreachable;
                     var right = ParseBitwiseOr();
+                    right = EmitOperatorUnbox(op, right, _lastExpressionClassName, ExprType.Bool);
                     RequireBool(op, right);
+                    _interfaceWriteReachable = enclosingWriteReachability;
+                    if (rightEntry != null) RestoreInterfaceFlowState(rightEntry);
                     Emit(EnumOpcode.StoreLocal, tempSlot);
 
                     Emit(EnumOpcode.Else);
@@ -2219,7 +2935,9 @@ namespace Aloe.CompilerLib
                 while (Check(kind))
                 {
                     var op = Advance();
+                    var rightStart = _code.Count;
                     var right = ParseBitwise(level + 1);
+                    UnboxOperatorOperands(op, ref type, enumName, ref right, _lastExpressionClassName, rightStart, ExprType.Int);
                     var intOperands = type == ExprType.Int && right == ExprType.Int;
                     var enumOperands = type == ExprType.Enum && right == ExprType.Enum && enumName != null &&
                         _bitfieldEnums.Contains(enumName) && enumName == _lastExpressionClassName;
@@ -2238,7 +2956,9 @@ namespace Aloe.CompilerLib
                 while (Check(TokenKind.ShiftLeft) || Check(TokenKind.ShiftRight))
                 {
                     var op = Advance();
+                    var rightStart = _code.Count;
                     var countType = ParseAdditive();
+                    UnboxOperatorOperands(op, ref type, enumName, ref countType, _lastExpressionClassName, rightStart, ExprType.Int);
                     var validLeft = type == ExprType.Int ||
                         (type == ExprType.Enum && enumName != null && _bitfieldEnums.Contains(enumName));
                     if (!validLeft || countType != ExprType.Int)
@@ -2251,8 +2971,12 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseComparison()
             {
+                if (Current.Lexeme == "invalid") return ParseInvalidReferenceComparison();
                 var leftType = ParseShift();
                 var leftClassName = _lastExpressionClassName;
+
+                if (Current.Lexeme == "is")
+                    return ParseReferenceTypeTest(leftType, leftClassName);
 
 
                 if (!IsComparison(Current.Kind))
@@ -2260,8 +2984,24 @@ namespace Aloe.CompilerLib
 
 
                 var op = Advance();
+                if (Current.Lexeme == "invalid")
+                {
+                    if (_forWasm) throw Error(Current, "Reference validity checks are unsupported by direct WASM.");
+                    if (op.Kind is not (TokenKind.EqualEqual or TokenKind.BangEqual) || leftType != ExprType.Object || IsPipeTypeName(leftClassName))
+                        throw Error(Current, "invalid is allowed only in heap-reference ==/!= validity checks.");
+                    Advance();
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceInvalid);
+                    Emit(op.Kind == TokenKind.EqualEqual ? EnumOpcode.CmpEq : EnumOpcode.CmpNe);
+                    _lastExpressionClassName = null;
+                    return ExprType.Bool;
+                }
+                var rightStart = _code.Count;
                 var rightType = ParseShift();
                 var rightClassName = _lastExpressionClassName;
+
+                if (leftType != ExprType.Object || rightType != ExprType.Object ||
+                    op.Kind is not (TokenKind.EqualEqual or TokenKind.BangEqual))
+                    UnboxOperatorOperands(op, ref leftType, leftClassName, ref rightType, rightClassName, rightStart);
 
                 if (leftType == ExprType.Struct || rightType == ExprType.Struct)
                     throw Error(op, "Struct comparisons are not supported by the current subset.");
@@ -2315,12 +3055,15 @@ namespace Aloe.CompilerLib
             private ExprType ParseAdditive()
             {
                 var type = ParseMultiplicative();
+                var leftName = _lastExpressionClassName;
 
 
                 while (Check(TokenKind.Plus) || Check(TokenKind.Minus))
                 {
                     var op = Advance();
+                    var rightStart = _code.Count;
                     var right = ParseMultiplicative();
+                    UnboxOperatorOperands(op, ref type, leftName, ref right, _lastExpressionClassName, rightStart);
                     RequireNumericBinary(op, type, right);
 
 
@@ -2331,6 +3074,7 @@ namespace Aloe.CompilerLib
 
 
                     type = PromoteNumericType(type, right);
+                    leftName = null;
                     _lastExpressionClassName = null;
                 }
 
@@ -2341,7 +3085,8 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseMultiplicative()
             {
-                var type = ParseUnary();
+                var type = ParseCast();
+                var leftName = _lastExpressionClassName;
 
 
                 while (
@@ -2350,7 +3095,9 @@ namespace Aloe.CompilerLib
                     Check(TokenKind.Percent))
                 {
                     var op = Advance();
-                    var right = ParseUnary();
+                    var rightStart = _code.Count;
+                    var right = ParseCast();
+                    UnboxOperatorOperands(op, ref type, leftName, ref right, _lastExpressionClassName, rightStart);
                     RequireNumericBinary(op, type, right);
 
 
@@ -2364,6 +3111,7 @@ namespace Aloe.CompilerLib
 
 
                     type = PromoteNumericType(type, right);
+                    leftName = null;
                     _lastExpressionClassName = null;
                 }
 
@@ -2374,10 +3122,13 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseUnary()
             {
+                if (Current.Lexeme == "unbox") return ParseConsumingUnbox();
                 if (Check(TokenKind.Tilde))
                 {
                     var op = Advance();
                     var type = ParseUnary();
+                    var name = _lastExpressionClassName;
+                    type = EmitOperatorUnbox(op, type, name, OperatorPrimitiveType(type, name) == ExprType.Object ? ExprType.Int : OperatorPrimitiveType(type, name));
                     if (type != ExprType.Int &&
                         (type != ExprType.Enum || _lastExpressionClassName == null || !_bitfieldEnums.Contains(_lastExpressionClassName)))
                         throw Error(op, "Bitwise complement requires an int or bitfield enum value.");
@@ -2389,6 +3140,7 @@ namespace Aloe.CompilerLib
                 {
                     var op = Advance();
                     var type = ParseUnary();
+                    type = EmitOperatorUnbox(op, type, _lastExpressionClassName, ExprType.Bool);
                     RequireBool(op, type);
 
 
@@ -2410,24 +3162,32 @@ namespace Aloe.CompilerLib
                 if (target.Type != ExprType.Object || target.ClassName == null)
                     throw Error(targetToken, $"Async member call requires a statically known class instance; '{targetToken.Lexeme}' is {FormatType(target.Type)}.");
 
-                if (!_classes.TryGetValue(target.ClassName, out var classInfo))
-                    throw Error(targetToken, $"Unknown class '{target.ClassName}'.");
-
                 Expect(TokenKind.Dot);
                 var member = Expect(TokenKind.Identifier);
-                ParseInstanceAsyncMethodCallStatement(target, classInfo, member);
+                if (_classes.TryGetValue(target.ClassName, out var classInfo))
+                {
+                    ParseInstanceAsyncMethodCallStatement(target, classInfo.Name, FindMethod(classInfo.Name, member.Lexeme), member);
+                    return;
+                }
+                if (_interfaces.TryGetValue(target.ClassName, out var interfaceInfo))
+                {
+                    ParseInstanceAsyncMethodCallStatement(target, interfaceInfo.Name,
+                        interfaceInfo.Methods.FirstOrDefault(x => x.Name == member.Lexeme), member);
+                    return;
+                }
+                throw Error(targetToken, $"Unknown class or interface '{target.ClassName}'.");
             }
 
-            private void ParseInstanceAsyncMethodCallStatement(LocalInfo target, ClassSignature classInfo, AloeToken member)
+            private void ParseInstanceAsyncMethodCallStatement(LocalInfo target, string declaredTypeName, MethodSignature? method, AloeToken member)
             {
-                var method = FindMethod(classInfo.Name, member.Lexeme);
                 if (method?.Function.IsPublicAsync != true)
                     method = null;
                 if (method == null)
-                    throw Error(member, $"'{classInfo.Name}.{member.Lexeme}' is not a public async instance method.");
+                    throw Error(member, $"'{declaredTypeName}.{member.Lexeme}' is not a public async instance method.");
 
                 var function = method.Function;
                 Emit(EnumOpcode.LoadLocal, target.Slot);
+                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
                 Expect(TokenKind.LParen);
 
                 var argumentIndex = 0;
@@ -2440,9 +3200,9 @@ namespace Aloe.CompilerLib
 
                         var argumentToken = Current;
                         var expressionStart = _code.Count;
-                        var actualType = ParseExpression();
-                        var actualClassName = _lastExpressionClassName;
                         var parameter = function.Parameters[argumentIndex];
+                        var actualType = ParseExpectedExpression(parameter.Type, parameter.ClassName);
+                        var actualClassName = _lastExpressionClassName;
                         actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
                         RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
                         argumentIndex++;
@@ -2461,7 +3221,8 @@ namespace Aloe.CompilerLib
                 if (function.IsVirtual)
                 {
                     var dispatchClasses = _classes.Values
-                        .Where(candidate => IsClassAssignable(candidate.Name, classInfo.Name))
+                        .Where(candidate => IsClassAssignable(candidate.Name, declaredTypeName))
+                        .Where(candidate => FindMethod(candidate.Name, member.Lexeme)?.Function.IsPublicAsync == true)
                         .ToArray();
                     var dispatchTargets = dispatchClasses
                         .Select(candidate => FindMethod(candidate.Name, member.Lexeme)!.Function)
@@ -2532,9 +3293,9 @@ namespace Aloe.CompilerLib
                             throw Error(Current, $"Method '{function.Name}' received too many arguments.");
                         var argumentToken = Current;
                         var expressionStart = _code.Count;
-                        var actualType = ParseExpression();
-                        var actualClassName = _lastExpressionClassName;
                         var parameter = function.Parameters[argumentIndex++];
+                        var actualType = ParseExpectedExpression(parameter.Type, parameter.ClassName);
+                        var actualClassName = _lastExpressionClassName;
                         actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
                         RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
                         if (!Check(TokenKind.Comma)) break;
@@ -2665,9 +3426,9 @@ namespace Aloe.CompilerLib
 
                         var argumentToken = Current;
                         var expressionStart = _code.Count;
-                        var actualType = ParseExpression();
-                        var actualClassName = _lastExpressionClassName;
                         var parameter = function.Parameters[argumentIndex];
+                        var actualType = ParseExpectedExpression(parameter.Type, parameter.ClassName);
+                        var actualClassName = _lastExpressionClassName;
                         actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
                         RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
                         argumentIndex++;
@@ -2707,9 +3468,9 @@ namespace Aloe.CompilerLib
                             throw Error(Current, $"Method '{function.Name}' received too many arguments.");
                         var argumentToken = Current;
                         var expressionStart = _code.Count;
-                        var actualType = ParseExpression();
-                        var actualClassName = _lastExpressionClassName;
                         var parameter = function.Parameters[argumentIndex];
+                        var actualType = ParseExpectedExpression(parameter.Type, parameter.ClassName);
+                        var actualClassName = _lastExpressionClassName;
                         actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
                         RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
                         argumentIndex++;
@@ -2729,17 +3490,32 @@ namespace Aloe.CompilerLib
             private ExprType ParsePrimary()
             {
                 var type = ParsePrimaryValue();
+                if (type == ExprType.Object && IsMapType(_lastExpressionClassName) && Current.Kind is TokenKind.LBracket or TokenKind.Dot)
+                    return ParseMapResultRead();
+                if (type == ExprType.Object && TryGetNamedBoxType(_lastExpressionClassName, out _) && Check(TokenKind.Dot))
+                    return ParseNamedBoxMember(_lastExpressionClassName!);
                 if (type == ExprType.Object && TryGetArrayElementType(_lastExpressionClassName, out var elementType) &&
                     Current.Kind is TokenKind.LBracket or TokenKind.Dot)
                     return ParseArrayResultRead(elementType);
+                if (type == ExprType.Object && _lastExpressionClassName != null &&
+                    _classes.ContainsKey(_lastExpressionClassName) && Check(TokenKind.Dot))
+                    return ParseReferenceGetters(_lastExpressionClassName);
                 return type;
             }
 
             private ExprType ParsePrimaryValue()
             {
-                if (Check(TokenKind.LBracket)) return ParseArrayLiteral();
+                if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.Dot &&
+                    TryResolveLocal(Current.Lexeme, out var boxLocal) && TryGetNamedBoxType(boxLocal.ClassName, out _))
+                {
+                    Advance();
+                    Emit(EnumOpcode.LoadLocal, boxLocal.Slot);
+                    _lastExpressionClassName = boxLocal.ClassName;
+                    return ExprType.Object;
+                }
+                if (Check(TokenKind.LBracket)) return IsMapLiteral() ? ParseMapLiteral() : ParseArrayLiteral();
                 if (Check(TokenKind.Identifier) && TryResolveLocal(Current.Lexeme, out var arrayLocal) &&
-                    TryGetArrayElementType(arrayLocal.ClassName, out _) &&
+                    (TryGetArrayElementType(arrayLocal.ClassName, out _) || IsMapType(arrayLocal.ClassName)) &&
                     Peek(1).Kind is TokenKind.LBracket or TokenKind.Dot)
                 {
                     Advance();
@@ -2930,11 +3706,14 @@ namespace Aloe.CompilerLib
 
                 if (Check(TokenKind.LParen))
                 {
+                    if (IsListLiteral()) return ParseArrayLiteral(isList: true);
                     Advance();
                     var type = ParseExpression();
                     Expect(TokenKind.RParen);
                     return type;
                 }
+
+                if (Check(TokenKind.LBrace)) return ParseArrayLiteral(isSet: true);
 
 
                 throw Error(
@@ -2948,14 +3727,44 @@ namespace Aloe.CompilerLib
                 Advance(); // pipe
                 Expect(TokenKind.Less);
                 var elementToken = Advance();
-                var elementType = elementToken.Lexeme switch
+                string elementName;
+                ExprType elementType;
+                var outerGreaterConsumed = false;
+                if (elementToken.Lexeme == "map")
                 {
-                    "int" => ExprType.Int,
-                    "string" => ExprType.String,
-                    "bool" or "boolean" => ExprType.Bool,
-                    _ => throw Error(elementToken, "pipe<T> currently supports int, string, and bool elements.")
-                };
-                Expect(TokenKind.Greater);
+                    ScanMapType(ref _position, elementToken, out var mapName, out outerGreaterConsumed);
+                    if (!TryGetMapTypes(mapName, out var mapKeyType, out _, out var mapValueType, out _) ||
+                        mapKeyType != ExprType.String || mapValueType != ExprType.String)
+                        throw Error(elementToken, "pipe<map<...>> currently supports map<string/string> elements only.");
+                    elementName = mapName!;
+                    elementType = ExprType.Object;
+                }
+                else
+                {
+                    elementType = elementToken.Lexeme switch
+                    {
+                        "int" => ExprType.Int,
+                        "decimal" => ExprType.Decimal,
+                        "byte" => ExprType.Byte,
+                        "string" => ExprType.String,
+                        "bool" or "boolean" => ExprType.Bool,
+                        _ when _structs.ContainsKey(elementToken.Lexeme) => ExprType.Struct,
+                        _ => throw Error(elementToken, "pipe<T> currently supports int, decimal, byte, string, string[], bool, and map<string/string> elements.")
+                    };
+                    elementName = elementType == ExprType.Bool ? "bool" : elementType == ExprType.Struct ? elementToken.Lexeme : FormatType(elementType);
+                    if (elementType == ExprType.String && Check(TokenKind.LBracket) && Peek(1).Kind == TokenKind.RBracket)
+                    {
+                        Advance();
+                        Advance();
+                        elementType = ExprType.Object;
+                        elementName = "string[]";
+                    }
+                }
+                if (elementType == ExprType.Object && elementName.StartsWith("map<", StringComparison.Ordinal))
+                {
+                    if (!outerGreaterConsumed) Expect(TokenKind.Greater);
+                }
+                else Expect(TokenKind.Greater);
                 Expect(TokenKind.Dot);
                 var create = Expect(TokenKind.Identifier);
                 if (!string.Equals(create.Lexeme, "create", StringComparison.Ordinal))
@@ -2976,7 +3785,7 @@ namespace Aloe.CompilerLib
                 }
                 Expect(TokenKind.RParen);
 
-                var typeName = $"pipe<{FormatType(elementType)}>";
+                var typeName = $"pipe<{elementName}>";
                 Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(typeName)));
                 if (!hasCapacity)
                     EmitIntConstant(-1); // -1 = unbounded
@@ -3000,7 +3809,7 @@ namespace Aloe.CompilerLib
                 var field = ResolveField(function.DeclaringClass, fieldToken);
                 Emit(EnumOpcode.LoadLocal, 0);
                 EmitIntConstant(field.Index);
-                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ObjectFieldGet);
+                Emit(EnumOpcode.Syscall, (int)(field.Type == ExprType.Object && !IsPipeTypeName(field.ClassName) ? EnumSyscall.ReferenceFieldGet : EnumSyscall.ObjectFieldGet));
                 _lastExpressionClassName = field.ClassName;
                 return field.Type;
             }
@@ -3046,12 +3855,14 @@ namespace Aloe.CompilerLib
                     throw Error(targetToken, $"Unknown class '{target.ClassName}'.");
 
                 Emit(EnumOpcode.LoadLocal, target.Slot);
+                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
                 Expect(TokenKind.Dot);
                 var member = Expect(TokenKind.Identifier);
                 var property = FindProperty(classInfo.Name, member.Lexeme);
                 if (property == null)
                     throw Error(member, $"'{classInfo.Name}.{member.Lexeme}' is not a public instance property in the current compiler subset.");
 
+                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
                 EmitIntConstant(property.Getter.Index);
                 Emit(EnumOpcode.Syscall, (int)EnumSyscall.InstancePropertyGet);
                 _lastExpressionClassName = property.ClassName;
@@ -3060,6 +3871,8 @@ namespace Aloe.CompilerLib
 
             private FieldSignature ResolveWithField(string className, AloeToken member)
             {
+                if (TryGetNamedBoxType(className, out _))
+                    throw Error(member, "Named box payloads are private and their extraction methods are not assignable.");
                 var field = ResolveField(className, member);
                 var declaringClass = _currentFunction?.DeclaringClass;
                 if (declaringClass == null || !_classes[declaringClass].Fields.Any(candidate => ReferenceEquals(candidate, field)))
@@ -3069,21 +3882,28 @@ namespace Aloe.CompilerLib
 
             private ExprType ParseWithInstanceRead(string className, int slot, AloeToken member)
             {
+                if (TryGetNamedBoxType(className, out _))
+                {
+                    Emit(EnumOpcode.LoadLocal, slot);
+                    return ParseNamedBoxCall(className, member);
+                }
                 if (_structs.TryGetValue(className, out var structInfo))
                     return ParseStructWithRead(structInfo, slot, member);
 
                 var property = FindProperty(className, member.Lexeme);
                 Emit(EnumOpcode.LoadLocal, slot);
+                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
                 if (property != null)
                 {
-                    EmitIntConstant(property.Getter.Index);
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
+                EmitIntConstant(property.Getter.Index);
                     Emit(EnumOpcode.Syscall, (int)EnumSyscall.InstancePropertyGet);
                     _lastExpressionClassName = property.ClassName;
                     return property.Type;
                 }
                 var field = ResolveWithField(className, member);
                 EmitIntConstant(field.Index);
-                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ObjectFieldGet);
+                Emit(EnumOpcode.Syscall, (int)(field.Type == ExprType.Object && !IsPipeTypeName(field.ClassName) ? EnumSyscall.ReferenceFieldGet : EnumSyscall.ObjectFieldGet));
                 _lastExpressionClassName = field.ClassName;
                 return field.Type;
             }
@@ -3093,6 +3913,8 @@ namespace Aloe.CompilerLib
             {
                 Advance(); // new
                 var className = Expect(TokenKind.Identifier);
+                if (TryGetNamedBoxType(className.Lexeme, out var boxPrimitive))
+                    return ParseNamedBoxConstructor(className, boxPrimitive);
                 if (!_classes.TryGetValue(className.Lexeme, out var classInfo))
                     throw Error(className, $"Unknown class '{className.Lexeme}'.");
 
@@ -3127,9 +3949,9 @@ namespace Aloe.CompilerLib
                             throw Error(Current, $"Constructor '{classInfo.Name}' received too many arguments.");
                         var argumentToken = Current;
                         var expressionStart = _code.Count;
-                        var actualType = ParseExpression();
-                        var actualClassName = _lastExpressionClassName;
                         var parameter = constructor.Parameters[argumentIndex];
+                        var actualType = ParseExpectedExpression(parameter.Type, parameter.ClassName);
+                        var actualClassName = _lastExpressionClassName;
                         actualType = AdaptByteLiteral(argumentToken, parameter.Type, actualType, expressionStart);
                         RequireAssignable(argumentToken, parameter.Type, actualType, parameter.ClassName, actualClassName);
                         argumentIndex++;
@@ -3211,6 +4033,13 @@ namespace Aloe.CompilerLib
                             hasMember = structInfo.Fields.Any(field => field.Name == memberName) ||
                                 structInfo.Methods.Any(method => method.Name == memberName) ||
                                 structInfo.Properties.Any(property => property.Name == memberName);
+                        if (!enumOnly && candidate.InstanceSlot != null && TryGetNamedBoxType(candidate.TypeName, out var primitive))
+                            hasMember = memberName == (primitive switch
+                            {
+                                ExprType.Int => "ToInt", ExprType.Byte => "ToByte", ExprType.Char => "ToChar",
+                                ExprType.Float => "ToFloat", ExprType.Decimal => "ToDecimal", ExprType.String => "ToString",
+                                ExprType.Bool => "ToBool", _ => ""
+                            });
                         if (!hasMember)
                             continue;
                         if (match != null)
@@ -3236,17 +4065,24 @@ namespace Aloe.CompilerLib
             private ExprType ParseTypeName(out string? className)
             {
                 var type = ParseSingleTypeName(out className);
-                if (!(Check(TokenKind.LBracket))) return type;
-                if (type == ExprType.Object && className?.StartsWith("pipe<", StringComparison.Ordinal) == true)
+                if (!Check(TokenKind.LBracket) && !IsSetTypeSuffixAt(_position) && !(Check(TokenKind.LParen) && Peek(1).Kind == TokenKind.RParen)) return type;
+                if (type == ExprType.Object && (className?.StartsWith("pipe<", StringComparison.Ordinal) == true || IsMapType(className)))
                     throw Error(Current, "Pipe values are not heap-object array elements.");
                 if (type is not (ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Enum or ExprType.Struct or ExprType.Object))
                     throw Error(Current, "Array base elements currently support primitive value, string, enum, struct and class/object types.");
                 className = type is ExprType.Enum or ExprType.Struct || type == ExprType.Object && className != null ? className : FormatType(type);
-                while (Check(TokenKind.LBracket))
+                while (Check(TokenKind.LBracket) || IsSetTypeSuffixAt(_position) || Check(TokenKind.LParen) && Peek(1).Kind == TokenKind.RParen)
                 {
+                    var list = Check(TokenKind.LParen);
+                    var set = IsSetTypeSuffixAt(_position);
+                    if (list && _forWasm) throw Error(Current, "Lists are unsupported by direct WASM.");
+                    if (set && _forWasm) throw Error(Current, "Sets are unsupported by direct WASM.");
+                    if (set && (type == ExprType.Struct || type == ExprType.Object &&
+                        !IsClassOrInterface(className)))
+                        throw Error(Current, "Set currently supports primitive, string, enum and class/interface-reference values only.");
                     Advance();
-                    Expect(TokenKind.RBracket);
-                    className += "[]";
+                    Expect(list ? TokenKind.RParen : set ? TokenKind.RBrace : TokenKind.RBracket);
+                    className += list ? "()" : set ? "{}" : "[]";
                 }
                 return ExprType.Object;
             }
@@ -3266,18 +4102,40 @@ namespace Aloe.CompilerLib
                     case "bool":
                     case "boolean": return ExprType.Bool;
                     case "object": return ExprType.Object;
+                    case "map": return ScanMapType(ref _position, token, out className);
                     case "pipe":
                         Expect(TokenKind.Less);
                         var elementToken = Advance();
+                        if (elementToken.Lexeme == "map")
+                        {
+                            ScanMapType(ref _position, elementToken, out var mapName, out var outerGreaterConsumed);
+                            if (!TryGetMapTypes(mapName, out var mapKeyType, out _, out var mapValueType, out _) ||
+                                mapKeyType != ExprType.String || mapValueType != ExprType.String)
+                                throw Error(elementToken, "pipe<map<...>> currently supports map<string/string> elements only.");
+                            if (!outerGreaterConsumed) Expect(TokenKind.Greater);
+                            className = $"pipe<{mapName}>";
+                            return ExprType.Object;
+                        }
                         var elementType = elementToken.Lexeme switch
                         {
                             "int" => ExprType.Int,
+                            "decimal" => ExprType.Decimal,
+                            "byte" => ExprType.Byte,
                             "string" => ExprType.String,
                             "bool" or "boolean" => ExprType.Bool,
-                            _ => throw Error(elementToken, "pipe<T> currently supports int, string, and bool elements.")
+                            _ when _structs.ContainsKey(elementToken.Lexeme) => ExprType.Struct,
+                            _ => throw Error(elementToken, "pipe<T> currently supports int, decimal, byte, string, string[], bool, and declared struct elements.")
                         };
+                        var elementName = elementType == ExprType.Bool ? "bool" : elementType == ExprType.Struct ? elementToken.Lexeme : FormatType(elementType);
+                        if (elementType == ExprType.String && Check(TokenKind.LBracket) && Peek(1).Kind == TokenKind.RBracket)
+                        {
+                            Advance();
+                            Advance();
+                            elementType = ExprType.Object;
+                            elementName = "string[]";
+                        }
                         Expect(TokenKind.Greater);
-                        className = $"pipe<{FormatType(elementType)}>";
+                        className = $"pipe<{elementName}>";
                         return ExprType.Object;
                     default:
                         if (_structs.ContainsKey(token.Lexeme))
@@ -3290,7 +4148,7 @@ namespace Aloe.CompilerLib
                             className = token.Lexeme;
                             return ExprType.Enum;
                         }
-                        if (_classNames.Contains(token.Lexeme))
+                if ((_classNames.Contains(token.Lexeme) || _interfaceNames.Contains(token.Lexeme) || TryGetNamedBoxType(token.Lexeme, out _)))
                         {
                             className = token.Lexeme;
                             return ExprType.Object;
@@ -3318,7 +4176,7 @@ namespace Aloe.CompilerLib
                 };
 
 
-            private static bool IsWasmType(ExprType type) => type is ExprType.Int or ExprType.Bool or ExprType.Enum;
+            private static bool IsWasmType(ExprType type) => type is ExprType.Int or ExprType.Float or ExprType.Bool or ExprType.Byte or ExprType.Char or ExprType.Enum;
 
             private LocalInfo DeclareImplicitLocal(string name, ExprType type, string? className = null)
             {
@@ -3327,6 +4185,7 @@ namespace Aloe.CompilerLib
                     throw new AloeCompileException($"Local '{name}' is already declared in this scope.");
                 var local = new LocalInfo(_nextLocalSlot++, type, className);
                 _localTypes.Add(local.Slot, type);
+                _declaredLocals.Add(local.Slot, local);
                 scope.Add(name, local);
                 return local;
             }
@@ -3345,6 +4204,7 @@ namespace Aloe.CompilerLib
 
                 var local = new LocalInfo(_nextLocalSlot++, type, className);
                 _localTypes.Add(local.Slot, type);
+                _declaredLocals.Add(local.Slot, local);
                 scope.Add(name.Lexeme, local);
                 return local;
             }
@@ -3366,7 +4226,7 @@ namespace Aloe.CompilerLib
                 => className != null && className.StartsWith("pipe<", StringComparison.Ordinal) && className.EndsWith(">", StringComparison.Ordinal);
 
 
-            private static bool TryGetPipeElementType(string? className, out ExprType elementType)
+            private bool TryGetPipeElementType(string? className, out ExprType elementType)
             {
                 elementType = ExprType.Void;
                 if (!IsPipeTypeName(className))
@@ -3376,11 +4236,25 @@ namespace Aloe.CompilerLib
                 elementType = elementName switch
                 {
                     "int" => ExprType.Int,
+                    "decimal" => ExprType.Decimal,
+                    "byte" => ExprType.Byte,
                     "string" => ExprType.String,
+                    "string[]" => ExprType.Object,
+                    "map<string/string>" => ExprType.Object,
                     "bool" => ExprType.Bool,
+                    _ when _structs.ContainsKey(elementName) => ExprType.Struct,
                     _ => ExprType.Void
                 };
                 return elementType != ExprType.Void;
+            }
+
+            private static string? GetPipeElementClassName(string? className)
+            {
+                if (!IsPipeTypeName(className)) return null;
+                var elementName = className![5..^1];
+                return elementName is "string[]" or "map<string/string>" or "int" or "decimal" or "byte" or "string" or "bool"
+                    ? elementName is "string[]" or "map<string/string>" ? elementName : null
+                    : elementName;
             }
 
 
@@ -3430,6 +4304,25 @@ namespace Aloe.CompilerLib
                 string? expectedClassName,
                 string? actualClassName)
             {
+                if (expected == ExprType.Object && TryGetNamedBoxType(expectedClassName, out var boxPrimitive) && actual == boxPrimitive)
+                {
+                    if (_forWasm) throw Error(token, "Named boxes are unsupported by the direct WASM backend.");
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.PrimitiveBox);
+                    return;
+                }
+                if (expected == ExprType.Object && expectedClassName == null && IsPrimitiveCastType(actual))
+                {
+                    if (_forWasm) throw Error(token, "Boxing is unsupported by the direct WASM backend.");
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.PrimitiveBox);
+                    return;
+                }
+                if (IsPrimitiveCastType(expected) && actual == ExprType.Object && !IsPipeTypeName(actualClassName))
+                {
+                    if (_forWasm) throw Error(token, "Unboxing is unsupported by the direct WASM backend.");
+                    Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(FormatType(expected))));
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.PrimitiveCast);
+                    return;
+                }
                 if (expected != actual)
                     throw Error(token, $"Type mismatch: expected {expected}, found {actual}.");
 

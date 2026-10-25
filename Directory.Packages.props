@@ -1,0 +1,24 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>false</CentralPackageTransitivePinningEnabled>
+    <CentralPackageVersionOverrideEnabled>false</CentralPackageVersionOverrideEnabled>
+    <NuGetAudit Condition="'$(NuGetAudit)' == ''">true</NuGetAudit>
+    <NuGetAuditMode Condition="'$(NuGetAuditMode)' == ''">all</NuGetAuditMode>
+    <NuGetAuditLevel Condition="'$(NuGetAuditLevel)' == ''">low</NuGetAuditLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ContinuousIntegrationBuild)' == 'true'">
+    <RestoreLockedMode>true</RestoreLockedMode>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1900;NU1903;NU1904;NU1905</WarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="[10.0.13]" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="[10.0.13]" />
+    <PackageVersion Include="coverlet.collector" Version="[6.0.4]" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="[18.0.1]" />
+    <PackageVersion Include="NUnit" Version="[4.4.0]" />
+    <PackageVersion Include="NUnit.Analyzers" Version="[4.11.2]" />
+    <PackageVersion Include="NUnit3TestAdapter" Version="[5.2.0]" />
+    <PackageVersion Include="WixToolset.Util.wixext" Version="[7.0.0]" />
+  </ItemGroup>
+</Project>

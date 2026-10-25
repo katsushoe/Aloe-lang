@@ -35,6 +35,9 @@ namespace Aloe.RuntimeLib.OpCommand
             if (left.IsChar)
                 return left.AsChar == right.AsChar;
 
+            if (left.IsObject)
+                return left.AsObjectId == right.AsObjectId;
+
 
             if (left.IsString)
                 return string.Equals(

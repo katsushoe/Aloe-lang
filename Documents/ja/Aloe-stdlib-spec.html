@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 標準ライブラリ仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="5">
-  <meta name="edit-date" content="2026-10-06T08:33:38+09:00">
+  <meta name="edit-version" content="7">
+  <meta name="edit-date" content="2026-10-19T05:23:00+09:00">
   <style>
     :root {
       color-scheme: light dark;
@@ -691,7 +691,7 @@ function main(args: string[]): int {
     <ul>
       <li><code>tick()</code> は main から VM Tick を同期実行する Runtime intrinsic または専用 statement とする。</li>
       <li><code>tick()</code> は <code>aloe.system</code> の通常ライブラリ関数として固定しない。</li>
-      <li>return 時には現在 Tick の async Call、Volatile Commit、参照処理、GC が完了している。</li>
+      <li>return 時には現在 Tick の async Call、Volatile Commit、Runtime Temporary Root と Reference Graph の更新が完了している。物理 GC の Plan / Sweep / Move / FreeBlock は実行しない。</li>
     </ul>
 
 
@@ -727,6 +727,19 @@ function main(args: string[]): int {
       <li>CallBuffer の lock / scheduling / Tick Quiescence 判定は AloeVM / Runtime の責務である。</li>
       <li>Reference Counting、Reference Group、Destruction Candidate、Runtime Temporary Reference は VM の寿命管理仕様である。</li>
       <li>標準ライブラリはこれらの内部構造を public API として露出させない。</li>
+    </ul>
+
+
+    <h3>7.7 現行VMのHost intrinsic</h3>
+    <p>
+      現行VMは <code>readLine()</code> と <code>sleep(ms)</code> をグローバルな Host intrinsic として公開する。
+      これらは <code>aloe.system</code> の通常関数ではなく、import も不要である。
+    </p>
+    <ul>
+      <li><code>readLine(): string</code> は設定された Host 入力プロバイダー（既定値: <code>Console.ReadLine</code>）から1行を同期的に取得する。入力終端でプロバイダーが行を返さない場合は空文字列を返す。</li>
+      <li><code>sleep(ms: int): void</code> はミリ秒単位の非負 signed int32 値を受け取り、設定された Host タイマーハンドラー（既定値: <code>Thread.Sleep</code>）を呼び出し元のVM thread 上で同期実行する。</li>
+      <li><code>readLine</code> は <code>AloeHostCapability.ConsoleInput</code>、<code>sleep</code> は <code>AloeHostCapability.Timer</code> を必要とする。<code>AloeVmSettings.AllowedHostCapabilities</code> でアクセスを制御し、既定値は <code>AloeHostCapability.All</code> とする。必要な capability が許可されていない場合、Host handler の呼び出し前にVM例外を送出する。</li>
+      <li>Browser REPL では Host capability を無効化するため、両 intrinsic は拒否される。<a href="../decisions/0019-browser-repl-host-capabilities.md">Browser REPL のHost capability決定</a>を参照。</li>
     </ul>
 
 

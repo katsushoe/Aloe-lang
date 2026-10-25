@@ -1095,6 +1095,7 @@
     <!-- 0x0A Exception -->
     <section id="cat-0a" class="op-section" style="display:none;">
       <h3>カテゴリ 0x0A: Exception（例外処理）</h3>
+      <div class="note">現行C# prototypeの部分実装：TRY_BEGIN、TRY_END、CATCH_END、TRY_CATCH、RETHROWを0x00A4～0x00A7、0x00A2で符号化します。既存例外型を対象に、catch-all／型指定clauseの順序付き同期処理と同期call frameをまたぐ再throwに対応します。TRY_CATCH table descriptorはcatch本文の絶対IPと例外名constant index + 1（0はcatch-all）を持ち、通常制御では読み飛ばされます。例外値、finally、async伝播は未対応です。その他の例外opcodeは提案段階です。</div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -1134,6 +1135,26 @@
               <td>LEAVE</td>
               <td>相対オフセット int32</td>
               <td>try/finally ブロックから脱出し、finally 実行後に指定オフセットに制御を移す。</td>
+            </tr>
+            <tr>
+              <td>0x0A</td><td>0x04</td><td>TRY_BEGIN</td>
+              <td>catch命令位置（絶対int32）</td>
+              <td>現在のcall frameで後続try領域に対するcatch-all handlerを登録する。</td>
+            </tr>
+            <tr>
+              <td>0x0A</td><td>0x05</td><td>TRY_END</td>
+              <td>なし</td>
+              <td>try領域の正常終了後にhandlerを解除する。</td>
+            </tr>
+            <tr>
+              <td>0x0A</td><td>0x06</td><td>CATCH_END</td>
+              <td>なし</td>
+              <td>現在のcatch contextを終了する。</td>
+            </tr>
+            <tr>
+              <td>0x0A</td><td>0x07</td><td>TRY_CATCH</td>
+              <td>catch本文の絶対IP（int32）、例外名constant index + 1（int32、0はcatch-all）</td>
+              <td>順序付きcatch table descriptor。通常フローでは読み飛ばされ、実行時に最初に割当て可能なclauseを選択する。</td>
             </tr>
           </tbody>
         </table>

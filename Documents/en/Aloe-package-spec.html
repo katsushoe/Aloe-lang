@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Aloe Package Specification (Draft, English Version)</title>
-  <meta name="edit-version" content="1" />
-  <meta name="edit-date" content="2025-12-04T09:30:00+09:00" />
+  <meta name="edit-version" content="2" />
+  <meta name="edit-date" content="2026-10-24T00:00:00+09:00" />
   <style>
     :root {
       color-scheme: light dark;
@@ -176,6 +176,20 @@
       The command-line specification and project file format for build tools (for example <code>aloec</code>)
       are defined separately in a <strong>“Build Tool Specification”</strong>.
     </p>
+
+    <div class="note" id="implemented-local-resolution">
+      <strong>Implemented local subset (decision0031):</strong>
+      <code>aloec package-db resolve --name NAME --version VERSION [--package-db PATH]</code>
+      reads the existing version1 JSON location index and fresh metadata to produce a deterministic,
+      dependency-first JSON plan with absolute file paths and SHA256 hashes. Names are ordinal and
+      case-sensitive; versions must be exact three-part numeric strings without leading zeroes except zero.
+      Repeated identical edges are collapsed. Missing or unreadable files, invalid metadata or identity,
+      unsupported versions, cycles and same-name version conflicts fail with no partial plan or input writes.
+      No download, installation, code execution or trust decision is performed. This is a snapshot of bytes
+      read, not a permanent lock or a guarantee against later changes. Other package features below remain
+      a draft. See <a href="../../ReadMe.md#local-package-index-and-dependency-plans">CLI usage</a>
+      and <a href="../decisions/0031-local-exact-package-resolution-plan.md">decision0031</a>.
+    </div>
 
     <hr>
 

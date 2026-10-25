@@ -37,7 +37,7 @@ public sealed partial class AloeCompiler
                 {
                     position++;
                     var name = TokenAt(position++);
-                    if (name.Kind != TokenKind.Identifier || _enumMembers.ContainsKey(name.Lexeme) ||
+                    if (name.Kind != TokenKind.Identifier || TryGetNamedBoxType(name.Lexeme, out _) || _enumMembers.ContainsKey(name.Lexeme) ||
                         !_structs.TryAdd(name.Lexeme, new StructSignature(name.Lexeme, new())))
                         throw Error(name, "Struct name must be a unique type identifier.");
                     ExpectAt(ref position, TokenKind.LBrace);
@@ -76,7 +76,7 @@ public sealed partial class AloeCompiler
                         throw Error(name, "Struct field name must be a unique identifier.");
                     ExpectAt(ref position, TokenKind.Colon);
                     var type = ScanType(ref position, allowVoid: false, out var typeName);
-                    if (type is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.Enum or ExprType.Struct))
+                    if (type is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.String or ExprType.Enum or ExprType.Struct))
                         throw Error(name, "Struct fields support primitive values, enums and other structs; references are forbidden.");
                     ExpectAt(ref position, TokenKind.Semicolon);
                     signature.Fields.Add(new FieldSignature(name.Lexeme, signature.Fields.Count, type, typeName));
@@ -236,6 +236,10 @@ public sealed partial class AloeCompiler
             var canFallThrough = true;
             while (_position < function.BodyEnd)
             {
+                var enclosingFlowReachability = _interfaceFlowReachable;
+                var enclosingWriteReachability = _interfaceWriteReachable;
+                _interfaceFlowReachable = enclosingFlowReachability && canFallThrough;
+                _interfaceWriteReachable = enclosingWriteReachability && canFallThrough;
                 if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot)
                 {
                     ParseStructConstructorThisAssignment(signature);
@@ -247,6 +251,8 @@ public sealed partial class AloeCompiler
                     var statementCanFallThrough = ParseStatement();
                     if (canFallThrough) canFallThrough = statementCanFallThrough;
                 }
+                _interfaceFlowReachable = enclosingFlowReachability;
+                _interfaceWriteReachable = enclosingWriteReachability;
             }
             if (canFallThrough)
             {
@@ -276,7 +282,7 @@ public sealed partial class AloeCompiler
             {
                 Expect(TokenKind.Assign);
                 var start = _code.Count;
-                var type = ParseExpression();
+                var type = ParseExpectedExpression(rootField.Type, rootField.ClassName);
                 var typeName = _lastExpressionClassName;
                 type = AdaptByteLiteral(rootMember, rootField.Type, type, start);
                 RequireAssignable(rootMember, rootField.Type, type, rootField.ClassName, typeName);
@@ -312,9 +318,9 @@ public sealed partial class AloeCompiler
             Expect(TokenKind.Assign);
             Emit(EnumOpcode.LoadLocal, parent.Slot);
             var expressionStart = _code.Count;
-            var actual = ParseExpression();
-            var actualName = _lastExpressionClassName;
             var target = field!;
+            var actual = ParseExpectedExpression(target.Type, target.ClassName);
+            var actualName = _lastExpressionClassName;
             var member = path[^1];
             actual = AdaptByteLiteral(member, target.Type, actual, expressionStart);
             RequireAssignable(member, target.Type, actual, target.ClassName, actualName);
@@ -449,9 +455,9 @@ public sealed partial class AloeCompiler
                     throw Error(Current, "Struct constructor received too many arguments.");
                 var token = Current;
                 var start = _code.Count;
-                var actual = ParseExpression();
-                var actualName = _lastExpressionClassName;
                 var parameter = constructor.Parameters[count++];
+                var actual = ParseExpectedExpression(parameter.Type, parameter.ClassName);
+                var actualName = _lastExpressionClassName;
                 actual = AdaptByteLiteral(token, parameter.Type, actual, start);
                 RequireAssignable(token, parameter.Type, actual, parameter.ClassName, actualName);
                 if (!Check(TokenKind.Comma)) break;
@@ -571,7 +577,7 @@ public sealed partial class AloeCompiler
                 if (slots.ContainsKey(field.Name)) throw Error(member, "Duplicate struct field initializer.");
                 Expect(TokenKind.Colon);
                 var expressionStart = _code.Count;
-                var actual = ParseExpression();
+                var actual = ParseExpectedExpression(field.Type, field.ClassName);
                 var actualName = _lastExpressionClassName;
                 actual = AdaptByteLiteral(member, field.Type, actual, expressionStart);
                 RequireAssignable(member, field.Type, actual, field.ClassName, actualName);
@@ -653,7 +659,7 @@ public sealed partial class AloeCompiler
             Expect(TokenKind.Assign);
             Emit(EnumOpcode.LoadLocal, parent.Slot);
             var expressionStart = _code.Count;
-            var actual = ParseExpression();
+            var actual = ParseExpectedExpression(field.Type, field.ClassName);
             var actualName = _lastExpressionClassName;
             actual = AdaptByteLiteral(member, field.Type, actual, expressionStart);
             RequireAssignable(member, field.Type, actual, field.ClassName, actualName);

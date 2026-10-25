@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -57,6 +57,26 @@ function main(args: string[]): int {
             Assert.That(output.Take(2), Is.EquivalentTo(new[] { "1", "2" }));
             Assert.That(output.Last(), Is.EqualTo("3"));
             Assert.That(outputThreads["1"], Is.Not.EqualTo(outputThreads["2"]));
+        }
+
+        [Test]
+        public void TickPreservesObjectFifoWhenBusyCallsPrecedeAnotherRunnableObject()
+        {
+            const string source = """
+class Worker { public async method write(value: int): void { print(value); } }
+function main(args: string[]): int {
+    var first = new Worker(); var second = new Worker();
+    first.write(1); first.write(2); second.write(10); first.write(3); first.write(4);
+    tick(); return 0;
+}
+""";
+            var module = new AloeCompiler().Compile(source);
+            var vm = new AloeVm(module) { MaxVmThreads = 2 };
+            var output = new List<string>();
+            vm.OutputWriter = line => output.Add(line);
+            vm.RunFromEntryPoint();
+            Assert.That(output, Is.EquivalentTo(new[] { "1", "2", "10", "3", "4" }));
+            Assert.That(output.Where(line => line != "10"), Is.EqualTo(new[] { "1", "2", "3", "4" }));
         }
 
         [Test]

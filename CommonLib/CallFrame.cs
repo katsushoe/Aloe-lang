@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 
 namespace Aloe.CommonLib
 {
@@ -25,6 +26,37 @@ namespace Aloe.CommonLib
         public int StartIp { get; }
         public int EndIp { get; }
         public int ElseIp { get; }
+    }
+
+    /// <summary>Handler dispatch state for a synchronous exception region.</summary>
+    public sealed class ExceptionHandlerFrame
+    {
+        public ExceptionHandlerFrame(
+            int catchIp,
+            Type? exceptionType,
+            int tryStartIp,
+            int tryEndIp,
+            int controlDepth,
+            IReadOnlyList<AloeValue> valueStackTopFirst,
+            int caughtExceptionDepth = 0)
+        {
+            CatchIp = catchIp;
+            ExceptionType = exceptionType;
+            TryStartIp = tryStartIp;
+            TryEndIp = tryEndIp;
+            ControlDepth = controlDepth;
+            ValueStackTopFirst = valueStackTopFirst;
+            CaughtExceptionDepth = caughtExceptionDepth;
+        }
+
+        public int CatchIp { get; }
+        public Type? ExceptionType { get; }
+        public int TryStartIp { get; }
+        public int TryEndIp { get; }
+        public int ControlDepth { get; }
+        public IReadOnlyList<AloeValue> ValueStackTopFirst { get; }
+        /// <summary>Catch contexts enclosing the try when its handler was installed.</summary>
+        public int CaughtExceptionDepth { get; }
     }
 
     /// <summary>
@@ -54,6 +86,12 @@ namespace Aloe.CommonLib
 
         /// <summary>Structured control flow のアクティブなラベルスタック。</summary>
         public Stack<ControlFrame> ControlStack { get; } = new();
+
+        /// <summary>Active catch-all handlers in this call frame.</summary>
+        public Stack<ExceptionHandlerFrame> ExceptionHandlers { get; } = new();
+
+        /// <summary>Exceptions currently handled by catch blocks, including outer catches.</summary>
+        public Stack<ExceptionDispatchInfo> CaughtExceptions { get; } = new();
 
         /// <summary>ローカル変数の数。</summary>
         public int LocalCount => Locals.Length;

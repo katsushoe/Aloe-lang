@@ -78,6 +78,64 @@ namespace Aloe.CommonLib.Constants
         /// <summary>Pop array handle; push its fixed length.</summary>
         ArrayLength = 24,
 
+        /// <summary>Pop target descriptor and reference; push the same live compatible handle or throw InvalidCastException.</summary>
+        ObjectCast = 25,
+        /// <summary>Pop target descriptor and reference; push a compatible handle or Null, then a success bool.</summary>
+        ObjectTryCast = 26,
+
+        /// <summary>Pop primitive descriptor and value; preserve a matching scalar or extract a matching box, otherwise throw InvalidCastException. Does not convert.</summary>
+        PrimitiveCast = 27,
+        /// <summary>Pop primitive type descriptor and value; push the same valid value or Null, then a success bool.</summary>
+        PrimitiveTryCast = 28,
+
+        /// <summary>Pop a valid primitive; allocate its immutable box and push the new heap handle.</summary>
+        PrimitiveBox = 29,
+
+        /// <summary>Pop primitive descriptor and live box; push its payload. Invalid references fail before extraction; the compiler clears the local only after success.</summary>
+        PrimitiveUnbox = 30,
+        /// <summary>Pop and return a live heap reference, otherwise throw InvalidReferenceException.</summary>
+        ReferenceRequireLive = 31,
+        /// <summary>Push the runtime invalid-reference marker without adding a Null constant to AloeBC.</summary>
+        ReferenceInvalid = 32,
+        /// <summary>Pop index and reference-array owner; clear that element following Tick/query rules.</summary>
+        ReferenceArrayInvalidate = 33,
+        /// <summary>Pop field index and owner; clear a reference field following Tick/query rules.</summary>
+        ReferenceFieldInvalidate = 34,
+        /// <summary>Pop field index and owner; read a reference field including its invalid marker.</summary>
+        ReferenceFieldGet = 35,
+        /// <summary>Append one element to a List while preserving its object identity.</summary>
+        ListAdd = 36,
+        /// <summary>Remove one indexed element from a List and shift later elements left.</summary>
+        ListRemoveAt = 37,
+        /// <summary>Add one unique value to a Set while preserving its object identity.</summary>
+        SetAdd = 38,
+        /// <summary>Remove one value from a Set while preserving its object identity.</summary>
+        SetRemove = 39,
+        /// <summary>Push whether a Set contains an exactly typed value.</summary>
+        SetContains = 40,
+        /// <summary>Remove every value from a Set while preserving its object identity.</summary>
+        SetClear = 48,
+        /// <summary>Merge unique values from another exactly typed Set.</summary>
+        SetUnionWith = 49,
+        /// <summary>Keep only values present in another exactly typed Set.</summary>
+        SetIntersectWith = 50,
+        /// <summary>Remove values present in another exactly typed Set.</summary>
+        SetExceptWith = 51,
+        /// <summary>Pop count, descriptor and key/value pairs; push a new Map handle.</summary>
+        MapCreate = 41,
+        /// <summary>Pop typed key and Map handle; push the associated value or throw for a missing key.</summary>
+        MapGet = 42,
+        /// <summary>Pop value, typed key and Map handle; insert or replace the value.</summary>
+        MapSet = 43,
+        /// <summary>Pop typed key and Map handle; remove the key if present.</summary>
+        MapRemove = 44,
+        /// <summary>Pop typed key and Map handle; push whether the key exists.</summary>
+        MapContainsKey = 45,
+        /// <summary>Pop Map handle; push its key count.</summary>
+        MapCount = 46,
+        /// <summary>Pop int index and Map handle; push the key at that insertion-order position.</summary>
+        MapKeyAt = 47,
+
         // 将来拡張:
         // WriteStderr = 2,
         // GetTime     = 3,

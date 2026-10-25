@@ -1,5 +1,7 @@
 ﻿# AloeSample - Source-to-VM 実行サンプル
 
+[English](ReadMe.md) | [日本語](ReadMe-ja.md)
+
 
 このサンプルは、現在実装されている Aloe の最小エンドツーエンド実行経路です。
 

@@ -1095,6 +1095,7 @@
     <!-- 0x0A Exception -->
     <section id="cat-0a" class="op-section" style="display:none;">
       <h3>Category 0x0A: Exception</h3>
+      <div class="note">Current C# prototype subset: TRY_BEGIN, TRY_END, CATCH_END, TRY_CATCH and RETHROW are encoded as 0x00A4-0x00A7 and 0x00A2. It supports ordered synchronous catch-all/type-only clauses over the existing exception classes and rethrow across synchronous call frames. Catch-table descriptors use TRY_CATCH entries containing an absolute catch-body IP and an exception-name constant index plus one (zero means catch-all). Exception values, finally and async propagation are not implemented. Other listed exception opcodes remain proposed.</div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -1134,6 +1135,26 @@
               <td>LEAVE</td>
               <td>Relative offset (int32)</td>
               <td>Leaves a try/finally block and, after executing the finally block, transfers control to the specified offset.</td>
+            </tr>
+            <tr>
+              <td>0x0A</td><td>0x04</td><td>TRY_BEGIN</td>
+              <td>Absolute catch instruction pointer (int32)</td>
+              <td>Registers a catch-all handler for the following try region in the current call frame.</td>
+            </tr>
+            <tr>
+              <td>0x0A</td><td>0x05</td><td>TRY_END</td>
+              <td>None</td>
+              <td>Removes the active handler after normal completion of its try region.</td>
+            </tr>
+            <tr>
+              <td>0x0A</td><td>0x06</td><td>CATCH_END</td>
+              <td>None</td>
+              <td>Ends the active catch context.</td>
+            </tr>
+            <tr>
+              <td>0x0A</td><td>0x07</td><td>TRY_CATCH</td>
+              <td>Absolute catch-body IP (int32), exception-name constant index + 1 (int32; zero means catch-all)</td>
+              <td>Ordered catch-table descriptor. It is skipped during normal flow; dispatch selects the first assignable clause.</td>
             </tr>
           </tbody>
         </table>

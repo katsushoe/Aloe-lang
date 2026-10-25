@@ -7,6 +7,8 @@ namespace Aloe.RuntimeLib
 {
     public sealed class AloeGcSettings
     {
+        // These legacy-named budgets apply to each explicit collector work step,
+        // not to AloeVM.Tick(), which does not advance the physical GC phases.
         public int MaxMovedObjectsPerTick { get; set; } = 256;
         public long MaxMovedBytesPerTick { get; set; } = 1024 * 1024;
         public double MaxEvacuationOccupancy { get; set; } = 0.50;
@@ -32,7 +34,7 @@ namespace Aloe.RuntimeLib
 
     /// <summary>
     /// Three phase GC: Plan -> Sweep/Move -> FreeBlock.
-    /// A plan may remain active across multiple ticks when movement budgets are exhausted.
+    /// A plan may remain active across multiple explicit collector work steps when movement budgets are exhausted.
     /// </summary>
     public sealed class AloeGarbageCollector
     {
@@ -63,6 +65,7 @@ namespace Aloe.RuntimeLib
         /// <summary>GC debug output destination. AloeVm wires this to TraceWriter.</summary>
         public Action<string>? LogWriter { get; set; } = Console.WriteLine;
 
+        /// <summary>Runs one budgeted GC work step; this is separate from AloeVM.Tick().</summary>
         public AloeGcTickResult RunTick()
         {
             var started = Stopwatch.GetTimestamp();
@@ -114,7 +117,7 @@ namespace Aloe.RuntimeLib
 
             var sweepMs = Stopwatch.GetElapsedTime(sweepStarted).TotalMilliseconds;
 
-            // Phase 2b: moving is tick-budgeted and may continue next Tick.
+            // Phase 2b: moving is budgeted per collector work step and may continue in later GC work.
             var moveStarted = Stopwatch.GetTimestamp();
             while (plan.MoveIndex < plan.Moves.Count)
             {

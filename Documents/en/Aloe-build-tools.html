@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Aloe Build Tool Specification (Draft, English Version)</title>
-  <meta name="edit-version" content="1" />
-  <meta name="edit-date" content="2025-12-04T19:00:00+09:00" />
+  <meta name="edit-version" content="2" />
+  <meta name="edit-date" content="2026-10-21T17:12:00+09:00" />
   <style>
     :root {
       color-scheme: light dark;
@@ -620,6 +620,9 @@
       <code>package-db.json</code>, which is defined in the Package Specification.<br />
       Only the basic interface is defined here; more detailed operational rules are left to implementation.
     </p>
+    <p>All subcommands accept <code>--package-db &lt;path&gt;</code>. If omitted, the current directory's
+      <code>package-db.json</code> is used. Updates validate the existing formatVersion 1 index and replace it atomically;
+      invalid JSON or unsupported entries are errors and leave the index unchanged.</p>
 
     <h3>8.2 <code>list</code></h3>
     <pre><code>aloe package-db list [options]
@@ -628,7 +631,8 @@
       <li><code>--name &lt;pattern&gt;</code>
         <ul>
           <li>Filter by package name.</li>
-          <li>The pattern matching semantics (prefix match, wildcard support, etc.) are implementation-defined.</li>
+          <li><code>*</code> matches zero or more characters and <code>?</code> matches one character; matching is ordinal and case-sensitive.</li>
+          <li>Results are sorted by package name and then version using ordinal order, and printed as tab-separated name, version, abcPath, and metaPath fields. A missing database is an empty index.</li>
         </ul>
       </li>
     </ul>
@@ -658,6 +662,11 @@
         </ul>
       </li>
     </ul>
+    <p>All four values are required. The referenced files must exist and use the <code>.abc</code> and
+      <code>.meta.json</code> extensions. Metadata must have formatVersion 1; its package name/version must exactly
+      match the options, and its dependency array is copied into the index. A duplicate name/version identity is rejected.
+      Paths are stored relative to the database directory with forward slashes when possible. Every existing index entry must
+      contain a dependencies array. Updates change only the index, never the referenced package files.</p>
 
     <h3>8.4 <code>remove</code></h3>
     <pre><code>aloe package-db remove [options]
@@ -674,6 +683,7 @@
         </ul>
       </li>
     </ul>
+    <p>The exact name/version identity is required. Removing an entry changes only the JSON index; the referenced package files are retained.</p>
 
     <hr />
 

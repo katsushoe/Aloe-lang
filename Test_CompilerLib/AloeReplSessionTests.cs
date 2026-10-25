@@ -1,4 +1,5 @@
 ﻿using Aloe.Repl;
+using Aloe.RuntimeLib;
 using NUnit.Framework;
 
 
@@ -15,7 +16,8 @@ public sealed class AloeReplSessionTests
 
 
         Assert.That(repl.Submit("var x = 10;").Success, Is.True);
-        Assert.That(repl.Submit("x = x + 5;").Success, Is.True);
+        var assignment = repl.Submit("x = x + 5;");
+        Assert.That(assignment.Success, Is.True, assignment.Error);
 
 
         var result = repl.Submit("x");
@@ -23,6 +25,82 @@ public sealed class AloeReplSessionTests
 
         Assert.That(result.Success, Is.True);
         Assert.That(result.Output, Is.EqualTo("15\n"));
+    }
+
+
+    [Test]
+    public void SuccessfulStatements_ContinueOnTheSameVmAndRetainHeapReferences()
+    {
+        var repl = new AloeReplSession();
+        Assert.That(repl.Submit("""
+class Counter {
+    field value: int;
+    construct(value: int) { this.value = value; }
+    public async method increment(): void { this.value = this.value + 1; }
+    public property Value: int { get { return this.value; } }
+}
+""").Success, Is.True);
+        Assert.That(repl.Submit("var counter = new Counter(41);").Success, Is.True);
+        var vmField = typeof(AloeReplSession).GetField("_vm", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var firstVm = vmField.GetValue(repl);
+
+        Assert.That(repl.Submit("counter.increment();").Success, Is.True);
+        var increment = repl.Submit("tick();");
+        Assert.That(increment.Success, Is.True, increment.Error);
+        Assert.That(vmField.GetValue(repl), Is.SameAs(firstVm));
+        Assert.That(repl.Submit("counter.Value").Output, Is.EqualTo("42\n"));
+        Assert.That(vmField.GetValue(repl), Is.SameAs(firstVm));
+    }
+
+
+    [Test]
+    public void RuntimeFailure_FaultsSessionWithoutReplayingSuccessfulSource()
+    {
+        var repl = new AloeReplSession();
+        Assert.That(repl.Submit("var value = 10;").Success, Is.True);
+
+        var failed = repl.Submit("value = 99; print(1 / 0);");
+
+        Assert.That(failed.Success, Is.False);
+        var blocked = repl.Submit("value");
+        Assert.That(blocked.Success, Is.False);
+        Assert.That(blocked.Error, Does.Contain("faulted"));
+        Assert.That(repl.Submit(":reset").Success, Is.True);
+        Assert.That(repl.Submit("value").Success, Is.False);
+    }
+
+
+    [TestCase("readLine()")]
+    [TestCase("sleep(1);")]
+    public void HostIntrinsic_IsRejectedWhenSessionCapabilityIsDisabled(string source)
+    {
+        var repl = new AloeReplSession(new AloeVmSettings
+        {
+            AllowedHostCapabilities = AloeHostCapability.None
+        });
+
+        var result = repl.Submit(source);
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.Error, Does.Contain("requires capability"));
+        Assert.That(repl.Submit(":reset").Success, Is.True);
+    }
+
+
+    [Test]
+    public void GcDebug_InIncrementalExecutionReportsReplAllocationBreakdown()
+    {
+        var repl = new AloeReplSession();
+        Assert.That(repl.Submit("GC.debug = true;").Success, Is.True);
+
+        var result = repl.Submit("GC.debug = false;");
+
+        Assert.That(result.Success, Is.True);
+        Assert.That(result.Output, Does.Contain("[REPL-PERF]"));
+        Assert.That(result.Output, Does.Contain("compileAllocatedBytes="));
+        Assert.That(result.Output, Does.Contain("vmCreateAllocatedBytes="));
+        Assert.That(result.Output, Does.Contain("runAllocatedBytes="));
+        Assert.That(result.Output, Does.Contain("totalAllocatedBytes="));
     }
 
 

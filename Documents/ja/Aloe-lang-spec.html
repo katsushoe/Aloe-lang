@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="88">
-  <meta name="edit-date" content="2026-10-13T11:30:32+09:00">
+  <meta name="edit-version" content="170">
+  <meta name="edit-date" content="2026-10-25T18:36:48+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 88)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 159)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 88<br>
-      edit-date: 2026-10-13T11:30:32+09:00</p>
+      edit-version: 159<br>
+      edit-date: 2026-10-22T11:02:13+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -384,6 +384,13 @@ print(x);
 
 
 
+    <h3>1.5.1 Function completion（関数の終了条件）</h3>
+    <ul>
+      <li>void 以外の関数では、通常終了できるすべての経路で値を返す必要がある。</li>
+      <li>リテラル条件が <code>true</code> の <code>while</code> ループに到達可能な <code>break</code> がない場合、そのループから通常終了できない。到達可能な <code>break</code> がある場合はループを抜けられるため、その後に続く経路では関数が値を返す必要がある。</li>
+      <li>ループ出口の解析では、到達不能な分岐にある <code>break</code> は考慮しない。たとえば <code>if (false)</code> 内の <code>break</code> は <code>while (true)</code> の通常終了経路にならない。</li>
+    </ul>
+
     <h3>1.6 Whitespace（空白）</h3>
     <ul>
       <li>スペース、タブ、改行はトークン区切りとして扱われる。</li>
@@ -490,7 +497,7 @@ print(x);
       <li>参照型の値は <code>object</code> へ暗黙に代入できる（参照コピー）。</li>
       <li>プリミティブ値（string を含む）を <code>object</code> に代入する場合、対応する box object に boxing される（2.4参照）。</li>
       <li><code>object</code> から具体型 T への暗黙変換はない。</li>
-      <li><code>if (x is T) { ... }</code> のブロック内では、<code>x</code> を T として扱ってよい（フロー依存の型絞り込み）。</li>
+      <li>現行コンパイラーはifの分岐やwhile本文内で、ローカル参照の型情報を扱います。正の<code>x is T</code>検査には括弧と<code>and</code>を使え、<code>or</code>では全経路が保証する型情報だけを残します。or対象は最も具体的な共通の祖先interfaceを一意に選べる場合にまとめ、兄弟型やdiamond継承も扱います。本文直下の代入は元の宣言型で検査し、その後に一時的な絞り込みを解除します。直下のdelete・消費unboxも解除します。変更前の読み出しは絞り込みを使え、変更後は宣言型のメンバー以外に再検査かcastが必要です。入れ子のif／else-ifでは変更前と別分岐の読み出しを維持します。合流後は、その先へ進む全経路で維持された既存の型情報だけを残し、returnする経路の変更は除外します。一度だけ実行するwith本文は変更まで型情報を維持し、保持したclass／名前付きbox対象は元ローカルの変更後も使えます。同期try/catchはコンパイラーが到達可能と判定するtry経路の代入・delete・消費unboxを追跡し、catch入口ではその経路で変更される可能性があるslotの絞り込みを解除します。コンパイル時に選択されないif／else-if分岐と終端文以降は変更候補に含めません。try/catchの片方だけが後続へ進む場合は、その経路の型情報を引き継ぎ、両方が進む場合は両経路で共通する型情報だけを残します。while／foreach入口ではヘッダー・本文で変更される可能性があるローカルの既存情報を解除します。ループより前の読み出しは維持し、while条件で各反復の型情報を再確立して、入れ子の条件分岐・with・try内の変更を扱えます。本体から次の条件評価へ戻る到達可能経路がないと解析できる場合（現在は直線列、withブロック、および対応する終端if／try-catchで、外側ループへ戻る到達可能なcontinueを含まないもの。入れ子のwhile／foreachは文全体を解析上読み飛ばし、その終了後に外側の終端へ到達するかを確認します）は、初回の条件情報を本体で維持します。入れ子のwhileは条件が定数trueで、自身を抜ける到達可能なbreakがなければ後続へ進みません。さらに内側のloopのbreakや、終端経路後の到達不能なbreakはその出口に数えません。0回実行のfalse-condition出口は到達可能なbreak出口と合流し、共通の型情報だけを維持します。到達可能なcontinueまたは本体から次の条件評価へfall-throughする経路がある場合は、反復間の状態を保守的に扱います。return／再throw経路の書き込みも、外側catchがfall-throughまたはbreak／continueでloopへ合流できる場合は入口走査から除外しません。局所的な終端だけでは例外経路の書き込みを落としません。一方、例外でもloopへ再合流しないreturn／再throw／証明済みの非継続分岐は、継続する経路の型情報を破棄しません。whileの入口では、必ず終端してcontinueを持たない条件枝の書き込みが、そのwhileのbreak出口だけへ到達する場合も反復入口から除外できます。変更済みbreak状態はパーサーが後続の出口合流に保持します。入れ子loopへ向かうbreakやforeachの出口復元には適用しません。orの真分岐／andの偽分岐の合流では、選択中の真偽値にならない定数項を除外します（orのfalse項、偽条件を解析するandのtrue項）。未知の選択肢は保守的に扱います。定数の短絡評価で到達しない右辺も型検査・コード生成は行いますが、そのlocal消費はinterface型情報を破棄せず、外側catchの変更候補にも含めません。条件の証明から除外するのは、到達可能な式の経路で消費するslotだけです。loop入口の走査も、外側や入れ子のif／while条件、および代入・初期化の右辺（入れ子の呼び出し引数・配列要素を含む）から識別した短絡到達不能項を除外します。コンマで区切る引数・要素は個別に解析し、ある項の短絡を次の引数・要素へ適用しません。その他の式形状は保守的に扱います。条件結果が定数falseでも、実行される条件の副作用は維持します。0回実行の出口にはその副作用を反映し、入れ子の本体を読み飛ばす場合も、評価される条件の消費は外側loop入口の変更候補へ含めます。否定は選択する真偽を反転し、明示else本文には条件が偽のとき保証される情報を使います。外側の偽条件情報はelse-ifの条件式と各分岐にも適用し、分岐別の型情報を合流時に統合します。if/elseで両分岐が継続する場合は一意な最も具体的な共通interfaceへ合流し、片方だけが継続する場合はその終了時点のinterface型情報を、elseのない終了ガードでは偽条件が保証する正の型情報を後続処理へ引き継ぎます。共通の祖先がない場合や一意に決まらない合流とinterface交差型は未対応です。</li>
     </ul>
 
 
@@ -517,6 +524,36 @@ print(x);
 
 
     <h3 id="boxing-unboxing">2.4 boxing / unboxing（box object と ToXxx の正準名）</h3>
+<div class="note" id="boxing-subset">boxing／非消費unboxingプロトタイプ（2026-10-13）：int、byte、char、float、decimal、string、bool／booleanは、型を限定しないobjectへの代入・引数・返却値、型付きobject[]の要素／書き込み、明示的なas objectでboxingします。毎回新しいヒープ同一性を割り当て、既存参照の代入はハンドルを共有します。推論されたprimitive配列は元の要素型を維持します。型が一致する有効なboxはas P、またはprimitive型が期待される代入・引数・返却値・配列要素・添字の文脈（primitive castの代替式を含む）で取り出せます。値を保持し、box参照を消費・変更しません。異なる型、無効参照、box構成／値不正、数値変換はInvalidCastExceptionで、ifnotは失敗時だけ評価します。box値はTick／getter内の生成でもCommitted初期化され、ソースに変更APIはありません。getter内の取り出しはCommitted値、呼び出し側は現在値を読みます。配列／class／待機引数の既存rootがGC中もboxを保持します。String値は変更不能な管理文字列で、ヒープObject辺を追加しません。runtime型名box:int、box:string等は正規primitive名を使用する1フィールドの予約記述子です。生の呼び出し元は構成・値種別・範囲を満たす必要があり、記述子は真正性を保証しません。enum／struct／pipeはboxingしません。名前付きbox型・constructor・ToXxxは以下に記載します。演算・条件式のunboxingは5.2.2に記載します。直接WASMは未対応です。<a href="../decisions/0005-primitive-boxing.md">boxingの設計判断（英語）</a>を参照してください。以下の例はAloeBC往復後に実行します。</div>
+<div class="note" id="named-box-subset">名前付きboxプロトタイプ（2026-10-13）：組み込み参照型Integer、Byte、Char、Float、Decimal、String、Booleanは、対応するprimitive値1個のconstructorと、引数なしのToInt／ToByte／ToChar／ToFloat／ToDecimal／ToString／ToBool取り出しに対応します。constructorは既存表現の新しいboxを割り当てます。対応primitiveの代入・引数・返却値は自動boxingし、参照の別名は同一性を保持します。型を限定しないobjectから名前付き型を復元するにはas Integer等を使います。primitiveから名前付きboxへのcastは元の値種別をboxingして検査し、型不一致はInvalidCastExceptionまたは失敗時だけのifnot評価となり、数値変換しません。取り出しは有効な1フィールド・型一致boxを検査して値を保持し、参照を消費しません。7型名はclass／enum／struct宣言で予約されるため、同名のユーザー定義型は別名へ変更してください。boxの継承、非公開値のproperty／setter、異なるToXxxは未対応です。名前付きbox配列はリテラル、文脈付き空配列、添字読み書き／Length／foreach、入れ子配列に既存GC／Tick規則で対応します。型は不変で、runtime記述子box:int[]、box:string[]等に階層ごとに[]を追加し、完全一致を要求します。名前付きByte参照の文脈はbyte値を要求し、既存byteリテラル文脈を使う場合はnew Byte(255)を使用します。新しいsyscall／opcode／codec形式は追加しません。演算・条件式のunboxingは5.2.2に記載します。直接WASMは未対応です。<a href="../decisions/0006-named-box-types.md">名前付きboxの設計判断（英語）</a>を参照してください。以下の例はAloeBC往復後に実行します。</div>
+<pre><code>function identity(value: Integer): Integer { return value; }
+function main(args: string[]): int {
+    let number: Integer = 42;
+    let opaque: object = identity(number);
+    var recovered = opaque as Integer;
+    var explicitBox = new Integer(42);
+    if (recovered == number and explicitBox != number and recovered.ToInt() == 42) { return 42; }
+    return 0;
+}</code></pre>
+<div class="note" id="box-with-subset">名前付きboxのwithプロトタイプ（2026-10-13）：Integer、Byte、Char、Float、Decimal、String、Booleanと静的に型付けされた式をwith対象にできます。constructor、関数／propertyの返却値、添字要素、明示的な名前付きcastも対象です。各対象を左から右へ一度だけ評価し、root付き一時ローカルで保持します。対応する引数なしの.ToXxx()を値式で使用でき、取り出しは参照を消費せず、primitive値種別と既存の参照有効性／box構成／値検査を維持します。元の変数を再代入・deleteしても保持対象は変わりません。複数対象は既存class／enum／structと混在でき、同一ブロックの同名候補は曖昧として拒否し、入れ子では内側を優先して終了後に外側へ戻ります。ドットなしのToXxx短縮表記は追加しません。非公開値、setter、取り出し結果の破棄、box型名だけの対象、静的に型を限定しないobject対象は拒否します。objectは先に名前付きbox型へcastしてください。無効な保持参照のメンバーを読むとInvalidReferenceExceptionです。未使用の無効な対象だけでは参照先を読みません。Tick／getterでの取り出しとGCは既存規則を使用し、syscall／opcode／codec形式は追加しません。演算・条件式のunboxingは5.2.2に記載します。直接WASMは未対応です。<a href="../decisions/0009-named-box-with.md">boxのwith設計判断（英語）</a>を参照してください。以下の例はAloeBC往復後に42を返します。</div>
+<pre><code>function main(args: string[]): int {
+    var number = new Integer(42);
+    with (number) {
+        number = new Integer(7);
+        return .ToInt();
+    }
+}</code></pre>
+
+<pre><code>function identity(value: object): object { return value; }
+function main(args: string[]): int {
+    let boxed: object = 42;
+    var alias = identity(boxed);
+    let values: object[] = [boxed, "Aloe", true];
+    let first: int = values[0];
+    var second = alias as int;
+    if (boxed == alias and first == 42 and second == 42 and (values[1] as string) == "Aloe" and (values[2] as bool)) { return 42; }
+    return 0;
+}</code></pre>
     <p>
       Aloe は、プリミティブ値を <code>object</code> に格納するために、各プリミティブ型に対応する <strong>box object</strong> を定義する。<br>
       box object は <code>object</code> から派生し、名前は大文字で始まる英単語とする。
@@ -1008,6 +1045,19 @@ let mp : map&lt;string/int&gt; = ["key": 10];
 
 
     <h3 id="implicit-unbox-cast">5.2.2 暗黙 unbox キャスト（非消費）</h3>
+<div class="note" id="operator-unboxing-subset">演算・条件式の暗黙unboxingプロトタイプ（2026-10-14）：算術、大小比較、primitive／参照の比較は型が一致するboxを非消費で取り出し、別名を変更しません。名前付きboxは自身のprimitive種別を使用し、型を限定しない参照は相手のprimitive／名前付きbox型、または固定された数値の期待結果型を使用します。型文脈のないopaque参照同士の数値演算は拒否します。明示asで型を指定してください。int専用のbit演算・shift・補数はopaque参照へint文脈を与えますが、名前付きByte等の非intは拒否します。取り出した後のbyte／int／float／decimal演算は既存の昇格規則を使います。取り出し自体は変換や文字列解析をせず、decimal／float混在も拒否します。if／while、not、and／orはbool文脈です。式を左から右へ一度ずつ評価し、左の取り出し失敗時は右の副作用を実行しません。短絡評価では選ばれない右式とcastを実行しません。名前付きboxを含む参照同士の==／!=はObjectId同一性比較を維持し、primitiveと参照の組み合わせでは値を取り出して比較します。invalidとの比較は有効性検査を維持します。無効・不一致boxは既存の暗黙asと同じInvalidCastExceptionで、元参照を保持します。配列／class／関数／GC root、Tick／getterの読み取り規則を維持します。String／Char／Booleanは対応済みのprimitive比較・論理演算だけに対応し、文字列連結や数値解析は追加しません。syscall／opcode／codec形式は変更せず、直接WASMのboxと実行時種別からの動的推論は未対応です。<a href="../decisions/0010-operator-condition-unboxing.md">演算unboxingの設計判断（英語）</a>を参照してください。以下の例はAloeBC往復後に42を返します。</div>
+<pre><code>function main(args: string[]): int {
+    var number = new Integer(40);
+    let increment: object = 2;
+    var enabled = new Boolean(true);
+    var alias = number;
+    if (enabled and number == alias and number != invalid) {
+        var total = number + increment;
+        if (total == 42 and number == 40) { return total; }
+    }
+    return 0;
+}</code></pre>
+
     <p>
       期待される型がプリミティブ型 <code>P</code> に固定できるコンテキストでは、
       式 <code>E</code> に対して <strong>暗黙 unbox キャスト</strong> を許可する。<br>
@@ -1210,6 +1260,7 @@ var score = Game.score;
 
 
     <h3>7.2 struct</h3>
+    <div class="note" id="struct-catch-initialization">コンストラクターの例外経路（2026-10-20）：到達可能な各catchは、tryの直前に確実に初期化されたフィールドから開始します。tryの正常経路だけで代入したフィールドは、catch内で初期化済みとして読めません。try/catchの後では、継続するすべての到達可能経路で初期化されたフィールドだけを初期化済みとします。到達不能と証明されたcatchは初期化を成立させず、継続しない経路は継続経路の合流を弱めません。</div>
     <div class="note" id="struct-subset">現行struct基礎実装（2026-10-12）：<code>struct</code>／<code>sealed struct</code> とfield宣言、<code>Point { x: 1, y: 2 }</code> 形式のリテラル、ローカル経由のフィールド読み書き（入れ子を含む）、代入・関数引数／戻り値・classフィールド・async引数の値コピーに対応します。フィールド型はint、byte、char、float、decimal、bool、通常／bitfield enum、他のstructです。リテラル、フィールド代入、constructor、メソッド引数／戻り値、getterではコンパイラーがenum型の同一性を検査し、整数や別のenum型への置き換えを拒否します。実行時のenumフィールドは既存の符号付きint32整数表現を使用するため、VM命令やAloeBC形式の変更は不要です。全フィールドを一度ずつ初期化し、初期化式は記述順に一度ずつ評価します。空structとstruct型の前方参照は許可し、参照型フィールドと再帰的レイアウトは拒否します。intフィールドはint32範囲を検査します。内部表現は参照フィールドを持たない不変スナップショットとし、フィールド更新時に新しい値を作って入れ子の経路を再構成します。境界ごとに可変領域を複製する方式よりコピー漏れを防ぎやすく、仕様の値コピーを保てるためこの方式を採用します。同期construct(...)とnew Type(...)に対応します。constructorは順次実行するthis.field代入で全フィールドを初期化し、ローカル変数宣言と関数呼び出し、初期化済みフィールド（入れ子を含む）の読み取り・再代入が可能です。引数型はフィールドと同じprimitive／struct型に限定し、呼び出し引数は左から右へ一度ずつ評価して値コピーを保ちます。初期化漏れ、未初期化読み取り、constructor／引数名の重複、引数の型・個数不一致は拒否します。constructor内のif/else、while、foreachに対応し、初期化済みフィールドを全経路で照合します。分岐合流後はすべての継続経路で初期化されたフィールドだけを既知とします。while／foreachは0回実行の可能性があるため、ループ本体内だけの代入はループ後の初期化として数えません。未初期化フィールドの読取は拒否します。constructor内では<code>return;</code>による早期returnを許可し、その地点までに全fieldが初期化済みであることを検査します。<code>this.field.path = expression</code>形式の入れ子代入は、親fieldへ完全なstruct値を代入した後に許可し、不変値を再構成します。未初期化の親fieldへの入れ子代入と、値を返すreturnは拒否します。constructorがない空structはnew Empty()を許可し、フィールドがある場合はconstructorまたは全フィールドリテラルを使用します。constructorを完成した不変値を返す通常の同期関数へ変換するため、既存VM・AloeBC形式を変更せず値コピーを保ちます。structローカルを対象にしたwithブロックでは、単一または複数のローカルからフィールドを読み書きでき、入れ子の読み書きにも対応します。同期<code>.method(...)</code>呼び出しとgetter-onlyの<code>.Property</code>参照にも対応します。voidメソッドは文として呼び出し、void以外の結果は値として使用します。値の式では、struct型の結果や入れ子フィールドから、さらにフィールド・プロパティ・void以外を返すメソッドを参照できます。呼び出しとgetterは先行するフィールド更新を含む対象ローカルの現在値を読み取り、引数は左から右へ一度ずつ評価します。名前解決は内側のブロックを優先し、同じブロック内で名前が重複した場合はメンバー種別が異なってもエラーにします。プロパティへの代入は拒否します。代入時は不変スナップショットを再構成して対象ローカルへ書き戻すため、別の値コピーには影響しません。structローカル以外の式や一時値をターゲットにするwithと、constructor内のwithは拒否します。同期structメソッドは<code>method name(parameters): Type</code>で宣言し、structローカルの<code>value.method(...)</code>またはメソッド内の<code>this.method(...)</code>／<code>method(...)</code>で呼び出せます。引数とvoid以外の戻り値はint、byte、char、float、decimal、bool、通常／bitfield enum、structに対応し、メソッドのvoid戻り値も許可します。<code>this.field</code>と入れ子フィールドの読み取りに対応します。struct値は値渡しのためメソッドは読み取り専用で、<code>this</code>やそのフィールドへの代入は拒否します。<code>public property Name: Type { get { ... } }</code>形式のpublic getter-only structプロパティに対応します。structローカル、<code>this</code>、struct型を返すプロパティの結果からプロパティを読み取ると同期getterを呼び出します。getterはprimitive、enum、structを返せ、返却structは値コピーを保ちます。setter、継承、レイアウト注釈、比較、直接WASMは未対応です。以下のconstructor例、with例、メソッド例、プロパティ例は現行コンパイラーで対応します。</div>
 <pre><code>struct Point {
     field x: int;
@@ -1374,6 +1425,19 @@ sealed class FinalDerived extends Base {
 
 
     <h3>7.4 interface</h3>
+<div class="note" id="interface-catch-shadowing">順序付き型catchの経路（2026-10-20）：後続catchの型が先行catchの型に包含される場合、その後続catchは到達不能です。同じ型の繰り返しやcatch(Exception)後のcatch-allも含みます。後続catchも構文解析・型検査を行いますが、その書き込み・消費・return/break/continue経路・コンストラクター初期化は継続経路の合流から除外します。ネストしたhandlerの書き込み走査とループ制御移動の分類にも同じ規則を適用します。後続型のほうが広い場合や兄弟型の場合は、保守的に到達可能として扱います。一般のtry本体が送出する例外型そのものを推論する規則ではありません。実行時のcatch順序と出力するhandler表は変更しません。</div>
+<div class="note" id="interface-arithmetic-catch-flow">定数算術のcatch経路（2026-10-22）：定数int式のローカル代入では、確実なゼロ除算と検査付きint32オーバーフローを区別し、適合しない型付きcatchをinterface継続経路の合流から除外できます。定数条件で選ばれる<code>if</code>/<code>else if</code>/<code>else</code>の対応済み本体が正常終了すれば後続文の解析へ進み、常に偽のループは読み飛ばします。常に真のループから後続文へ到達するとは推論しません。条件比較でも左からの評価順と短絡評価から確定できる例外型だけを保持し、先行する未知の式があれば後続式の例外型を断定しません。例外を投げないboolローカル・引数、その論理式とbool同士の<code>==</code>／<code>!=</code>比較では、両分岐の対応済み算術結果が同じ場合に合流でき、正常終了の合流後は後続の確実な失敗も解析します。同じ非例外bool解析でwhile条件が常に偽または真になる組み合わせも認識します。対応済み分岐と正常に継続する経路では、発生し得るゼロ除算とオーバーフローを集合で保持し、例外を出さないbool条件の0回反復も含めます。先行handlerを考慮してどの候補例外も到達しない型付きcatchだけを除外します。未知の呼び出し・未対応条件・制御移動は保守的に扱い、handlerの型検査は継続します。解析範囲は決定0017を参照してください。</div>
+<div class="note" id="interface-arithmetic-return-flow">算術return経路（2026-10-22）：対応範囲の有限例外解析では、裸のreturnと正常終了する定数int算術のreturn式は、その関数経路を終了します。返却式が確実に失敗する場合は、ゼロ除算またはcheckedオーバーフローの正確な例外を保持します。それ以前に発生し得る算術例外も集合に残します。演算項の評価順は左から右で、未知の呼び出しや未対応のreturn式のcatch到達性は保守的に扱います。関数が例外を出さないという推論や、実行時のreturn・例外動作の変更は行いません。</div>
+<div class="note" id="interface-arithmetic-loop-transfer-flow">算術ループ制御経路（2026-10-22）：対応範囲の有限例外解析ではbreakとcontinueを区別し、最も内側のwhileが自身の制御経路を処理します。内側のbreakは外側ループを終了しません。breakはそのループ後の文へ進み、continueは条件の再評価へ戻ります。例外を出さずfalseになり得る条件では、0回反復または後続の条件による出口も保持します。条件が常にtrueでbreakがなければ、後続文を到達可能としません。それ以前や別経路の正確な算術例外も集合に残し、未知の操作や未対応構文のcatch到達性は保守的に扱います。</div>
+<div class="note" id="interface-arithmetic-rethrow-flow">算術例外の再送出経路（2026-10-23）：裸のthrowは、現在捕捉しているゼロ除算・overflowの種類を保持します。正確な算術例外型を指定したcatchは元の呼び出しが未知でも種類を限定できます。基底型・型なしcatchでは有限の候補を証明できる場合だけ、先行句で処理済みの種類を除いて追跡します。入れ子catchは未知の場合も現在の文脈を置き換え、終了時に外側の文脈へ戻します。対応する分岐・ループ・入れ子try本文でも保持します。再送出前に到達し得る未知の操作があれば有限の証明を解除します。限定的なinterface解析の変更であり、一般の非throw推論は変更しません。VMは例外の移動先が決まるまで捕捉例外を保持し、選択したtryの入口catch深度へ戻すため、内側tryで再送出を捕捉して同じ外側catchを継続できます。 break／continueは対象ループへ移る際に退出するcatchだけを終了し、そのループを囲むcatchは保持します。</div>
+<div class="note" id="interface-optional-boolean-flow">bool式の任意の例外経路（2026-10-24）：限定的な解析では、通常のfalse／true結果と有限のゼロ除算／checked overflow候補を分けて保持します。短絡and／or・単項not・boolの等値／非等値は評価順を守り、左辺が正常終了して右辺へ進む経路だけで右辺を評価します。左辺の失敗で評価されない未知の呼び出しは除外できます。対応する宣言・ローカル代入・return・if／while条件へ結果を合成し、それ以前の例外候補も残します。到達し得る未知の呼び出しや未対応操作があれば有限の証明を解除します。ローカル値の相関・関数間推論・実行時動作は変更せず、候補なしだけで一般の非例外を証明しません。</div>
+<div class="note" id="interface-int-comparison-flow">int比較の非例外証明（2026-10-24）：型付きintローカル・引数の読み取りと、安全な完了を独立に証明済みのint定数算術を、&lt;・&lt;=・&gt;・&gt;=・==・!=で比較する場合、言語の例外経路は生じません。括弧付きオペランドにも対応します。ローカル値の相関は推論せず、false/trueの両方を保持し、対応する宣言・代入・分岐・ループの既存bool／有限例外解析と合成します。可変算術・呼び出し・添字・メンバー参照・他の型は今回の追加証明の対象外です。実行され得る未知の操作や到達可能な代入は引き続きinterfaceの事実を無効にします。実行時動作とバイトコードは変更しません。</div>
+<div class="note" id="interface-scalar-comparison-flow">同型スカラー比較の例外経路（2026-10-25）：byte・char・floatのローカル／引数を直接読み取り、同じ型の別の読み取りと&lt;・&lt;=・&gt;・&gt;=・==・!=で比較する場合、言語の例外経路は生じません。オペランドの括弧にも対応します。既存の限定的なint比較証明を拡張しますが、結果の確定や同じ値の相関は推論しません。呼び出し・可変算術・メンバー／添字読み取り・異なる型の比較は追加証明の対象外で、到達可能な書き込みは引き続きinterfaceの事実を無効にします。VM比較の既存動作は変更しません。</div>
+<div class="note" id="interface-boolean-expression-flow">bool式の例外経路（2026-10-24）：対応するbool初期化・ローカル代入・return式でも有限の算術例外候補を保持します。リテラル・primitive boolの読み取り・対応する定数比較・短絡演算には既存の非例外証明を使います。比較式の確実なエラーは代入・returnより先に発生し、ゼロ除算とchecked overflowを区別します。型付きboolローカルlet宣言は初期化の非例外を独立に証明できる場合、到達不能なhandlerを除外できます。評価されない呼び出しは例外経路を加えません。後続項が結果を一定にしても、実行され得る未知の呼び出しは保守的に扱います。ローカル定数伝播・関数間の証明・実行時動作は変更しません。</div>
+<div class="note" id="interface-arithmetic-nested-handler-flow">入れ子の算術例外handler経路（2026-10-23）：有限の対応範囲では、入れ子try/catchをソース順に合成し、例外型と基底型の一致、先行句による遮蔽、不適合な句を反映します。処理済みの元の例外は外へ伝わる候補から除きます。catch内で新たに発生した例外は外側へ伝わり、同じtryの後続catchには渡しません。対応する通常終了・return・最も内側のループへのbreak/continue経路を保持します。到達し得る未知の操作・呼び出しは保守的に扱います。別の限定的な証明として、型付きintローカルlet宣言は定数算術の初期化が正常終了すると証明できる場合だけ非例外とし、未知の初期化式や算術エラーは認めません。算術例外候補がないことだけでは一般の非throw契約を証明しません。すべてのhandlerは引き続き構文・型検査を受けます。</div>
+<div class="note" id="interface-unreachable-catch">到達不能catch経路の証明（2026-10-20）：空のtry本体、または実行操作より前の式を伴わないreturn・break・continueだけの本体には、言語例外への経路がありません。catchは引き続き構文解析と型検査を行いますが、その書き込みや制御移動はinterfaceの合流と外側tryの書き込み走査に含めません。呼び出し・式・宣言などは保守的に扱い、一般の関数が例外を送出しないとは推論しません。</div>
+<div class="note" id="interface-catch-loop-join">ループ内catch入口の合流（2026-10-20）：実際のtry前の名目的な型と、到達可能な追跡対象への各代入型を合流します。異なる適合クラスでも、一意な最も具体的な共通interfaceがあれば利用できます。未知または非適合の候補から型情報は作りません。初期化式は代入前に例外を投げる可能性があるため、tryの通常経路の解析で保存済みのtry前状態を書き換えません。ブロック内宣言とforeach bindingは外側ローカルと別のスコープで扱い、同名の参照fieldも別の格納先として扱います。handlerごとの例外発生時点は引き続き保守的に解析します。</div>
+<div class="note" id="interface-status">実装済みサブセット：interfaceにはセミコロンで終わる<code>void</code>メソッド契約を宣言できます。クラスは先に宣言されたinterfaceを<code>implements</code>に列挙でき、各契約は一致するpublic asyncインスタンスメソッドで実装します。代入可能なクラス参照をinterface型で保持・引数渡しでき、呼出しは既存の非同期virtual dispatch queueを使います。interfaceを対象とするchecked <code>as</code> castとboolを返す<code>is</code>検査も使えます。検査対象はコンパイラーが把握する実装クラス名です。<code>while ((value is I) and ready) { ... }</code>など、if／while条件内のローカル参照interface検査により、本文内のローカルを直下の変更まで絞り込みます。括弧と複数の正の<code>and</code>検査に対応し、andで継承関係のあるinterfaceを検査すると最も具体的な型を選びます。元の静的class／interface型が適合済みならそのメンバーを維持します。各ローカルの元の宣言型は一時的な型情報と別に保持します。本文直下の代入は宣言型で検査し、自己代入や適合する値への代入でも、その後は一時的な絞り込みを解除します。直下のdelete・消費unboxも解除します。新しいis検査や明示castで再び絞り込め、宣言型のメンバーは引き続き使えます。入れ子のif／else-ifは入口の型情報を分岐別に保存し、ある分岐の変更を別分岐の読み出しへ波及させません。合流では、その先へ進む全分岐で維持された入口の型情報だけを残し、returnする分岐は除外します。同名の別スコープのローカルは別slotとして扱います。明示if/elseの両分岐が継続する場合は、各ローカルの最終状態から一意な最も具体的な共通の名目的interfaceへ合流します。同じinterface、子と親、共通祖先が一意な兄弟interfaceに対応し、入れ子やelse-ifの合流にも適用します。片側の保証不足、情報の解除、無関係な型、共通祖先の曖昧さがある場合は新しい型情報を追加せず、交差型も推論しません。明示if/elseで片方だけが継続する場合は、一時的な条件の型情報を復元する前に取得した継続分岐の最終状態を後続へ引き継ぎます。else-ifの終了ガード連鎖も対象です。代入や消費操作で解除された情報は復活させず、新たなガードによる再検査は反映します。加えて、if (not (value is I)) { return; }のようにelseがなく真側が継続しないガードでは、偽条件が保証する正の型情報で後続処理を絞り込みます。return／break／continue／bare rethrowの非継続経路はパーサーが保守的に判定し、除外型は推論しません。代入・delete・消費unboxによる解除と元の宣言型による代入検査は維持します。elseのない暗黙経路では新しい共通interface型情報を推論しません。tryとcatchの両方が継続する場合は、各経路の最終状態を一意な最も具体的な共通の名目的interfaceへ合流します。while／foreachは反復によって変更される可能性がある入口情報を保守的に無効化します。while条件の証明は各本文入口と偽条件の出口に適用し、到達可能な偽条件・break・foreach枯渇経路を出口で合流します。本文内だけの型情報は、到達可能な出口経路すべてで保証されない限り後続へ引き継ぎません。既存の親interface情報は、到達する分岐の型が同じ型か代入可能な子型なら維持します。より広いelseなし・ループの合流後推論と、変更可能性を例外経路ごとに追跡する解析と、曖昧な祖先候補集合を入れ子の合流越しに伝える処理は未対応です。条件内の消費unboxは実際に消費するローカル変数の型証明を無効にし、ヒープ上のfield・要素を消費しても受け手の変数の型証明は維持します。アクセス権・propertyの読み取り専用・対応する対象形式の検査は変更しません。一度だけ実行するwith本文は周囲の型情報を引き継ぎ、代入・delete・消費unboxで元slotの型情報を解除します。条件分岐の合流と同名別slotも同じ規則に従います。対象式は引き続き左から右へ一度だけ評価し、保持したclass／名前付きbox対象は元ローカルの変更後も使えます。対象式内の消費処理は本文より前に型情報を解除します。interface型のwith対象は未対応のため、明示checked class castを使ってください。同期try/catchは入口の型情報を保存し、try内で代入・delete・消費unboxするslotをreturnや入れ子の例外経路も含めて追跡します。catchは入口の情報から変更される可能性があるslotの絞り込みを除き、try内の新しい型証明は引き継ぎません。try直下のlet／var宣言の初期化式、または既存ローカルへのtry直下の代入文で、式全体を括弧で囲んだ場合を含め、括弧で囲んでもよい符号付き整数リテラルを、同様に括弧を許す整数リテラル0で除算・剰余する式は必ず例外経路へ進むものとして扱い、その後の文は到達不能としてcatch入口の型情報に影響させません。正常経路とcatch経路は条件分岐と同様に、その先へ進む経路だけで合流し、return／再送出する経路は除外します。未変更のslotや別slotの同名ローカルは情報を維持します。取り出し失敗時の参照は実行時には保持しますが、静的な型情報の回復には新しい検査かcastが必要です。while／foreachヘッダーの解析前に、ヘッダー・本文全体の字句走査で代入・delete・消費unboxする可能性があるローカルの既存情報を解除します。入れ子のループ・例外処理の変更は保守的に含めますが、到達不能と証明できる変更は除外します。定数falseの分岐とネストしたwhile(false)本体に加え、コンパイル時定数if／else-if連鎖の未選択枝（定数true後のelseを含む）も走査しません。制御フロー解析がループ出口へ到達しないと判定できるreturn／throw／rethrow経路と、break／continueを含まず終端すると判定できるcatch経路の変更は含めません。到達可能なbreak／continue経路の変更は保持し、終端文の後は走査しません。ブロック内のlet／var宣言とforeachのitem／key／valueは別変数として扱います。宣言は初期化式とセミコロンの後から、foreachの反復変数は本文内だけで外側を隠します。初期化式・対象式では外側の変数を参照し、その消費は外側の型情報を解除します。検査ではローカル変数とヒープ上の格納先を区別し、ドット付きfieldへの代入を同名ローカルの変更とはみなしません。field・添字要素のdelete／消費unboxも、受け手の変数そのものは消費しません。括弧やcast・添字付きの受け手と、括弧で囲んだだけのローカルを区別し、添字や関数引数の内側でのローカル消費は引き続き検出します。内側のブロック終了後の外側への変更も正しく検出します。ループより前の外側の読み出しは型情報を維持します。while条件は各反復の本文で保証される型情報を再確立し、その後の変更・分岐・例外合流には通常の解除規則を適用します。foreachで変更するopaqueローカルには本文内の新しい検査かcastが必要です。配列・List・Mapのkey／pair・pipeのforeachで同じ入口解除を使います。while条件が偽になる出口では、continue後を含む各条件再評価で偽条件が保証する正のinterface型情報だけを適用します。 ネストしたwhile本文には既存の正の真条件証明を適用し、偽出口には再評価ごとに保証される正の偽条件証明を適用します。代入や消費操作では引き続き情報を無効化します。ループ入口では変更候補の型情報を解除します。到達可能なbreak地点の状態も偽条件の出口状態と合流し、すべてに共通する情報だけを残します。リテラルtrueのループは到達可能なbreakからのみ退出します。一般的な固定点推論と古い型情報の復活は抑制します。<code>or</code>では全経路が同じローカルのinterface型を保証し、宣言された祖先interfaceの共通部分から最も具体的な型を一意に選べる場合に情報を残します。同型・直接の継承関係に加え、共通の親を持つ兄弟型やdiamond継承も扱います。平坦な式と入れ子のOR／偽ANDの選択経路で祖先集合を共通化し、外側で型を選びます。括弧と否定でも候補集合を維持するため、内側の2経路で曖昧でも外側の選択肢で一意に決まる場合があります。本文へ公開する型は最終的に一意なものだけで、交差型は作りません。共通の祖先がない場合や最も具体的な候補が複数ある場合は情報を残しません。同時に保証される真AND／偽ORの根拠は、各変数について各項が保証する祖先集合の和として保持します。外側の選択経路でその共通部分を取るため、AND／OR／否定が混在しても曖昧な共通祖先を一意に決められる場合があります。直接のAND絞り込みが曖昧でも個々の型検査の保証は保持します。直接のAND絞り込みは従来の継承関係に基づく選択規則を保ち、匿名の交差型や比較できない型からの恣意的な選択は追加しません。選択経路に根拠の欠落や別の変数の検査があれば候補を除きます。同じメソッド署名だけでは共通の祖先とみなしません。保証しない経路があれば情報を除きます。orの真分岐／andの偽分岐の合流では、選択中の真偽値にならない定数項を除外します（orのfalse項、偽条件を解析するandのtrue項）。未知の選択肢は保守的に扱います。定数の短絡評価で到達しない右辺も型検査・コード生成は行いますが、そのlocal消費はinterface型情報を破棄せず、外側catchの変更候補にも含めません。条件の証明から除外するのは、到達可能な式の経路で消費するslotだけです。loop入口の走査も、外側や入れ子のif／while条件、および代入・初期化の右辺（入れ子の呼び出し引数・配列要素を含む）から識別した短絡到達不能項を除外します。コンマで区切る引数・要素は個別に解析し、ある項の短絡を次の引数・要素へ適用しません。その他の式形状は保守的に扱います。条件結果が定数falseでも、実行される条件の副作用は維持します。0回実行の出口にはその副作用を反映し、入れ子の本体を読み飛ばす場合も、評価される条件の消費は外側loop入口の変更候補へ含めます。否定は選択する真偽を反転し、明示else本文には条件が偽のとき保証される情報を使います。外側の偽条件情報はelse-ifの条件式と各分岐にも適用し、分岐別の型情報を合流時に統合します。if/elseで片方の分岐だけが継続する場合はその終了時点のinterface型情報を、elseのない終了ガードでは偽条件が保証する正の型情報を後続処理へ引き継ぎます。共通の祖先がない場合や一意に決まらない合流とinterface交差型は未対応です。二重否定やDe Morgan形も同じ真偽解析を使います。明示else本文とelse-if連鎖にも同じ分岐別の型情報統合を適用します。while／foreach入口では反復中に変更される可能性がある型情報を保守的に解除します。while条件の型証明は各本文入口と偽条件出口に適用し、到達可能な偽条件・break・foreach枯渇経路を出口で合流します。本文内だけの型情報は、すべての到達可能な出口経路で保証されない限り後続へ引き継ぎません。型証明を解除した箇所では明示castを使えます。interface参照は不変型の配列・List・Set要素とMapのkey／valueにも使えます。要素読み出しとforeachローカルはinterface型を保持し、呼び出しには既存のローカル参照経由のasync dispatchを使います。実行時コレクション記述子は宣言interface名とコンパイラーが把握する実装クラス名を保持するため、実装クラスが同じでも異なるinterface型のコレクションを区別します。<code>interface Child extends ParentA, ParentB</code>で先に宣言された複数のinterfaceを継承できます。親の契約をすべて引き継ぎ、同名・同じ型署名の契約はまとめます。署名の競合、親の重複、自己／前方参照、継承メソッド名の再宣言は拒否します。引数名の一致は不要です。実装クラスには継承した全契約への適合を要求し、子interface参照を親interface型へ代入できます。cast・型検査・dispatchも推移的な適合を扱います。コレクション型は引き続き不変です。default method、property、field、direct WASMは未対応です。</div>
 <pre><code>interface ILogger {
     method log(msg: string): void;
 }
@@ -1382,7 +1446,7 @@ sealed class FinalDerived extends Base {
 
 
 class ConsoleLogger implements ILogger {
-    method log(msg: string): void {
+    public async method log(msg: string): void {
         print(msg);
     }
 }
@@ -1392,6 +1456,7 @@ class ConsoleLogger implements ILogger {
 
 
     <h3>7.5 trait</h3>
+<div class="note" id="trait-status">設計案です。現在のコンパイラーはtrait宣言、<code>with</code>によるtrait合成、traitの実行時型検査をサポートしません。以下の例は実行できません。</div>
 <pre><code>trait Trait_A {
     method hello(): void {
         print("Hello from Trait_A");
@@ -1405,7 +1470,7 @@ class ConsoleLogger implements ILogger {
     <p>
       trait は、クラスに「振る舞い（メソッド実装）」を合成するための仕組みである。<br>
       interface と異なり、trait はメソッド本体（デフォルト実装）を持てる。
-    </p>
+     while／foreachの入口解析では、例外から反復へ再合流しない場合、現在のループからbreakするだけの分岐の書き込みを除外します。内側ループを抜けるbreakは除外対象になりません。各foreach実装は自身の到達可能break時の型状態と、反復完了・0回反復を含む保守的な状態を合流させます。このため、break時だけの変更は反復入口の読み取りを妨げず、出口の型情報は無効化します。共通interfaceへの合流前に、いずれかの出口で成立しない既存の型情報を破棄します。 終端分岐の本文を除外する場合も、評価される条件の消費を記録し、定数短絡で到達しない項だけを除きます。反復へ戻る経路がないと証明できるforeach本文では、初回反復の型情報を保持します。その場合、反復完了側の出口には反復元評価後の状態を使い、0回反復の経路を表します。本文に入った後のbreak出口は別途合流し、反復元の評価で実行された消費も維持します。 限定的なループ不変条件として、自己代入・括弧付き式・クラス生成式全体、または宣言された名目的な結果型がそのinterfaceに適合する外側ローカル・グローバル関数からの代入、および適合するクラス／interfaceへの最終checked castでは、入口のinterface型情報を維持します。後続反復の入口読み取りと通常の反復完了時にこの情報を使いますが、通常の文解析では直接代入直後の絞り込み解除を維持します。不適合・結果不明の代入や到達可能な消費があれば不変条件を破棄します。任意の代入式や一般的な固定点解析は引き続き保守的です。 逐次文とif／else-if／else分岐を含み、入れ子ループ・handlerを含まない本文では、到達可能な末尾・continueの全反復経路の名目的な型状態を検査します。return・throw・break経路は反復へ戻らず、分岐の合流では継続経路に共通する情報だけを保持します。途中に不適合・結果不明の代入があっても、反復へ戻る前の適合値への再代入で入口の不変条件を再確立できます。書き込み後の直接読み取りには引き続き新しいguardが必要です。到達可能な消費は現在の経路の型情報を解除しますが、反復へ戻る前の名目的な再代入で再確立できます。同じ条件式内で消費されたslotは、その条件式のproofでは再確立しません。再確立前のcontinueは型情報を無効化します。 interface検査guardも真側・偽側の状態ごとに候補を再確立できます。ただし、保証されるinterfaceが入口の候補型に適合する必要があります。shadowされた同名変数、証明のない代替経路、子interfaceに対する親だけの検査、到達可能な条件消費からは不変条件を成立させません。 限定的なループ経路解析は、入れ子のwithを含むwithブロックにも対応します。対象式は本文の前に左から右へ一度ずつ評価し、到達可能な消費は経路の型情報を解除します。短絡解析は各対象式で独立させます。本文の宣言はスコープ内に留まり、break・continue・returnは元のループ・関数を対象にします。消費・上書きされた候補は反復前の本文で再確立でき、捕捉済みreceiverは元の対象を保持します。途中の直接読み取りと不適合なbreak出口は通常の解析・出口合流で検査します。入れ子のwhile／foreachは、break／continueを各内側ループの経路として分離し、0回反復または対象消費による出口、内側の反復経路、到達可能なbreak出口を合流します。関係するすべての経路で候補型が保たれる場合だけ候補を残し、名目的に適合する再代入も反映します。自身の出口へ到達しないと証明された入れ子whileは、外側の反復経路にも数えません。同期try／catch解析はcatch-all句と型名だけのcatch句に対応します。通常経路は入力状態から、catch経路は候補消去状態から解析し、到達可能な継続経路のすべてで候補を再確立する必要があります。ループ頭部の転送解析は、既知のクラス／interface候補と不明状態からなる有限集合を固定点まで反復します。初回本文入口と到達可能なfallthrough／continueバックエッジを、一意な最も具体的な共通interfaceだけで合流します。入れ子whileでは再評価ごとに条件証明を適用し、break状態はループ出口として扱います。この有限固定点解析は一般制御フローグラフや交差型を実装するものではありません。</p>
     <ul>
       <li>class は <code>implements</code> によって 0 個以上の trait を適用できる。</li>
       <li>trait はメソッド宣言（抽象）とメソッド実装（本体付き）の両方を持てる。</li>
@@ -1426,6 +1491,25 @@ class ConsoleLogger implements ILogger {
 
 
 
+    <h3 id="validity-model">参照の有効性（ローカルプロトタイプ）</h3>
+<div class="note" id="local-reference-validity">ローカル参照の有効性／消費unboxプロトタイプ（2026-10-13）：delete x;とunbox xは、ヒープ参照の単純なローカル／引数（object、名前付きbox、class、配列）に対応します。deleteはその変数だけを無効化し、繰り返しても例外を出さず、ヒープobjectの解放や別名・呼び出し元の引数コピー・保持済み対象の変更は行いません。var x:参照型;は無効状態で開始します。未初期化primitive／pipe宣言、型付きvarの初期値付き構文は未対応です。再代入で有効な参照へ戻せます。ref == invalid、ref != invalidと逆順の等価比較に対応し、invalidの代入や通常値としての使用は拒否します。unboxは型付き宣言・代入・return、関数／constructor／method／host引数、型付き配列要素／書き込み／添字、primitive castの代替式、明示的Bool条件で期待primitive型が決まる必要があります。推論var n = unbox xは拒否します。型付き引数／返却値の期待配列型もリテラルへ伝わり、その文脈で空[]を使用できます。xを一度評価し、値種別・int32／有限float範囲を保って成功時だけxを無効化します。無効なxはInvalidReferenceException、型不一致／不正boxはInvalidCastExceptionで、失敗時はxを保持します。参照できる参照型field／要素の消費は以下に記載します。this／一時参照／pipeは消費対象にできません。無効なローカルをclass／box getter、async receiver、配列読み書き／Length／foreach、withメンバー経由で参照するとInvalidReferenceExceptionです。getter内のローカル消費はローカルslotだけを変更し、Queryのヒープ書き込み制限は維持します。明示asは既存の失敗契約に従います。GCはすべてのroot／強参照がなくなった場合だけ回収します。演算・条件式のunboxingは5.2.2に記載します。直接WASMは未対応です。<a href="../decisions/0007-local-reference-validity.md">ローカル参照有効性の設計判断（英語）</a>を参照してください。以下の例はAloeBC往復後に実行します。</div>
+<div class="note" id="reference-slot-subset">参照slot消費プロトタイプ（2026-10-13）：deleteと期待型付きunboxは、参照できる参照型field（宣言class内のthis／private with field）と参照配列の添字要素にも対応します。入れ子配列参照、配列を返す関数／property／リテラルの対象も使用できます。対象と添字は一度だけ評価し、rootを持つ一時ローカルに保持します。unboxは保持したslotから型・範囲が正しいboxを取り出し、成功時だけ同じslotを無効化します。失敗時は保持します。deleteは格納要素自体を参照せず、有効なowner／添字に対する無効slotの繰り返し削除は例外を出しません。無効ownerや範囲外添字は失敗します。元のobjectへの独立した別名は有効なままです。参照配列の読み取りは消費済みslotのinvalidを返し、==／!= invalidで検査できます。その参照先の操作や消費取り出しはInvalidReferenceExceptionです。通常の配列生成／代入は有効で型一致するハンドルを要求し、生のNull／scalarは拒否します。private参照fieldは無効マーカーを読める経路を使用し、primitive／pipe fieldは既存読み取りを維持します。TickではVolatileを無効化し、古いCommitted辺はcommitまで保持してproperty Queryが古い参照を読みます。getter内の直接消費は拒否し、Queryから関数経由の変更も書き込み前に失敗します。他の書き込みと並行したslot読み取り／取り出し／無効化の原子性は保証しません。括弧付きローカル／要素もlvalueとして扱い、property値、primitive／struct slot、this／pipe、一時参照結果は消費対象にできません。演算・条件式のunboxingは5.2.2に記載します。直接WASMは未対応です。<a href="../decisions/0008-reference-slot-consumption.md">参照slot消費の設計判断（英語）</a>を参照してください。以下の例はAloeBC往復後に実行します。</div>
+<pre><code>function main(args: string[]): int {
+    let values: Integer[] = [42];
+    var alias = values[0];
+    let value: int = unbox values[0];
+    delete values[0];
+    if (values[0] == invalid and alias.ToInt() == value) { return value; }
+    return 0;
+}</code></pre>
+<pre><code>function main(args: string[]): int {
+    let source: object = 42;
+    var alias = source;
+    let value: int = unbox source;
+    delete source;
+    if (source == invalid and invalid != alias and value == 42 and (alias as int) == 42) { return 42; }
+    return 0;
+}</code></pre>
     <h3>8.1 Dispose の基本</h3>
     <p>
       外部資源（ファイル、ネットワーク、ロック等）は、GC に任せず、<code>Dispose()</code> により明示的に解放する。<br>
@@ -1507,7 +1591,19 @@ if (obj is Trait_A) {
 
 
     <h3>10.1 Arrays (T[])</h3>
-<div class="note" id="array-subset">現行配列プロトタイプ（2026-10-13）：固定長int[]／bool[]／byte[]／char[]／float[]／decimal[]／string[]および通常／bitfield enum・struct配列のリテラル、型付き宣言、配列型を返す関数／プロパティの結果、リテラル、ローカル変数、括弧付きの式から添字と読み取り専用Lengthを参照できます。foreachの対象にもこれらの対応配列式を使用でき、開始時に一度だけ評価したハンドルをGC中も含めて反復終了まで保持します。入れ子ループ、break、continue、空配列に対応します。要素はその反復の開始時に読み取るため、別名を通した後続要素の変更を反映します。別名変数の再代入は保持済みの対象へ影響しません。要素の書き込みも、ローカル配列、配列型を返す関数／プロパティ、リテラル、括弧付き式の添字を対象にでき、thisフィールドやwithプロパティの配列参照にも対応します。対象・添字・代入値を左から右へ一度ずつ評価し、範囲・値種別の検査は代入値の評価後の書き込み時に行います。getterから返った参照への書き込みは呼び出し元で実行され、共有する別名にも影響します。getter内の直接書き込みとCommitted Query中の関数経由書き込みは引き続き禁止します。Lengthは読み取り専用で、一般のスカラー式は代入対象にできません。既存pipeのforeachは引き続きpipeローカルを対象とします。constructorの初期化検査は、空でない配列リテラルでも保守的に0回反復の可能性を扱います。空の[]リテラルは型付き宣言または代入の文脈が必要です。要素・添字・代入値はソース順に一度ずつ評価します。配列はヒープ参照で、代入・関数引数／戻り値・classフィールド・async待機引数では同じハンドルを共有します。foreachは対象を開始時に保持し、各要素をその反復の開始時に読みます。対象ローカルの再代入は進行中の反復へ影響しません。配列の書き込みは既存のVolatile／Committed Tick規則に従い、property getter内で実行する添字読み取りはCommitted要素を読みます。getterから返った配列参照への添字読み取りは呼び出し元で実行され、現在の要素を読みます。getterは返却配列を複製・固定しません。getter内の直接書き込みはコンパイルエラー、getterから呼び出す関数を経由する書き込みは実行時エラーです。添字は0..Length-1のintで、不正な添字や要素値はVmExceptionです。int要素は符号付きint32範囲、byteは0..255、charはUTF-16コード単位、floatは有限のbinary32値に限定し、decimalは既存のdecimal表現を維持します。要素の値種別は一致が必要です。byte[]の宣言・代入文脈では0..255の整数リテラルをbyteへ変換し、要素書き込みにも適用します。計算済みint値は暗黙変換しません。他の数値型同士も暗黙変換・混在を許可しません。混合要素型、異なる配列型、Lengthへの代入は拒否します。長さ変更、他の要素型、直接WASM、他のコレクションは未対応です。mainのargs: string[]は引き続き構文上だけの対応です。ヒープ／格納方式は<a href="../decisions/0001-basic-array-subset.md">配列プロトタイプの設計判断（英語）</a>を参照してください。以下の例は現行コンパイラーテストで実行します。 enum配列は最初の要素または型付き宣言／代入の文脈からenum型を決定し、文脈付きの空配列にも対応します。添字読み取りとforeach要素でもenum型を保持し、要素書き込み・リテラル・関数／class境界では異なるenumやint値を拒否します。bitfield要素には既存のマスク／シフト規則を適用します。VMはenum要素を符号付きint32、予約ヒープ型名enum:&lt;Name&gt;[]で保持します。他のenum値と同様にenum型の区別はコンパイラーで検査し、任意のバイトコードの個々の値にenumタグはありません。 struct配列は、入れ子structやenumフィールドを含む既存の参照フィールドを持たないstruct値に対応します。推論／型付きリテラル、文脈付き空配列、添字、foreach、関数／class／async境界でstruct型を保持します。配列の別名はハンドルを共有し、要素は変更不能な値スナップショットです。読み出したローカルやforeachのコピーを変更しても格納済み要素は変わりません。要素全体を代入すると別名にも反映され、以前読み出したコピーは維持されます。添字で得たstructからフィールド・読み取り専用メソッド／getter・入れ子の値メンバー列を参照できます。values[i].fieldや入れ子フィールドへの直接代入に対応します。配列参照・int添字を一度だけ評価して元のstructスナップショットを読み、右辺を評価し、変更不能な値のフィールド列を再構築して要素全体を置き換えます。要素全体への代入とは異なり、ArrayGetが右辺評価前に添字範囲を検査します。右辺が同じ要素を変更した場合は、読み取り済みスナップショットの再構築値で上書きします。別名は置き換えを観測し、以前のコピーは維持されます。byteリテラル変換やstruct／enum型の検査はローカルstructフィールド代入と同じです。propertyやメソッド結果のメンバー列は代入対象にできません。getter内の直接代入はコンパイルエラー、Committed Query内で呼び出した関数経由の代入は実行時エラーです。読み取り・変更・書き込みの一体的な原子性は保証しません。VMは予約記述子struct:&lt;Name&gt;[]を使用し、値種別Structとスナップショット型名の一致を検査します。フィールド構成の検査は既存のstruct生成／ソース型検査に従い、新しいopcodeやバイトコード格納形式は追加しません。 int[][]やPoint[][]のような入れ子配列に対応します。既存のprimitive／string／enum／structを末端の要素型とし、内側の配列はnullでない共有参照です。各階層は固定長で、行ごとに長さが異なる配列に対応します。連続添字、内側のLength、内側配列の置き換え、対象を保持するforeachでも残りの配列型を保持し、末端型や階層数の混在は拒否します。型付き宣言／代入は空配列やbyteリテラルへ内側の型文脈を伝えます。推論では空でない最初の行が後続の空行の型文脈になりますが、文脈のない最初の空行は拒否します。外側・内側の代入は行をコピーせずハンドルを共有し、末端struct値のスナップショットとフィールド書き戻し規則は維持します。VM型名は階層ごとに[]を追加し、int[][]、enum:Color[][]、struct:Point[][]などになります。入れ子要素は有効な配列ハンドルで、その型名は親の型名から最後の[]を除いた型名と完全一致する必要があります。null、classの参照、文字列そのもの、異なる階層数／型を拒否します。各入れ子要素は参照数を持つ強いヒープフィールド参照です。GCは外側からだけ到達可能な内側配列も保持し、同じハンドルの重複を数え、置き換え時に参照を外します。Tickではcommitまで古いCommitted参照と新しいVolatile参照を保持します。既存のヒープ／参照グラフ規則を使用し、class／object配列の対応範囲は以下に記載します。 string配列は型付き／推論リテラル、文脈付き空配列、配列式の添字読み書き、Length、foreach、入れ子配列と既存の関数／class／getter／async境界に対応します。要素はString値である必要があり、int／char／nullや暗黙変換は拒否します。配列の別名は更新を共有し、以前読み出した文字列の内容は維持されます。既存のAloeValue.Stringは変更不能な管理された文字列を保持し、AloeヒープのObjectIdを持たないため、末端の文字列要素は参照グラフのObject辺を追加しません。入れ子のstring配列ハンドルには通常の強参照を使用します。空文字・Unicode文字列・既存のリテラルエスケープはAloeBCを経由して内容を保持します。mainのargs: string[]はコマンドライン引数を注入しない構文上だけの対応のままです。一般のstring配列を追加する変更であり、引数配送や他の文字列APIは追加しません。 class配列とobject[]はリテラル、文脈付き空配列、添字読み書き、Length、対象を保持するforeach、入れ子配列、既存の関数／class／async境界に対応します。class配列は宣言されたclassと派生classのインスタンスを許可し、推論リテラルでは最初の要素の静的class型を使用します。配列型は不変で、Derived[]をBase[]やobject[]へ代入できません。派生インスタンスを格納する場合はBase[]のリテラル型文脈を明示します。添字で得たclassからpublic getterを参照でき、getterが返すstruct／配列のメンバー列にも対応します。既存のasync／virtual呼び出しはローカルまたはwith対象を使用します。添字class要素を経由したproperty／privateフィールド代入には対応しません。object[]はclassインスタンスや配列を含む有効なAloeヒープObjectハンドルを格納し、int／string／struct／pipe値をboxingしません。VMはNullや無効なハンドルを拒否します。object[]からの読み出しは静的に型を限定しないobjectで、暗黙のdowncastやメンバー参照は行えません。Objectのソース等価比較は現行VMの対応範囲外です。class記述子はコンパイル時の許可runtime型名をclass:Base|Derived[]のように格納し、先頭を宣言class、残りを代入可能なclass名のordinal順とします。VMは識別子形式・重複禁止・型名の完全一致を検査し、バイトコードから継承関係を独立に再構築しません。入れ子記述子は直下の配列記述子との完全一致を要求します。共有ハンドルには既存の参照数付き強参照を使用し、待機中の対象／引数を保持します。重複参照やobject配列の循環は既存の参照グループで扱い、rootを失った親・子グループの回収には複数の既存GCパスが必要な場合があります。参照先オブジェクトのTick／Query規則は既存どおりで、新規生成オブジェクトのCommitted State初期化、cast、Object等価比較、長さ変更、直接WASMは変更しません。</div>
+<div class="note" id="array-subset">現行配列プロトタイプ（2026-10-13）：固定長int[]／bool[]／byte[]／char[]／float[]／decimal[]／string[]および通常／bitfield enum・struct配列のリテラル、型付き宣言、配列型を返す関数／プロパティの結果、リテラル、ローカル変数、括弧付きの式から添字と読み取り専用Lengthを参照できます。foreachの対象にもこれらの対応配列式を使用でき、開始時に一度だけ評価したハンドルをGC中も含めて反復終了まで保持します。入れ子ループ、break、continue、空配列に対応します。要素はその反復の開始時に読み取るため、別名を通した後続要素の変更を反映します。別名変数の再代入は保持済みの対象へ影響しません。要素の書き込みも、ローカル配列、配列型を返す関数／プロパティ、リテラル、括弧付き式の添字を対象にでき、thisフィールドやwithプロパティの配列参照にも対応します。対象・添字・代入値を左から右へ一度ずつ評価し、範囲・値種別の検査は代入値の評価後の書き込み時に行います。getterから返った参照への書き込みは呼び出し元で実行され、共有する別名にも影響します。getter内の直接書き込みとCommitted Query中の関数経由書き込みは引き続き禁止します。Lengthは読み取り専用で、一般のスカラー式は代入対象にできません。既存pipeのforeachは引き続きpipeローカルを対象とします。constructorの初期化検査は、空でない配列リテラルでも保守的に0回反復の可能性を扱います。空の[]リテラルは型付き宣言・代入・引数・返却値・cast代替式で期待配列型が決まる文脈が必要です。要素・添字・代入値はソース順に一度ずつ評価します。配列はヒープ参照で、代入・関数引数／戻り値・classフィールド・async待機引数では同じハンドルを共有します。foreachは対象を開始時に保持し、各要素をその反復の開始時に読みます。対象ローカルの再代入は進行中の反復へ影響しません。配列の書き込みは既存のVolatile／Committed Tick規則に従い、property getter内で実行する添字読み取りはCommitted要素を読みます。getterから返った配列参照への添字読み取りは呼び出し元で実行され、現在の要素を読みます。getterは返却配列を複製・固定しません。getter内の直接書き込みはコンパイルエラー、getterから呼び出す関数を経由する書き込みは実行時エラーです。添字は0..Length-1のintで、不正な添字や要素値はVmExceptionです。int要素は符号付きint32範囲、byteは0..255、charはUTF-16コード単位、floatは有限のbinary32値に限定し、decimalは既存のdecimal表現を維持します。要素の値種別は一致が必要です。byte[]の宣言・代入文脈では0..255の整数リテラルをbyteへ変換し、要素書き込みにも適用します。計算済みint値は暗黙変換しません。他の数値型同士も暗黙変換・混在を許可しません。混合要素型、異なる配列型、Lengthへの代入は拒否します。長さ変更、他の要素型、直接WASM、Set／基本Mapの対応範囲は10.4節に記載します。基本Listの対応範囲は10.2節に記載します。mainのargs: string[]は引き続き構文上だけの対応です。ヒープ／格納方式は<a href="../decisions/0001-basic-array-subset.md">配列プロトタイプの設計判断（英語）</a>を参照してください。以下の例は現行コンパイラーテストで実行します。 enum配列は最初の要素または型付き宣言／代入の文脈からenum型を決定し、文脈付きの空配列にも対応します。添字読み取りとforeach要素でもenum型を保持し、要素書き込み・リテラル・関数／class境界では異なるenumやint値を拒否します。bitfield要素には既存のマスク／シフト規則を適用します。VMはenum要素を符号付きint32、予約ヒープ型名enum:&lt;Name&gt;[]で保持します。他のenum値と同様にenum型の区別はコンパイラーで検査し、任意のバイトコードの個々の値にenumタグはありません。 struct配列は、入れ子structやenumフィールドを含む既存の参照フィールドを持たないstruct値に対応します。推論／型付きリテラル、文脈付き空配列、添字、foreach、関数／class／async境界でstruct型を保持します。配列の別名はハンドルを共有し、要素は変更不能な値スナップショットです。読み出したローカルやforeachのコピーを変更しても格納済み要素は変わりません。要素全体を代入すると別名にも反映され、以前読み出したコピーは維持されます。添字で得たstructからフィールド・読み取り専用メソッド／getter・入れ子の値メンバー列を参照できます。values[i].fieldや入れ子フィールドへの直接代入に対応します。配列参照・int添字を一度だけ評価して元のstructスナップショットを読み、右辺を評価し、変更不能な値のフィールド列を再構築して要素全体を置き換えます。要素全体への代入とは異なり、ArrayGetが右辺評価前に添字範囲を検査します。右辺が同じ要素を変更した場合は、読み取り済みスナップショットの再構築値で上書きします。別名は置き換えを観測し、以前のコピーは維持されます。byteリテラル変換やstruct／enum型の検査はローカルstructフィールド代入と同じです。propertyやメソッド結果のメンバー列は代入対象にできません。getter内の直接代入はコンパイルエラー、Committed Query内で呼び出した関数経由の代入は実行時エラーです。読み取り・変更・書き込みの一体的な原子性は保証しません。VMは予約記述子struct:&lt;Name&gt;[]を使用し、値種別Structとスナップショット型名の一致を検査します。フィールド構成の検査は既存のstruct生成／ソース型検査に従い、新しいopcodeやバイトコード格納形式は追加しません。 int[][]やPoint[][]のような入れ子配列に対応します。既存のprimitive／string／enum／structを末端の要素型とし、内側の配列はnullでない共有参照です。各階層は固定長で、行ごとに長さが異なる配列に対応します。連続添字、内側のLength、内側配列の置き換え、対象を保持するforeachでも残りの配列型を保持し、末端型や階層数の混在は拒否します。型付き宣言／代入は空配列やbyteリテラルへ内側の型文脈を伝えます。推論では空でない最初の行が後続の空行の型文脈になりますが、文脈のない最初の空行は拒否します。外側・内側の代入は行をコピーせずハンドルを共有し、末端struct値のスナップショットとフィールド書き戻し規則は維持します。VM型名は階層ごとに[]を追加し、int[][]、enum:Color[][]、struct:Point[][]などになります。入れ子要素は有効な配列ハンドルで、その型名は親の型名から最後の[]を除いた型名と完全一致する必要があります。null、classの参照、文字列そのもの、異なる階層数／型を拒否します。各入れ子要素は参照数を持つ強いヒープフィールド参照です。GCは外側からだけ到達可能な内側配列も保持し、同じハンドルの重複を数え、置き換え時に参照を外します。Tickではcommitまで古いCommitted参照と新しいVolatile参照を保持します。既存のヒープ／参照グラフ規則を使用し、class／object配列の対応範囲は以下に記載します。 string配列は型付き／推論リテラル、文脈付き空配列、配列式の添字読み書き、Length、foreach、入れ子配列と既存の関数／class／getter／async境界に対応します。要素はString値である必要があり、int／char／nullや暗黙変換は拒否します。配列の別名は更新を共有し、以前読み出した文字列の内容は維持されます。既存のAloeValue.Stringは変更不能な管理された文字列を保持し、AloeヒープのObjectIdを持たないため、末端の文字列要素は参照グラフのObject辺を追加しません。入れ子のstring配列ハンドルには通常の強参照を使用します。空文字・Unicode文字列・既存のリテラルエスケープはAloeBCを経由して内容を保持します。mainのargs: string[]はコマンドライン引数を注入しない構文上だけの対応のままです。一般のstring配列を追加する変更であり、引数配送や他の文字列APIは追加しません。 class配列とobject[]はリテラル、文脈付き空配列、添字読み書き、Length、対象を保持するforeach、入れ子配列、既存の関数／class／async境界に対応します。class配列は宣言されたclassと派生classのインスタンスを許可し、推論リテラルでは最初の要素の静的class型を使用します。配列型は不変で、Derived[]をBase[]やobject[]へ代入できません。派生インスタンスを格納する場合はBase[]のリテラル型文脈を明示します。添字で得たclassからpublic getterを参照でき、getterが返すstruct／配列のメンバー列にも対応します。既存のasync／virtual呼び出しはローカルまたはwith対象を使用します。添字class要素を経由したproperty／privateフィールド代入には対応しません。object[]はclassインスタンスや配列を含む有効なAloeヒープObjectハンドルを格納し、コンパイラーは型付きobject文脈でprimitiveをboxingします。struct／pipe値は未対応で、VMは生のscalar値、Nullや無効なハンドルを拒否します。object[]からの読み出しは静的に型を限定しないobjectで、暗黙のdowncastやメンバー参照は行えません。Objectの等価比較は以下の参照同一性プロトタイプに従います。class記述子はコンパイル時の許可runtime型名をclass:Base|Derived[]のように格納し、先頭を宣言class、残りを代入可能なclass名のordinal順とします。VMは識別子形式・重複禁止・型名の完全一致を検査し、バイトコードから継承関係を独立に再構築しません。入れ子記述子は直下の配列記述子との完全一致を要求します。共有ハンドルには既存の参照数付き強参照を使用し、待機中の対象／引数を保持します。重複参照やobject配列の循環は既存の参照グループで扱い、rootを失った親・子グループの回収には複数の既存GCパスが必要な場合があります。参照先オブジェクトのTick／Query規則は既存どおりで、新規生成オブジェクトのCommitted State初期化、長さ変更、直接WASMは変更しません。参照castは15.1節に記載します。 interface参照要素にも対応し、不変なコレクション型と<a href="#interface-status">7.4節</a>の適合検査に従います。</div>
+<div class="note" id="object-equality-subset">Object同一性比較プロトタイプ（2026-10-13）：==と!=はclassインスタンスとヒープ上の配列の安定したAloe ObjectIdを比較します。base／derivedや型を限定しないobject参照を含む別名はIDが一致すれば等しく、フィールドや要素の内容が同じでも別インスタンスなら等しくありません。GCで格納Bankが移動しても同一性は維持されます。オペランドの左から右への評価と論理演算の短絡規則は既存どおりです。getter内はCommitted参照、通常の式は既存の現在参照を比較します。既存CmpEq／CmpNe命令とAloeBC形式を再利用します。生のVM呼び出し元はヒープ参照や有効性の検査をせずObject ID値を比較し、異なる値種別やNullの既存動作は維持します。参照同士の等価比較は同一性比較です。Object／scalarの取り出しと対応する順序比較は5.2.2に記載します。Struct等価比較は引き続き拒否します。ユーザー定義／構造的な等価比較、直接WASMのObject対応は未対応です。参照castは15.1節に記載します。<a href="../decisions/0002-object-identity-equality.md">同一性の設計判断（英語）</a>を参照してください。以下の例はコンパイラーテストで実行します。</div>
+<pre><code>class Box {
+    field value: int;
+    construct(value: int) { this.value = value; }
+}
+function main(args: string[]): int {
+    var box = new Box(42); var alias = box; var other = new Box(42);
+    var values = [1, 2]; var shared = values; var sameContents = [1, 2];
+    GC.require(); GC.finish();
+    if (box == alias and box != other and values == shared and values != sameContents) { return 42; }
+    return 0;
+}</code></pre>
 <pre><code>class Box {
     field value: int;
     construct(value: int) { this.value = value; }
@@ -1637,6 +1733,17 @@ var matrix: float[][] = [[1.0, 2.0], [3.0, 4.0]];
 
 
     <h3>10.2 Lists (T())</h3>
+<div class="note" id="list-subset">変更可能なListサブセット（2026-10-14）：T()型と括弧内のカンマ区切りリテラルは、int／bool／byte／char／float／decimal／string、通常・bitfield enum／struct／class／object／名前付きboxに対応します。入れ子およびList／配列混在suffixは各階層の種類を保持します。int()()はListのList、int[]()は配列のList、int()[]はListの配列です。型文脈から空の子リテラル型を与えます。List.Add(value)／List.RemoveAt(index)で同じ共有handleの長さと要素を変更します。Addは要素型の完全一致、RemoveAtは範囲内int添字を要求します。Tick中は通常実行にVolatile長／要素を見せ、property Queryにはcommitまで以前のCommitted状態を維持します。両操作はproperty Query中は禁止します。Syscall36 ListAddと37 ListRemoveAtを追加しますがopcode／AloeBC形式は変えないため、新操作を含むmoduleは旧runtimeで実行できません。添字、Length、foreach、別名、struct snapshot書き戻し、参照消費、class field、async境界は既存規則を再利用します。Listと配列は別型で、明示参照castもコレクション形状の完全一致を要求します。入れ子runtime記述子はnested:list:<child>またはnested:array:<child>を使います。opcode／codec形式は追加せず、旧runtimeはこの記述子を拒否します。任意のLength代入／Resizeと直接WASMは未対応です。Set／Mapは10.3／10.4節に記載します。<a href="../decisions/0011-basic-list-subset.md">基本Listの設計判断（英語）</a>と<a href="../decisions/0012-nested-list-collections.md">入れ子コレクションの設計判断（英語）</a>と<a href="../decisions/0014-resizable-list-operations.md">変更可能なListの設計判断（英語）</a>を参照してください。以下の例はAloeBC往復後に42を返します。 interface参照要素にも対応し、不変なコレクション型と<a href="#interface-status">7.4節</a>の適合検査に従います。</div>
+<pre><code>function main(args: string[]): int {
+    let values: int() = (20, 21);
+    var alias = values;
+    alias[1] = 22;
+    var total = 0;
+    foreach (value in values) { total = total + value; }
+    if (values.Length == 2 and alias == values) { return total; }
+    return 0;
+}</code></pre>
+
 <pre><code>var lst: int() = (1, 2, 3);
 var objLst: FizzBuzz() = (new FizzBuzz(), new FizzBuzz());
 </code></pre>
@@ -1645,17 +1752,28 @@ var objLst: FizzBuzz() = (new FizzBuzz(), new FizzBuzz());
 
 
     <h3>10.3 Sets (T{})</h3>
+<div class="note" id="set-subset">基本Setサブセット（2026-10-14）：T{}でSet型を宣言し、{value, ...}で生成します。空リテラルには期待Set型が必要です。primitive scalar・string・通常／bitfield enum・静的に名前を指定したclass／interface referenceに対応します。class／interface referenceはObjectId identityで比較し、struct・generic object reference・その他の参照は拒否します。重複値は最初の挿入位置を保って除去し、foreachは挿入順で反復します。Countは読み取り専用です。Add(value)、Remove(value)、Contains(value)は要素型の完全一致を要求し、存在しない値のRemoveは何もしません。Clear()は全要素を削除し、共有Set handleと別名を維持します。UnionWith(other)、IntersectWith(other)、ExceptWith(other)は要素型が完全一致するSetを受け取り、receiverを変更します。和集合は相手側の新規要素を相手側の順で追加し、積集合・差集合はreceiverの挿入順を維持します。添字アクセス、Length変更、直接WASMには対応しません。共有heap handleが別名とclass／interface参照辺を保ち、既存Tick／Committed Query規則に従います。Committed property query中の変更は禁止です。Syscall38～40と48～51はopcode／AloeBC形式を変更せず、旧runtimeはSet操作を含むmoduleを実行できません。<a href="../decisions/0015-basic-set-subset.md">基本Setの設計判断（英語）</a>を参照してください。</div>
 <pre><code>var st: int{} = {1, 2, 3};
-var structSt: Point{} = {Point { x:0, y:0 }, Point { x:1, y:1 }};
+var words: string{} = {"Aloe", "VM"};
 </code></pre>
 
 
 
 
     <h3>10.4 Maps (map&lt;K/V&gt;)</h3>
-<pre><code>var mp: map&lt;int&gt; = ["key1": 10, "key2": 20];
-var mp2: map&lt;string/float&gt; = ["key1": 10.5, "key2": 20.5];
-var objMp: map&lt;FizzBuzz&gt; = ["obj1": new FizzBuzz(), "obj2": new FizzBuzz()];
+<div class="note" id="map-subset">基本Mapサブセット（2026-10-14）：map&lt;T&gt;はmap&lt;string/T&gt;の省略形で、両形式は不変型です。明示的なK/V形式ではkeyにprimitive scalar、通常／bitfield enum、静的に名前を指定したclass／interface referenceを指定できます。valueはそれらに加えてgeneric object referenceと名前付きbox referenceに対応します。generic object key、struct key/value、入れ子コレクション型は未対応です。class／interface reference keyはObjectId identityで比較し、強参照heap edgeを保ちます。class／interface値は参照identityと強参照heap edgeを保ち、派生型値は既存のclass／interface代入規則に従います。generic object値は既存object cast／boxing規則を使います。角括弧key:valueリテラルは型を推論し、空の[]には期待Map型が必要です。keyとvalueはソース順に一度ずつ評価し、重複キーは最初の位置と最後の値を保ちます。Countは読み取り専用で、添字読み取りは存在しないkeyにVmExceptionを返します。ContainsKey(key)、Set(key,value)、Remove(key)に対応し、変更文はMapローカルまたは引数を対象にします。foreach(key in map)はkeyを挿入順で反復します。foreach(key, value in map)では各反復の開始時にkeyとvalueのローカル変数へ対応する値を設定します。ループ本文のMap変更は次の反復から反映されます。別名と関数／class／async境界で同じheap identityを保ちます。Tick snapshotとCommitted Query中の変更禁止に従います。Syscall41～47はopcode／AloeBC形式を変えず、旧runtimeは新操作を実行できません。直接WASMは未対応です。<a href="../decisions/0016-basic-map-subset.md">基本Mapの設計判断（英語）</a>を参照してください。以下の例はAloeBC往復後に42を返します。</div>
+<pre><code>function main(args: string[]): int {
+    let values: map&lt;int&gt; = [&quot;first&quot;: 10, &quot;answer&quot;: 20, &quot;answer&quot;: 21];
+    var alias = values;
+    alias.Set(&quot;answer&quot;, 42);
+    alias.Set(&quot;temporary&quot;, 9);
+    values.Remove(&quot;temporary&quot;);
+    values.Remove(&quot;missing&quot;);
+    if (values.Count == 2 and values.ContainsKey(&quot;answer&quot;) and not values.ContainsKey(&quot;Answer&quot;) and alias == values) {
+        return values[&quot;answer&quot;];
+    }
+    return 0;
+}
 </code></pre>
 
 
@@ -1794,6 +1912,30 @@ print(b);
 
 
     <h3>15.1 as 演算子と ifnot（キャストと代替）</h3>
+<div class="note" id="reference-cast-subset">参照castプロトタイプ（2026-10-13）：E as Tはclass、object、対応済み配列の参照オペランドと対象型に対応します。class対象は宣言classと既知の派生classを許可し、配列対象は正規runtime記述子の完全一致を要求して型の不変性と階層数を維持します。オペランドは一度だけ評価し、成功時はコピーや割り当てをせず元の有効なObjectIdを返します。型不一致、Null、無効な参照はInvalidCastExceptionとなり、ifnot省略はifnot throwと同じです。E as T ifnot Fは失敗時だけFを評価し、代替参照の有効性と対象型を再検査します。Fは型文脈付き空配列や入れ子castに対応します。Fは式全体を消費するため、その結果を比較・算術式で使う場合は代替付きcastを括弧で囲みます。優先順位は単項演算より低く乗算より高く、連続cast、括弧付きclass結果のgetter読み取り、配列添字に対応します。async呼び出しは既存のローカル／with対象を使用します。getter Query内のcast検査は読み取り専用で、後続読み取りは既存のCommitted／現在状態の規則に従います。primitive同型castは以下に記載します。struct／enumへのcast、数値変換、nullable cast、直接WASMは未対応です。boxing／非消費取り出しは2.4節に記載します。class記述子は既存のコンパイラー生成の型名許可リストを使用し、VMは継承関係や任意のバイトコード記述子の真正性を独立に検証しません。<a href="../decisions/0003-checked-reference-casts.md">参照castの設計判断（英語）</a>を参照してください。以下の例はコンパイラーテストで実行します。</div>
+<div class="note" id="primitive-cast-subset">primitive同型castプロトタイプ（2026-10-13）：asの対象int、byte、char、float、decimal、string、bool／booleanに対応します。同じruntime値種別だけが成功し元の値を返します。intは符号付きint32、floatは有限値である必要があります。異なる値種別、Null、不適合なヒープ参照はInvalidCastExceptionです。asは数値変換や解析を行いません。型が一致するboxの取り出しは2.4節に記載します。例えば1 as floatや1 as byteは変換せず失敗します。同型castはfloatの負のゼロ、decimalの精度、String内容を保持します。ifnotは失敗時だけ評価し、代替式は対象型と完全一致、または期待型の文脈で暗黙に取り出せる型一致boxである必要があります。代替式に限り既存の範囲内byteリテラル文脈を許可します。オペランドは一度だけ評価し、ifnot省略はifnot throwと同じです。既存castの優先順位・連続cast・式全体を消費する代替式規則に従います。enum／struct／pipeオペランドとenum／struct対象は未対応で、ソース検査でenum型の消失を防ぎます。型一致boxからprimitiveへ取り出せるようになり、primitiveはas objectでboxingできます。名前付きbox APIは2.4節に記載します。直接WASMはcast構文を拒否します。<a href="../decisions/0004-primitive-identity-casts.md">primitive castの設計判断（英語）</a>を参照してください。以下の例はコンパイラーテストで実行します。</div>
+<pre><code>function fallback(): int { print(99); return 42; }
+function main(args: string[]): int {
+    let original: int = 42;
+    var same = original as int ifnot fallback();
+    var replacement = 1.5 as int ifnot fallback();
+    if (same == 42 and replacement == 42) { return 42; }
+    return 0;
+}</code></pre>
+<pre><code>class Box {
+    field value: int;
+    construct(value: int) { this.value = value; }
+    public property Value: int { get { return this.value; } }
+}
+class Other { }
+function main(args: string[]): int {
+    var box = new Box(42); let values: object[] = [box, [1, 2], new Other()];
+    var typed = values[0] as Box;
+    var row = values[1] as int[]; row[0] = 42;
+    var fallback = values[2] as Box ifnot box;
+    if (typed == box and fallback == box and typed.Value == 42 and (values[1] as int[])[0] == 42) { return 42; }
+    return 0;
+}</code></pre>
     <p>
       Aloe には括弧キャスト構文がなく、型変換は <code>as</code> 演算子で行う。<br>
       <code>as</code> は失敗時に <code>InvalidCastException</code> を投げる。<code>ifnot</code> により代替値、または <code>throw</code> を指定できる。
@@ -1854,9 +1996,11 @@ let i3: int = o as int ifnot throw;    // 失敗時は InvalidCastException（�
 
 
 
-    <div class="note" id="int-bitwise-subset">現行コンパイラのintビット演算（2026-10-11）：int同士の &amp;、|、^、intの単項 ~、intとintシフト数による &lt;&lt;、&gt;&gt; に対応し、結果はintです。オペランドは実行時に符号付きint32範囲を検査し、シフト数は0..31に限定します。左シフトは上位ビットを捨て、右シフトは符号を拡張します。範囲外はVMでVmException、直接WASMでtrapとなります。byte・bool・char・float・decimal・通常enumやint/bitfield enumの混在はコンパイルエラーです。bitfield enum同士の既存演算は型を保持します。比較はビット演算より優先されるため、ビット判定は <code>(value &amp; mask) == mask</code> と書きます。</div>
+    <div class="note" id="wasm-scalar-subset">現行の直接WASMスカラープロトタイプ（2026-10-19）：同期free functionは、型付きInt／Float／Bool／Byte／Char／enumの引数、local、戻り値に対応します。Intはi64、FloatはIEEE 754 binary32（f32）、Bool／Byte／Charはi32へ対応付け、CharはUTF-16コード単位1個をゼロ拡張します。Floatを1つ以上含む数値演算はFloat／Int／Byteオペランドに対応します。算術演算はVMと同じbinary32へ昇格し、混在比較はf64へ拡張してint32対FloatのVM順序を保ちます。Float剰余はbinary32の精度を保つ段階的な2倍化と減算で実行し、被除数の符号を維持します。非有限被除数、NaNの除数、ゼロ除数はtrapになります。無限大の除数ではVMと同様に有限な被除数を返します。その他、非有限結果、非ゼロオペランドによる乗除算結果のゼロへのunderflow、ゼロ除算、範囲外数値オペランド、非有限Float引数も実行時guardでtrapになります。decimal演算、数値変換、Syscall、配列、object操作は未対応です。ソースとAloeBCの型検査は、物理WASM型が同じscalar種別も区別します。</div>
+<div class="note" id="int-bitwise-subset">現行コンパイラのintビット演算（2026-10-11）：int同士の &amp;、|、^、intの単項 ~、intとintシフト数による &lt;&lt;、&gt;&gt; に対応し、結果はintです。オペランドは実行時に符号付きint32範囲を検査し、シフト数は0..31に限定します。左シフトは上位ビットを捨て、右シフトは符号を拡張します。範囲外はVMでVmException、直接WASMでtrapとなります。byte・bool・char・float・decimal・通常enumやint/bitfield enumの混在はコンパイルエラーです。bitfield enum同士の既存演算は型を保持します。比較はビット演算より優先されるため、ビット判定は <code>(value &amp; mask) == mask</code> と書きます。</div>
 
     <h2 id="ch16">16. Exceptions（例外）</h2>
+<div class="note" id="exception-status">実装済みの同期例外サブセット：<code>try { ... } catch { ... }</code> は、同期的なAloeバイトコード呼び出し中に発生した.NET例外を捕捉します。同期呼び出し先から発生した例外も対象です。<code>catch (ZeroDivisionException)</code> のような型だけを指定する句は、既存の対応例外型またはその派生型を捕捉します。同じtryに複数の句がある場合はソース順に照合し、最初に型が一致した句を使います。型なしcatchは最後にだけ記述できます。一致する句がなければ外側のハンドラーを探索し、見つからなければVMの外へ伝播します。指定できる型名は <code>Exception</code>、<code>SystemException</code>、<code>ZeroDivisionException</code>、<code>InvalidReferenceException</code>、<code>InvalidCastException</code>、<code>OverflowException</code>、<code>ArgumentException</code>、<code>IndexOutOfRangeException</code>、<code>VmException</code> です。catch句は例外値を束縛しません。裸の <code>throw;</code> は現在の例外を再送出し、catchブロック内でのみ使用できます。例外の構築、throw式、<code>finally</code>、async関数内の例外処理、直接WASMでの例外処理は未対応です。別構文の <code>as T ifnot throw</code> は引き続き使用できます。Async CallBufferの例外伝播とTick失敗時のロールバックは未解決であり、この章の残りは設計ドラフトです。</div>
 <pre><code>try {
 }
 catch (e) {

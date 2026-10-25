@@ -1,0 +1,81 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Aloe-lang"
+           Manufacturer="Akatsukisoft"
+           Version="$(ProductVersion)"
+           ProductCode="$(ProductCode)"
+           UpgradeCode="{60A2445F-3183-4842-9170-3C9E72A75C93}"
+           Language="1041"
+           Scope="perMachine"
+           InstallerVersion="500"
+           Compressed="yes">
+    <SummaryInformation Description="Aloe-lang experimental programming language tools" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Aloe-lang is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Property Id="ALOE_MACHINE_INSTALL_ROOT" Secure="yes">
+      <RegistrySearch Id="SearchMachineAloeInstallRoot"
+                      Root="HKLM"
+                      Key="SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+                      Name="ALOE_INSTALL_ROOT"
+                      Type="raw"
+                      Bitness="always64" />
+    </Property>
+    <Property Id="ALOE_OWNED_INSTALL_ROOT" Secure="yes">
+      <RegistrySearch Id="SearchAloeOwnedInstallRoot"
+                      Root="HKLM"
+                      Key="SOFTWARE\Akatsukisoft\Aloe-lang"
+                      Name="InstallRoot"
+                      Type="raw"
+                      Bitness="always64" />
+    </Property>
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Aloe">
+        <Directory Id="BINFOLDER" Name="bin">
+        </Directory>
+        <Directory Id="CONFIGFOLDER" Name="config">
+        </Directory>
+        <Directory Id="LOGSFOLDER" Name="logs">
+          <Component Id="LogsDirectoryPermissions" Guid="{3222582C-66E9-4E06-9494-ADAF415C28AA}" Bitness="always64">
+            <CreateFolder>
+              <PermissionEx Sddl="D:AI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;BU)" />
+            </CreateFolder>
+          </Component>
+        </Directory>
+        <Directory Id="DATAFOLDER" Name="data">
+          <Component Id="DataDirectoryPermissions" Guid="{4A4646CD-0711-4242-9276-7B7B4C936FA3}" Bitness="always64">
+            <CreateFolder>
+              <PermissionEx Sddl="D:AI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1301bf;;;BU)" />
+            </CreateFolder>
+          </Component>
+        </Directory>
+        <Component Id="InstallRootEnvironment"
+                   Guid="{B9B5CD4E-3E6C-45F5-82EE-8CFEA6C2EB1D}"
+                   Bitness="always64"
+                   Condition="NOT ALOE_MACHINE_INSTALL_ROOT OR ALOE_OWNED_INSTALL_ROOT">
+          <RegistryValue Root="HKLM"
+                         Key="SOFTWARE\Akatsukisoft\Aloe-lang"
+                         Name="InstallRoot"
+                         Value="[INSTALLFOLDER]"
+                         Type="string"
+                         KeyPath="yes" />
+          <Environment Id="SetMachineAloeInstallRoot"
+                       Name="ALOE_INSTALL_ROOT"
+                       Value="[INSTALLFOLDER]"
+                       Action="create"
+                       System="yes"
+                       Permanent="no" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Complete" Title="Aloe-lang" Level="1">
+      <Files Include="$(PayloadRoot)\**" Directory="BINFOLDER" />
+      <Files Include="$(ProjectRoot)\*.json" Directory="CONFIGFOLDER" />
+      <Files Include="$(ProjectRoot)\LICENSE" Directory="INSTALLFOLDER" />
+      <ComponentRef Id="LogsDirectoryPermissions" />
+      <ComponentRef Id="DataDirectoryPermissions" />
+      <ComponentRef Id="InstallRootEnvironment" />
+    </Feature>
+  </Package>
+</Wix>

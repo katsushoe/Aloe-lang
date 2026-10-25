@@ -70,11 +70,95 @@ function main(args: string[]): int {
 """;
 
             var module = new AloeCompiler().Compile(source);
+            var sleepCalls = 0;
             var vm = new AloeVm(
                 module,
-                new AloeVmSettings { AllowedHostCapabilities = AloeHostCapability.None });
+                new AloeVmSettings { AllowedHostCapabilities = AloeHostCapability.None })
+            {
+                SleepHandler = _ => sleepCalls++
+            };
 
-            Assert.That(() => vm.RunFromEntryPoint(), Throws.TypeOf<VmException>());
+            var exception = Assert.Throws<VmException>(() => vm.RunFromEntryPoint());
+
+            Assert.That(exception!.Message, Does.Contain("Timer"));
+            Assert.That(sleepCalls, Is.Zero);
+        }
+
+        [Test]
+        public void ReadLine_IsDeniedWithoutConsoleInputCapabilityBeforeCallingHost()
+        {
+            const string source = """
+function main(args: string[]): int {
+    let line: string = readLine();
+    return 0;
+}
+""";
+
+            var module = new AloeCompiler().Compile(source);
+            var inputCalls = 0;
+            var vm = new AloeVm(
+                module,
+                new AloeVmSettings { AllowedHostCapabilities = AloeHostCapability.None })
+            {
+                InputReader = () =>
+                {
+                    inputCalls++;
+                    return "must not be read";
+                }
+            };
+
+            var exception = Assert.Throws<VmException>(() => vm.RunFromEntryPoint());
+
+            Assert.That(exception!.Message, Does.Contain("ConsoleInput"));
+            Assert.That(inputCalls, Is.Zero);
+        }
+
+        [Test]
+        public void ReadLine_EndOfInputReturnsEmptyString()
+        {
+            const string source = """
+function main(args: string[]): int {
+    let line: string = readLine();
+    print(line);
+    return 0;
+}
+""";
+
+            var output = new List<string>();
+            var vm = new AloeVm(new AloeCompiler().Compile(source))
+            {
+                InputReader = () => null,
+                OutputWriter = line => output.Add(line)
+            };
+
+            vm.RunFromEntryPoint();
+
+            Assert.That(output, Is.EqualTo(new[] { string.Empty }));
+            Assert.That(vm.Pop().AsInt, Is.Zero);
+        }
+
+        [Test]
+        public void Sleep_NegativeDurationIsRejectedWithoutCallingHost()
+        {
+            const string source = """
+function main(args: string[]): int {
+    sleep(-1);
+    return 0;
+}
+""";
+
+            var sleepCalls = 0;
+            var vm = new AloeVm(
+                new AloeCompiler().Compile(source),
+                new AloeVmSettings { AllowedHostCapabilities = AloeHostCapability.Timer })
+            {
+                SleepHandler = _ => sleepCalls++
+            };
+
+            var exception = Assert.Throws<VmException>(() => vm.RunFromEntryPoint());
+
+            Assert.That(exception!.Message, Does.Contain("non-negative"));
+            Assert.That(sleepCalls, Is.Zero);
         }
     }
 }

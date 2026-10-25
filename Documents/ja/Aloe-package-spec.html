@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Aloe パッケージ仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="1" />
-  <meta name="edit-date" content="2025-12-04T09:30:00+09:00" />
+  <meta name="edit-version" content="2" />
+  <meta name="edit-date" content="2026-10-24T00:00:00+09:00" />
   <style>
     :root {
       color-scheme: light dark;
@@ -176,6 +176,20 @@
       ビルドツール（例：<code>aloec</code>）のコマンドライン仕様やプロジェクトファイル形式は、
       <strong>別途「ビルドツール仕様書」</strong>で定義する。
     </p>
+
+    <div class="note" id="implemented-local-resolution">
+      <strong>実装済みのローカル限定範囲（提案0031）：</strong>
+      <code>aloec package-db resolve --name NAME --version VERSION [--package-db PATH]</code>は、
+      既存のversion1 JSON索引と読み直したメタデータから、依存先順の決定的なJSON計画を生成します。
+      絶対ファイルパスとSHA256を含み、名前は大文字小文字を区別する序数比較、版は3区分の数値による
+      完全一致（各区分は0を除き先頭ゼロなし）です。同一の依存辺は重複を除きます。
+      ファイル不足・読み取り不能、不正なメタデータ・識別子、不対応の版、循環、同名の版競合では、
+      部分的な計画や入力変更を行わず失敗します。ダウンロード・インストール・コード実行・信頼性判断は
+      行いません。読み取った内容のスナップショットであり、永続lockや後の不変性の保証ではありません。
+      以下の他のパッケージ機能はドラフトです。
+      <a href="../../ReadMe-ja.md#ローカルパッケージ索引と依存計画">CLIの使用方法</a>と
+      <a href="../decisions/0031-local-exact-package-resolution-plan.md">提案0031</a>を参照してください。
+    </div>
 
     <hr>
 
