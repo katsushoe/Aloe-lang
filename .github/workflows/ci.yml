@@ -14,8 +14,6 @@ concurrency:
 jobs:
   validate:
     runs-on: windows-latest
-    env:
-      ALOE_INSTALL_ROOT: ${{ runner.temp }}/aloe-validation
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -26,6 +24,11 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
+
+      - name: Set isolated validation directory
+        shell: pwsh
+        run: |
+          "ALOE_INSTALL_ROOT=$env:RUNNER_TEMP/aloe-validation" >> $env:GITHUB_ENV
 
       - name: Restore locked solution dependencies
         run: dotnet restore Aloe.sln --locked-mode -m:1 -nr:false -p:AloeInstallRoot="$env:ALOE_INSTALL_ROOT"
