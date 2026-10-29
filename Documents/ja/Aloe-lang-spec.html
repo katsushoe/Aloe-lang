@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="170">
-  <meta name="edit-date" content="2026-10-25T18:36:48+09:00">
+  <meta name="edit-version" content="187">
+  <meta name="edit-date" content="2026-10-29T09:28:55+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 159)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 187)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 159<br>
-      edit-date: 2026-10-22T11:02:13+09:00</p>
+      edit-version: 187<br>
+      edit-date: 2026-10-29T09:28:55+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -1429,10 +1429,22 @@ sealed class FinalDerived extends Base {
 <div class="note" id="interface-arithmetic-catch-flow">定数算術のcatch経路（2026-10-22）：定数int式のローカル代入では、確実なゼロ除算と検査付きint32オーバーフローを区別し、適合しない型付きcatchをinterface継続経路の合流から除外できます。定数条件で選ばれる<code>if</code>/<code>else if</code>/<code>else</code>の対応済み本体が正常終了すれば後続文の解析へ進み、常に偽のループは読み飛ばします。常に真のループから後続文へ到達するとは推論しません。条件比較でも左からの評価順と短絡評価から確定できる例外型だけを保持し、先行する未知の式があれば後続式の例外型を断定しません。例外を投げないboolローカル・引数、その論理式とbool同士の<code>==</code>／<code>!=</code>比較では、両分岐の対応済み算術結果が同じ場合に合流でき、正常終了の合流後は後続の確実な失敗も解析します。同じ非例外bool解析でwhile条件が常に偽または真になる組み合わせも認識します。対応済み分岐と正常に継続する経路では、発生し得るゼロ除算とオーバーフローを集合で保持し、例外を出さないbool条件の0回反復も含めます。先行handlerを考慮してどの候補例外も到達しない型付きcatchだけを除外します。未知の呼び出し・未対応条件・制御移動は保守的に扱い、handlerの型検査は継続します。解析範囲は決定0017を参照してください。</div>
 <div class="note" id="interface-arithmetic-return-flow">算術return経路（2026-10-22）：対応範囲の有限例外解析では、裸のreturnと正常終了する定数int算術のreturn式は、その関数経路を終了します。返却式が確実に失敗する場合は、ゼロ除算またはcheckedオーバーフローの正確な例外を保持します。それ以前に発生し得る算術例外も集合に残します。演算項の評価順は左から右で、未知の呼び出しや未対応のreturn式のcatch到達性は保守的に扱います。関数が例外を出さないという推論や、実行時のreturn・例外動作の変更は行いません。</div>
 <div class="note" id="interface-arithmetic-loop-transfer-flow">算術ループ制御経路（2026-10-22）：対応範囲の有限例外解析ではbreakとcontinueを区別し、最も内側のwhileが自身の制御経路を処理します。内側のbreakは外側ループを終了しません。breakはそのループ後の文へ進み、continueは条件の再評価へ戻ります。例外を出さずfalseになり得る条件では、0回反復または後続の条件による出口も保持します。条件が常にtrueでbreakがなければ、後続文を到達可能としません。それ以前や別経路の正確な算術例外も集合に残し、未知の操作や未対応構文のcatch到達性は保守的に扱います。</div>
+<div class="note" id="interface-handled-constant-nested-flow">入れ子tryが、定数算術によって確実にZeroDivisionExceptionまたはOverflowExceptionとなる明示的なintローカル宣言1文だけを含む場合も、最初に一致するcatch本文が独立に例外を起こさないと証明できれば、外側へ例外が出ないと判定します。一致しない例外、再throw、例外を起こすhandler、変数を含む算術や他の文は保守的に扱います。通常の型検査と実行時動作は維持します。</div>
 <div class="note" id="interface-arithmetic-rethrow-flow">算術例外の再送出経路（2026-10-23）：裸のthrowは、現在捕捉しているゼロ除算・overflowの種類を保持します。正確な算術例外型を指定したcatchは元の呼び出しが未知でも種類を限定できます。基底型・型なしcatchでは有限の候補を証明できる場合だけ、先行句で処理済みの種類を除いて追跡します。入れ子catchは未知の場合も現在の文脈を置き換え、終了時に外側の文脈へ戻します。対応する分岐・ループ・入れ子try本文でも保持します。再送出前に到達し得る未知の操作があれば有限の証明を解除します。限定的なinterface解析の変更であり、一般の非throw推論は変更しません。VMは例外の移動先が決まるまで捕捉例外を保持し、選択したtryの入口catch深度へ戻すため、内側tryで再送出を捕捉して同じ外側catchを継続できます。 break／continueは対象ループへ移る際に退出するcatchだけを終了し、そのループを囲むcatchは保持します。</div>
 <div class="note" id="interface-optional-boolean-flow">bool式の任意の例外経路（2026-10-24）：限定的な解析では、通常のfalse／true結果と有限のゼロ除算／checked overflow候補を分けて保持します。短絡and／or・単項not・boolの等値／非等値は評価順を守り、左辺が正常終了して右辺へ進む経路だけで右辺を評価します。左辺の失敗で評価されない未知の呼び出しは除外できます。対応する宣言・ローカル代入・return・if／while条件へ結果を合成し、それ以前の例外候補も残します。到達し得る未知の呼び出しや未対応操作があれば有限の証明を解除します。ローカル値の相関・関数間推論・実行時動作は変更せず、候補なしだけで一般の非例外を証明しません。</div>
 <div class="note" id="interface-int-comparison-flow">int比較の非例外証明（2026-10-24）：型付きintローカル・引数の読み取りと、安全な完了を独立に証明済みのint定数算術を、&lt;・&lt;=・&gt;・&gt;=・==・!=で比較する場合、言語の例外経路は生じません。括弧付きオペランドにも対応します。ローカル値の相関は推論せず、false/trueの両方を保持し、対応する宣言・代入・分岐・ループの既存bool／有限例外解析と合成します。可変算術・呼び出し・添字・メンバー参照・他の型は今回の追加証明の対象外です。実行され得る未知の操作や到達可能な代入は引き続きinterfaceの事実を無効にします。実行時動作とバイトコードは変更しません。</div>
 <div class="note" id="interface-scalar-comparison-flow">同型スカラー比較の例外経路（2026-10-25）：byte・char・floatのローカル／引数を直接読み取り、同じ型の別の読み取りと&lt;・&lt;=・&gt;・&gt;=・==・!=で比較する場合、言語の例外経路は生じません。オペランドの括弧にも対応します。既存の限定的なint比較証明を拡張しますが、結果の確定や同じ値の相関は推論しません。呼び出し・可変算術・メンバー／添字読み取り・異なる型の比較は追加証明の対象外で、到達可能な書き込みは引き続きinterfaceの事実を無効にします。VM比較の既存動作は変更しません。</div>
+<div class="note" id="interface-decimal-comparison-flow">decimal比較の例外経路（2026-10-26）：decimalのローカル／引数を直接読み取り、同じ型の読み取りと6種類の比較演算子で比較する場合にも、既存の非例外証明を適用します。decimalの最小値・最大値の比較自体はchecked算術のoverflow経路を生じません。decimal算術・呼び出し・メンバー／添字読み取り・異なる型の比較は対象外で、実行時動作や値の相関の推論は変更しません。</div>
+<div class="note" id="interface-mixed-numeric-comparison-flow">互換な混合数値比較の例外経路（2026-10-26）：型が確定した直接読み取り、および既に安全性を証明したint定数式では、int／byteとint／byte／float／decimalを左右どちらの順序でも比較できる場合に非例外経路として扱います。上記の同型限定を拡張し、6種類の比較演算子を対象としますが、値の相関は推論しません。floatとdecimalの混在、charと数値の順序比較は追加しません。変数算術・呼び出し・メンバー／添字読み取りは保守的に扱い、実行時の変換や比較結果は変更しません。</div>
+<div class="note" id="interface-string-equality-flow">文字列等値比較の例外経路（2026-10-26）：string型のローカル／引数の直接読み取りを==または!=で比較する場合にも、非例外経路として扱います。既存の序数による等値比較に従い、比較結果は変更しません。文字列の順序比較は追加しません。呼び出し・メンバー／添字読み取り・値の相関は新たに推論しません。raw VMでは空文字・Unicode／サロゲート・nullとの等値比較も検証しますが、ソースのnull構文は追加しません。</div>
+<div class="note" id="interface-string-literal-equality-flow">文字列リテラルの等値比較経路（2026-10-26）：直接の文字列リテラルを括弧や左右の配置にかかわらず、string型の読み取りと同じ==／!=の非例外証明に加えます。既存の定数読み取りと序数による等値比較を使い、実行時の割り当てやcastは行いません。bool演算に含まれる算術例外の候補は引き続き合成します。呼び出し・checked cast・参照の書き込み・文字列の順序比較は新たに証明しません。通常のリテラル解析・型検査、比較結果、bytecode、実行時動作は変更しません。</div>
+<div class="note" id="interface-nonthrowing-while-flow">whileの独立した非例外証明（2026-10-26）：条件の非例外性を独立に証明でき、到達する本体の操作も同じ限定的な安全範囲に属する場合に、whileからcatchへの経路を除外します。常にfalseとなる条件では本体を実行対象から外します。入れ子のwhileは自身のbare break／continueを消費し、ループ後の文の例外確認は続けます。呼び出し・変数算術・値付きreturnは保守的に扱い、到達不能なhandlerも型検査します。終了性の証明や実行時／bytecodeの変更は行いません。</div>
+<div class="note" id="interface-nonthrowing-branch-flow">if分岐の独立した非例外証明（2026-10-26）：if／else／else-ifの到達する条件と選択され得る本体を、それぞれ限定した範囲で非例外と証明できる場合にcatchへの経路を除外します。定数・短絡評価によって本体や後続のelse-if条件を実行対象から外せます。入れ子の分岐と証明済みwhile本体も組み合わせます。分岐後の文は引き続き保守的に確認し、共通の制御移動・終了性・値の相関・関数間契約は推論しません。到達する呼び出し・変数算術・参照の書き込み・値付きreturnは保守的に扱います。非選択の枝とhandlerも型検査し、実行時／bytecodeは変更しません。</div>
+<div class="note" id="interface-scoped-primitive-proof">スコープ別primitive非例外証明（2026-10-26）：独立した証明では、対応するint／bool／stringのlet宣言を字句スコープごとに追跡し、初期化式を確認した後で名前を束縛します。各分岐・while本体・入れ子ブロックに個別の型情報を渡し、内側の同名宣言で外側の束縛を置き換えません。stringの初期化は、括弧を含む直接のstring読み取りかリテラル定数だけを証明します。呼び出し・cast・暗黙unbox・連結・書き込みは新たに証明しません。定数伝播や、別の有限算術例外分類を拡張する変更ではありません。通常の型検査、実行時／bytecodeは変更しません。</div>
+<div class="note" id="interface-nested-try-proof">入れ子のtry（2026-10-28）: 内側のtry本体が独立に非例外と証明できる場合、そのcatchは到達不能として外側の非例外証明を続けます。未知または例外を起こし得る内側のtryは保守的に扱います。通常の型検査と実行時・bytecodeの動作は変わりません。</div>
+<div class="note" id="interface-primitive-assignment-proof">同じ型のプリミティブ変数への代入（2026-10-27）: 独立した非例外証明は、右辺が同じ型の直接読み出しであるint、bool、string、byte、char、float、decimalのローカル変数・引数への代入と、string変数への文字列リテラルおよびbool変数への非例外と証明できる真偽式、およびint変数への非例外と証明できる定数整数式の代入を受け付けます。括弧と字句スコープを扱います。例外を起こし得る呼び出し、キャスト、暗黙unbox、型変換、演算、メンバー・インデックスへの書き込みは保守的に扱い、通常の型検査と実行時・bytecodeの動作は変わりません。</div>
+<div class="note" id="interface-scalar-read-initializer-proof">型付きスカラー読み出しの初期化（2026-10-27）: 独立した非例外証明は、let初期化子での同じ型のbyte、char、float、decimalローカル変数または引数の直接読み出しを受け付けます。括弧とスコープ内の束縛も対象です。呼び出し、演算、キャスト、型変換、objectのunboxは新たな証明対象に含めません。通常の型検査と実行時・bytecodeの動作は変わりません。</div>
+<div class="note" id="interface-int-read-initializer-proof">int読み取りによる初期化（2026-10-27）：独立した非例外証明では、括弧や対応する字句束縛を含むintローカル／引数の直接読み取りをintのlet初期化式として認めます。上記の定数限定規則を拡張しますが、型変換・算術値の伝播・一般的な例外契約は追加しません。変数算術・呼び出し・cast・暗黙unboxは保守的に扱います。別の有限算術例外分類、実行時／bytecodeは変更しません。</div>
 <div class="note" id="interface-boolean-expression-flow">bool式の例外経路（2026-10-24）：対応するbool初期化・ローカル代入・return式でも有限の算術例外候補を保持します。リテラル・primitive boolの読み取り・対応する定数比較・短絡演算には既存の非例外証明を使います。比較式の確実なエラーは代入・returnより先に発生し、ゼロ除算とchecked overflowを区別します。型付きboolローカルlet宣言は初期化の非例外を独立に証明できる場合、到達不能なhandlerを除外できます。評価されない呼び出しは例外経路を加えません。後続項が結果を一定にしても、実行され得る未知の呼び出しは保守的に扱います。ローカル定数伝播・関数間の証明・実行時動作は変更しません。</div>
 <div class="note" id="interface-arithmetic-nested-handler-flow">入れ子の算術例外handler経路（2026-10-23）：有限の対応範囲では、入れ子try/catchをソース順に合成し、例外型と基底型の一致、先行句による遮蔽、不適合な句を反映します。処理済みの元の例外は外へ伝わる候補から除きます。catch内で新たに発生した例外は外側へ伝わり、同じtryの後続catchには渡しません。対応する通常終了・return・最も内側のループへのbreak/continue経路を保持します。到達し得る未知の操作・呼び出しは保守的に扱います。別の限定的な証明として、型付きintローカルlet宣言は定数算術の初期化が正常終了すると証明できる場合だけ非例外とし、未知の初期化式や算術エラーは認めません。算術例外候補がないことだけでは一般の非throw契約を証明しません。すべてのhandlerは引き続き構文・型検査を受けます。</div>
 <div class="note" id="interface-unreachable-catch">到達不能catch経路の証明（2026-10-20）：空のtry本体、または実行操作より前の式を伴わないreturn・break・continueだけの本体には、言語例外への経路がありません。catchは引き続き構文解析と型検査を行いますが、その書き込みや制御移動はinterfaceの合流と外側tryの書き込み走査に含めません。呼び出し・式・宣言などは保守的に扱い、一般の関数が例外を送出しないとは推論しません。</div>

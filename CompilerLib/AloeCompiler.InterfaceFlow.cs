@@ -613,34 +613,175 @@ public sealed partial class AloeCompiler
             actual == entry || actual.Type == ExprType.Object && entry.Type == ExprType.Object &&
             (entry.ClassName == null || IsClassAssignable(actual.ClassName, entry.ClassName));
 
-        private bool CanProveTryRangeHasNoExceptionalEdges(int start, int end)
+        private bool CanProveTryRangeHasNoExceptionalEdges(int start, int end,
+            IReadOnlyDictionary<string, ExprType>? inheritedTypes = null)
         {
             if (start < 0 || end < start) return false;
+            // Copy at each lexical boundary: declarations must not escape a branch/loop/block.
+            var localTypes = inheritedTypes == null
+                ? new Dictionary<string, ExprType>(StringComparer.Ordinal)
+                : new Dictionary<string, ExprType>(inheritedTypes, StringComparer.Ordinal);
             for (var cursor = start; cursor < end; cursor++)
             {
                 var token = TokenAt(cursor);
-                if (token.Kind is TokenKind.LBrace or TokenKind.RBrace or TokenKind.Semicolon) continue;
-                // This independently proves a primitive local declaration safe; an empty
-                // arithmetic failure set alone is not a general nonthrowing proof.
+                if (token.Kind == TokenKind.Semicolon) continue;
+                if (token.Kind == TokenKind.LBrace)
+                {
+                    var blockEnd = FindInterfaceFlowGroupEnd(cursor, TokenKind.LBrace, TokenKind.RBrace);
+                    if (blockEnd <= 0 || blockEnd > end ||
+                        !CanProveTryRangeHasNoExceptionalEdges(cursor + 1, blockEnd - 1, localTypes)) return false;
+                    cursor = blockEnd - 1;
+                    continue;
+                }
+                // A nested handler cannot run when its own try body is independently nonthrowing.
+                if (token.Lexeme == "try" && TokenAt(cursor + 1).Kind == TokenKind.LBrace)
+                {
+                    var tryEnd = FindInterfaceFlowGroupEnd(cursor + 1, TokenKind.LBrace, TokenKind.RBrace);
+                    if (tryEnd <= cursor + 1 || !TryFindCatchBodies(tryEnd, out var handlers, out var lastCatchEnd) ||
+                        lastCatchEnd > end ||
+                        !(CanProveTryRangeHasNoExceptionalEdges(cursor + 2, tryEnd - 1, localTypes) ||
+                          CanProveHandledConstantNestedFailure(cursor + 2, tryEnd - 1, handlers, localTypes)))
+                        return false;
+                    cursor = lastCatchEnd - 1;
+                    continue;
+                }
+                // Initialization must independently be safe for the declared target type;
+                // an empty arithmetic failure set alone is not a general nonthrowing proof.
                 if (token.Lexeme == "let" && TokenAt(cursor + 1).Kind == TokenKind.Identifier &&
-                    TokenAt(cursor + 2).Kind == TokenKind.Colon && TokenAt(cursor + 3).Lexeme is "int" or "bool" &&
+                    TokenAt(cursor + 2).Kind == TokenKind.Colon && TokenAt(cursor + 3).Lexeme is "int" or "bool" or "string" or "byte" or "char" or "float" or "decimal" &&
                     TokenAt(cursor + 4).Kind == TokenKind.Assign)
                 {
                     var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
-                    if (statementEnd < 0 || (TokenAt(cursor + 3).Lexeme == "int"
-                            ? GetGuaranteedInt32ArithmeticFailure(cursor + 5, statementEnd) != GuaranteedInt32Failure.None
-                            : EvaluateNonthrowingBooleanCondition(cursor + 5, statementEnd) == null))
+                    if (statementEnd < 0) return false;
+                    var type = TokenAt(cursor + 3).Lexeme switch
+                    {
+                        "int" => ExprType.Int,
+                        "bool" => ExprType.Bool,
+                        "byte" => ExprType.Byte,
+                        "char" => ExprType.Char,
+                        "float" => ExprType.Float,
+                        "decimal" => ExprType.Decimal,
+                        _ => ExprType.String
+                    };
+                    var initializerIsSafe = type switch
+                    {
+                        ExprType.Int => GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) == ExprType.Int ||
+                            GetGuaranteedInt32ArithmeticFailure(cursor + 5, statementEnd) == GuaranteedInt32Failure.None,
+                        ExprType.Bool => EvaluateNonthrowingBooleanCondition(cursor + 5, statementEnd, localTypes) != null,
+                        _ => GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) == type
+                    };
+                    if (!initializerIsSafe) return false;
+                    // Bind after proving the initializer, so a shadow initializer reads its outer binding.
+                    localTypes[TokenAt(cursor + 1).Lexeme] = type;
+                    cursor = statementEnd;
+                    continue;
+                }
+                // Same-type primitive reads and independently proven boolean or int constants are safe assignments.
+                // Unproven calls, unboxing, conversions and member/index writes stay unknown.
+                if (token.Kind == TokenKind.Identifier && TokenAt(cursor + 1).Kind == TokenKind.Assign)
+                {
+                    var targetType = GetNonthrowingDirectReadType(cursor, cursor + 1, localTypes);
+                    var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
+                    if (targetType is not (ExprType.Int or ExprType.Bool or ExprType.String or ExprType.Byte or
+                        ExprType.Char or ExprType.Float or ExprType.Decimal) || statementEnd < 0)
+                        return false;
+                    var provenBoolExpression = targetType == ExprType.Bool &&
+                        EvaluateNonthrowingBooleanCondition(cursor + 2, statementEnd, localTypes) != null;
+                    var provenIntConstant = targetType == ExprType.Int &&
+                        GetGuaranteedInt32ArithmeticFailure(cursor + 2, statementEnd) == GuaranteedInt32Failure.None;
+                    if (!provenBoolExpression && !provenIntConstant &&
+                        GetNonthrowingDirectReadType(cursor + 2, statementEnd, localTypes) != targetType)
                         return false;
                     cursor = statementEnd;
                     continue;
                 }
-                // Bare transfers cannot evaluate an expression or enter a nested loop here.
+                if (token.Lexeme == "if" && TokenAt(cursor + 1).Kind == TokenKind.LParen)
+                {
+                    if (!CanProveConditionalHasNoExceptionalEdges(cursor, end, out var afterIf, localTypes)) return false;
+                    cursor = afterIf - 1;
+                    continue;
+                }
+                if (token.Lexeme == "while" && TokenAt(cursor + 1).Kind == TokenKind.LParen)
+                {
+                    var conditionEnd = FindInterfaceFlowGroupEnd(cursor + 1, TokenKind.LParen, TokenKind.RParen);
+                    var bodyEnd = conditionEnd > 0 && TokenAt(conditionEnd).Kind == TokenKind.LBrace
+                        ? FindInterfaceFlowGroupEnd(conditionEnd, TokenKind.LBrace, TokenKind.RBrace) : -1;
+                    if (bodyEnd <= 0 || bodyEnd > end) return false;
+                    var condition = EvaluateNonthrowingBooleanCondition(cursor + 2, conditionEnd - 1, localTypes);
+                    if (condition == null || (condition != ConditionEvaluation.False &&
+                        !CanProveTryRangeHasNoExceptionalEdges(conditionEnd + 1, bodyEnd - 1, localTypes)))
+                        return false;
+                    cursor = bodyEnd - 1;
+                    continue;
+                }
+                // Each nested loop consumes its own bare transfers before scanning resumes.
                 if (token.Kind == TokenKind.Keyword && token.Lexeme is "return" or "break" or "continue" &&
                     TokenAt(cursor + 1).Kind == TokenKind.Semicolon)
                     return true;
                 return false;
             }
             return true;
+        }
+
+        private bool CanProveHandledConstantNestedFailure(int start, int end,
+            IReadOnlyList<(int Open, int Close)> handlers, IReadOnlyDictionary<string, ExprType> localTypes)
+        {
+            // Restrict this proof to one explicitly typed local initialized by constant int arithmetic.
+            if (TokenAt(start).Lexeme != "let" || TokenAt(start + 1).Kind != TokenKind.Identifier ||
+                TokenAt(start + 2).Kind != TokenKind.Colon || TokenAt(start + 3).Lexeme != "int" ||
+                TokenAt(start + 4).Kind != TokenKind.Assign) return false;
+            var statementEnd = FindInterfaceFlowStatementEnd(start, end);
+            if (statementEnd < 0 || statementEnd + 1 != end) return false;
+            var exceptionType = GetGuaranteedInt32ArithmeticFailure(start + 5, statementEnd) switch
+            {
+                GuaranteedInt32Failure.ZeroDivision => typeof(ZeroDivisionException),
+                GuaranteedInt32Failure.Overflow => typeof(OverflowException),
+                _ => null
+            };
+            if (exceptionType == null) return false;
+            foreach (var (open, close) in handlers)
+            {
+                var handlerType = typeof(Exception);
+                if (TokenAt(open - 1).Kind == TokenKind.RParen &&
+                    !AloeExceptionTypes.TryResolve(TokenAt(open - 2).Lexeme, out handlerType)) return false;
+                if (handlerType.IsAssignableFrom(exceptionType))
+                    return CanProveTryRangeHasNoExceptionalEdges(open + 1, close - 1, localTypes);
+            }
+            return false;
+        }
+
+        private bool CanProveConditionalHasNoExceptionalEdges(int start, int end, out int afterIf,
+            IReadOnlyDictionary<string, ExprType> localTypes)
+        {
+            afterIf = -1;
+            var canReachCondition = true;
+            for (var cursor = start; ;)
+            {
+                var conditionEnd = FindInterfaceFlowGroupEnd(cursor + 1, TokenKind.LParen, TokenKind.RParen);
+                var bodyEnd = conditionEnd > 0 && TokenAt(conditionEnd).Kind == TokenKind.LBrace
+                    ? FindInterfaceFlowGroupEnd(conditionEnd, TokenKind.LBrace, TokenKind.RBrace) : -1;
+                if (bodyEnd <= 0 || bodyEnd > end) return false;
+                if (canReachCondition)
+                {
+                    var condition = EvaluateNonthrowingBooleanCondition(cursor + 2, conditionEnd - 1, localTypes);
+                    if (condition == null || ((condition.Value & ConditionEvaluation.True) != 0 &&
+                        !CanProveTryRangeHasNoExceptionalEdges(conditionEnd + 1, bodyEnd - 1, localTypes)))
+                        return false;
+                    canReachCondition = (condition.Value & ConditionEvaluation.False) != 0;
+                }
+                afterIf = bodyEnd;
+                if (TokenAt(bodyEnd).Lexeme != "else") return true;
+                var elseStart = bodyEnd + 1;
+                if (TokenAt(elseStart).Lexeme == "if" && TokenAt(elseStart + 1).Kind == TokenKind.LParen)
+                {
+                    cursor = elseStart;
+                    continue;
+                }
+                if (TokenAt(elseStart).Kind != TokenKind.LBrace) return false;
+                afterIf = FindInterfaceFlowGroupEnd(elseStart, TokenKind.LBrace, TokenKind.RBrace);
+                return afterIf > 0 && afterIf <= end && (!canReachCondition ||
+                    CanProveTryRangeHasNoExceptionalEdges(elseStart + 1, afterIf - 1, localTypes));
+            }
         }
 
         private readonly Stack<ArithmeticTryFlow> _arithmeticRethrowContexts = new();
@@ -882,7 +1023,8 @@ public sealed partial class AloeCompiler
                 bodyFlow == ArithmeticTryFlow.Unknown ? ArithmeticTryFlow.Unknown : condition.Value.Failures | bodyFlow;
         }
 
-        private ConditionEvaluation? EvaluateNonthrowingBooleanCondition(int start, int end)
+        private ConditionEvaluation? EvaluateNonthrowingBooleanCondition(int start, int end,
+            IReadOnlyDictionary<string, ExprType>? localTypes = null)
         {
             while (end - start >= 2 && TokenAt(start).Kind == TokenKind.LParen &&
                    FindInterfaceFlowGroupEnd(start, TokenKind.LParen, TokenKind.RParen) == end)
@@ -896,11 +1038,10 @@ public sealed partial class AloeCompiler
 
             // Primitive local reads cannot throw or consume a reference. Calls and other
             // expressions must retain their possible exceptional edges even when both bodies agree.
-            if (end - start == 1 && TokenAt(start).Kind == TokenKind.Identifier &&
-                TryResolveLocal(TokenAt(start).Lexeme, out var local) && local.Type == ExprType.Bool)
+            if (GetNonthrowingDirectReadType(start, end, localTypes) == ExprType.Bool)
                 return ConditionEvaluation.False | ConditionEvaluation.True;
 
-            if (IsNonthrowingPrimitiveComparison(start, end))
+            if (IsNonthrowingPrimitiveComparison(start, end, localTypes))
                 return ConditionEvaluation.False | ConditionEvaluation.True;
 
             var firstAnd = -1;
@@ -928,12 +1069,12 @@ public sealed partial class AloeCompiler
             var logical = firstOr >= 0 ? firstOr : firstAnd;
             if (logical >= 0)
             {
-                var left = EvaluateNonthrowingBooleanCondition(start, logical);
+                var left = EvaluateNonthrowingBooleanCondition(start, logical, localTypes);
                 if (left == null) return null;
                 var isAnd = TokenAt(logical).Lexeme == "and";
                 var shortCircuit = isAnd ? ConditionEvaluation.False : ConditionEvaluation.True;
                 if (left == shortCircuit) return shortCircuit;
-                var right = EvaluateNonthrowingBooleanCondition(logical + 1, end);
+                var right = EvaluateNonthrowingBooleanCondition(logical + 1, end, localTypes);
                 if (right == null) return null;
                 var result = left.Value & shortCircuit;
                 var evaluatesRight = isAnd ? ConditionEvaluation.True : ConditionEvaluation.False;
@@ -943,8 +1084,8 @@ public sealed partial class AloeCompiler
 
             if (equalities == 1)
             {
-                var left = EvaluateNonthrowingBooleanCondition(start, equality);
-                var right = EvaluateNonthrowingBooleanCondition(equality + 1, end);
+                var left = EvaluateNonthrowingBooleanCondition(start, equality, localTypes);
+                var right = EvaluateNonthrowingBooleanCondition(equality + 1, end, localTypes);
                 if (left == null || right == null) return null;
                 var canEqual = (left.Value & right.Value) != 0;
                 var canDiffer = (left.Value & ConditionEvaluation.False) != 0 &&
@@ -959,7 +1100,7 @@ public sealed partial class AloeCompiler
 
             if (TokenAt(start).Lexeme == "not")
             {
-                var operand = EvaluateNonthrowingBooleanCondition(start + 1, end);
+                var operand = EvaluateNonthrowingBooleanCondition(start + 1, end, localTypes);
                 if (operand == null) return null;
                 var result = (ConditionEvaluation)0;
                 if ((operand.Value & ConditionEvaluation.False) != 0) result |= ConditionEvaluation.True;

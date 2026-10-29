@@ -2365,8 +2365,8 @@ namespace Aloe.CompilerLib
                                 if (fieldIndex < 0)
                                     throw Error(keyToken, $"Struct '{elementName}' has no field '{keyToken.Lexeme}'.");
                                 var keyField = structSignature.Fields[fieldIndex];
-                                if (keyField.Type is not (ExprType.Int or ExprType.String))
-                                    throw Error(keyToken, $"Sort key '{elementName}.{keyToken.Lexeme}' must have type int or string.");
+                                if (keyField.Type is not (ExprType.Int or ExprType.Byte or ExprType.String))
+                                    throw Error(keyToken, $"Sort key '{elementName}.{keyToken.Lexeme}' must have type int, byte or string.");
                                 if (Check(TokenKind.Dot))
                                     throw Error(Current, "Keyed sort accepts only one direct field name.");
                                 var keySchema = new Dictionary<string, object>
@@ -2376,6 +2376,7 @@ namespace Aloe.CompilerLib
                                     ["fieldIndex"] = fieldIndex
                                 };
                                 if (keyField.Type == ExprType.String) keySchema["fieldType"] = "string";
+                                if (keyField.Type == ExprType.Byte) keySchema["fieldType"] = "byte";
                                 shorthandFilter = shorthandFilter with
                                 {
                                     FunctionIndex = -35,
@@ -2426,12 +2427,26 @@ namespace Aloe.CompilerLib
                                 InputPipeType = "pipe<string>",
                                 OutputPipeType = "pipe<string>"
                             };
+                        if (filter.FunctionIndex == -32 && currentType == "pipe<byte>")
+                            filter = filter with
+                            {
+                                FunctionIndex = -38,
+                                InputPipeType = "pipe<byte>",
+                                OutputPipeType = "pipe<byte>"
+                            };
                         if (filter.FunctionIndex == -33 && currentType == "pipe<string>")
                             filter = filter with
                             {
                                 FunctionIndex = -37,
                                 InputPipeType = "pipe<string>",
                                 OutputPipeType = "pipe<string>"
+                            };
+                        if (filter.FunctionIndex == -33 && currentType == "pipe<byte>")
+                            filter = filter with
+                            {
+                                FunctionIndex = -39,
+                                InputPipeType = "pipe<byte>",
+                                OutputPipeType = "pipe<byte>"
                             };
                         if (!string.Equals(currentType, filter.InputPipeType, StringComparison.Ordinal))
                             throw Error(sourceToken, $"Filter '{filter.Name}' expects {filter.InputPipeType}, found {currentType}.");

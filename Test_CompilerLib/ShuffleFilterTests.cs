@@ -69,7 +69,7 @@ function main(args: string[]): int {
 
     [TestCase("pipe<string>", "pipe<int>")]
     [TestCase("pipe<int>", "pipe<string>")]
-    [TestCase("pipe<byte>", "pipe<byte>")]
+    [TestCase("pipe<byte>", "pipe<int>")]
     public void ShuffleRejectsUnsupportedPipeTypes(string input, string output)
     {
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile($$"""

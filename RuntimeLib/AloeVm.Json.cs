@@ -10,7 +10,7 @@ public sealed partial class AloeVm
 {
     private sealed record JsonFilterField(string Name, string Type);
     private sealed record JsonFilterSchema(string TypeName, IReadOnlyList<JsonFilterField> Fields);
-    private sealed record SortFilterSchema(string TypeName, string FieldName, int FieldIndex, bool IsStringKey);
+    private sealed record SortFilterSchema(string TypeName, string FieldName, int FieldIndex, bool IsStringKey, bool IsByteKey);
 
     private static SortFilterSchema ParseSortFilterSchema(string schemaJson)
     {
@@ -26,11 +26,11 @@ public sealed partial class AloeVm
                 !root.TryGetProperty("fieldName", out var fieldName) || fieldName.ValueKind != JsonValueKind.String ||
                 string.IsNullOrWhiteSpace(fieldName.GetString()) ||
                 !root.TryGetProperty("fieldIndex", out var fieldIndex) || !fieldIndex.TryGetInt32(out var index) || index < 0 ||
-                hasFieldType && (fieldType.ValueKind != JsonValueKind.String || fieldType.GetString() is not ("int" or "string")) ||
+                hasFieldType && (fieldType.ValueKind != JsonValueKind.String || fieldType.GetString() is not ("int" or "byte" or "string")) ||
                 root.EnumerateObject().Count() != (hasFieldType ? 4 : 3))
                 throw new VmException("The sort filter schema is invalid.");
             return new SortFilterSchema(typeName.GetString()!, fieldName.GetString()!, index,
-                hasFieldType && fieldType.GetString() == "string");
+                hasFieldType && fieldType.GetString() == "string", hasFieldType && fieldType.GetString() == "byte");
         }
         catch (VmException) { throw; }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException)

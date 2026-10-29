@@ -23,9 +23,17 @@ public sealed partial class AloeVm
             if (input.Values.Count > 0)
             {
                 var value = input.Values.Peek();
-                if (!value.IsInt || value.AsInt is < int.MinValue or > int.MaxValue)
-                    throw new VmException("The sort standard filter expects valid signed int32 values.");
-                values.Add(value.AsInt);
+                if (context.Binding.FunctionIndex == -38)
+                {
+                    if (!value.IsByte) throw new VmException("The byte sort standard filter expects byte values.");
+                    values.Add(value.AsByte);
+                }
+                else
+                {
+                    if (!value.IsInt || value.AsInt is < int.MinValue or > int.MaxValue)
+                        throw new VmException("The sort standard filter expects valid signed int32 values.");
+                    values.Add(value.AsInt);
+                }
                 input.Values.Dequeue();
                 WakeOnePipeWriter(context.InputPipeId, input);
                 return;
@@ -49,7 +57,9 @@ public sealed partial class AloeVm
                 _contextSuspendRequested = true;
                 return;
             }
-            output.Values.Enqueue(AloeValue.FromInt(values[context.SortOutputIndex++]));
+            var next = values[context.SortOutputIndex++];
+            output.Values.Enqueue(context.Binding.FunctionIndex == -38
+                ? AloeValue.FromByte((byte)next) : AloeValue.FromInt(next));
             WakeOnePipeReader(outputId, output);
             SchedulePipeFilters(outputId, output);
             return;
@@ -87,6 +97,11 @@ public sealed partial class AloeVm
                         if (!key.IsString)
                             throw new VmException($"The sort key '{schema.FieldName}' must be a string field.");
                     }
+                    else if (schema.IsByteKey)
+                    {
+                        if (!key.IsByte)
+                            throw new VmException($"The sort key '{schema.FieldName}' must be a byte field.");
+                    }
                     else if (!key.IsInt || key.AsInt < int.MinValue || key.AsInt > int.MaxValue)
                         throw new VmException($"The sort key '{schema.FieldName}' must be a signed int32 field.");
                 }
@@ -105,7 +120,9 @@ public sealed partial class AloeVm
                 ? values.OrderBy(value => value.AsString, StringComparer.Ordinal).ToList()
                 : schema.IsStringKey
                     ? values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsString, StringComparer.Ordinal).ToList()
-                    : values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsInt).ToList();
+                    : schema.IsByteKey
+                        ? values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsByte).ToList()
+                        : values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsInt).ToList();
             context.SortItemValues = values;
             context.SortReady = true;
         }

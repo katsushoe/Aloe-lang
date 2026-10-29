@@ -22,6 +22,11 @@ public sealed partial class AloeVm
                     if (!value.IsString)
                         throw new VmException("The string shuffle standard filter expects string values.");
                 }
+                else if (context.Binding.FunctionIndex == -39)
+                {
+                    if (!value.IsByte)
+                        throw new VmException("The byte shuffle standard filter expects byte values.");
+                }
                 else if (!value.IsInt || value.AsInt is < int.MinValue or > int.MaxValue)
                     throw new VmException("The shuffle standard filter expects valid int32 values.");
                 values.Add(value);

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 標準ライブラリ仕様（フィルタ編・ドラフト、日本語版）</title>
-  <meta name="edit-version" content="44">
-  <meta name="edit-date" content="2026-10-22T20:39:43+09:00">
+  <meta name="edit-version" content="47">
+  <meta name="edit-date" content="2026-10-28T23:22:42+09:00">
   <style>
     :root {
       color-scheme: light dark;
@@ -443,9 +443,10 @@ stdin
         </p>
 
         <h3>4.3 <code>sort</code></h3>
+        <p>決定0033により、引数なしの <code>sort : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;</code> に対応します。入力終了まで保持した後、元のbyte値を符号なし数値の昇順に出力し、件数と重複を保持します。空入力では値を出さず出力を閉じ、出力の容量制限とバックプレッシャーに従います。この範囲では引数と他の入出力型は受け付けません。</p>
         <p>採用済み決定0026により、引数なしの<code>sort : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;</code>も実装します。入力終了後、カルチャーに依存しないUTF-16コード単位の序数昇順で安定ソートします。元文字列・重複・正規化形式を保持し、空文字列は先頭に並びます。空入力は値を出力せず、出力は容量制限とバックプレッシャーに従います。key指定・大小文字の同一視・正規化は行いません。</p>
-        <p>VMは引数なしの<code>sort : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code>を実装し、符号付きint32範囲外の値を拒否します。決定0025と0030により、<code>sort: .Field</code>には宣言済みstruct直下のintまたはstringフィールドを指定できます。名前は大文字小文字を区別して完全一致します。入力終了まで全要素を保持し、intキーは符号付きint32、stringキーはUTF-16コード単位の序数で安定昇順に並べます。元レコード・重複・同じキー内の入力順・文字列と正規化形式を保持し、大小文字の同一視や文化依存の比較は行いません。空入力は値を出さず出力を閉じます。出力は容量制限とバックプレッシャーに従い、バッファーメモリーは入力件数に比例します。他のキー型、入れ子のpath、式指定は拒否します。</p>
-        <p>キー指定のAloeBCスキーマは、intキー用の従来の3プロパティtypeName・fieldName・fieldIndexとの互換性を維持します。任意のfieldTypeはintまたはstringだけを受け付け、コンパイラーはstringキーにfieldType:stringを追加します。不正なスキーマとレコード・キーの型不一致は拒否します。</p>
+        <p>VMは引数なしの<code>sort : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code>を実装し、符号付きint32範囲外の値を拒否します。決定0025、0030、0035により、<code>sort: .Field</code>には宣言済みstruct直下のint、byteまたはstringフィールドを指定できます。名前は大文字小文字を区別して完全一致します。入力終了まで全要素を保持し、intキーは符号付きint32、byteキーは符号なし0〜255、stringキーはUTF-16コード単位の序数で安定昇順に並べます。元レコード・重複・同じキー内の入力順・文字列と正規化形式を保持し、大小文字の同一視や文化依存の比較は行いません。空入力は値を出さず出力を閉じます。出力は容量制限とバックプレッシャーに従い、バッファーメモリーは入力件数に比例します。他のキー型、入れ子のpath、式指定は拒否します。</p>
+        <p>キー指定のAloeBCスキーマは、intキー用の従来の3プロパティtypeName・fieldName・fieldIndexとの互換性を維持します。任意のfieldTypeはint、byteまたはstringだけを受け付け、コンパイラーはbyteまたはstringキーにそれぞれfieldType:byteまたはfieldType:stringを追加します。不正なスキーマとレコード・キーの型不一致は拒否します。</p>
         <p class="filter-header">名前空間 / シグネチャ</p>
         <p class="sig">
           Namespace: <code>aloe.collection</code><br>
@@ -461,7 +462,7 @@ stdin
     | stdout;</code></pre>
 
         <h3>4.4 <code>shuffle</code></h3>
-        <p id="shuffle-int-subset">採用済み提案0023に基づき、VMは引数なしの<code>shuffle : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code>を実装しています。入力終了まで全要素を保持し、非暗号学的なSystem.Random.Sharedを使うFisher-Yatesで並べ替え、出力pipeの空きを待ちながら全要素を出力します。件数と重複を保持し、空入力は値を出さずに終了します。入力と同じ順序も正当な結果です。seed・決定的再現・乱数状態の永続化・暗号学的予測困難性は保証しません。採用済み提案0028により、同じ処理をpipe&lt;string&gt;にも適用し、元文字列の内容・件数・重複を厳密に保持します。正規化と型変換は行いません。他の要素型と引数は拒否します。メモリは入力件数に比例し、完了時にバッファを解放します。交換操作ごとに協調スケジューラーへ制御を戻します。pipeの容量制限は全体のバッファ容量を制限しません。秘密情報の生成には使用しないでください。</p>
+        <p id="shuffle-int-subset">採用済み提案0023に基づき、VMは引数なしの<code>shuffle : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code>を実装しています。入力終了まで全要素を保持し、非暗号学的なSystem.Random.Sharedを使うFisher-Yatesで並べ替え、出力pipeの空きを待ちながら全要素を出力します。件数と重複を保持し、空入力は値を出さずに終了します。入力と同じ順序も正当な結果です。seed・決定的再現・乱数状態の永続化・暗号学的予測困難性は保証しません。採用済み提案0028により、同じ処理をpipe&lt;string&gt;にも適用し、元文字列の内容・件数・重複を厳密に保持します。正規化と型変換は行いません。決定0034によりpipe&lt;byte&gt;にも同じ処理を適用し、byte値・件数・重複を保持します。他の要素型と引数は拒否します。メモリは入力件数に比例し、完了時にバッファを解放します。交換操作ごとに協調スケジューラーへ制御を戻します。pipeの容量制限は全体のバッファ容量を制限しません。秘密情報の生成には使用しないでください。</p>
         <p class="sig">
           Namespace: <code>aloe.collection</code><br>
           filter shuffle : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;

@@ -8,7 +8,26 @@ public sealed partial class AloeCompiler
     {
         private readonly record struct BooleanExceptionFlow(ConditionEvaluation Values, ArithmeticTryFlow Failures);
 
-        private bool IsNonthrowingPrimitiveComparison(int start, int end)
+        private ExprType? GetNonthrowingDirectReadType(int start, int end,
+            IReadOnlyDictionary<string, ExprType>? localTypes = null)
+        {
+            while (end - start >= 2 && TokenAt(start).Kind == TokenKind.LParen &&
+                   FindInterfaceFlowGroupEnd(start, TokenKind.LParen, TokenKind.RParen) == end)
+            {
+                start++;
+                end--;
+            }
+            if (end - start != 1) return null;
+            // String constants are loaded directly; no runtime allocation or cast is required.
+            if (TokenAt(start).Kind == TokenKind.StringLiteral) return ExprType.String;
+            if (TokenAt(start).Kind != TokenKind.Identifier) return null;
+            var name = TokenAt(start).Lexeme;
+            if (localTypes != null && localTypes.TryGetValue(name, out var type)) return type;
+            return TryResolveLocal(name, out var local) ? local.Type : null;
+        }
+
+        private bool IsNonthrowingPrimitiveComparison(int start, int end,
+            IReadOnlyDictionary<string, ExprType>? localTypes = null)
         {
             var comparison = -1;
             var depth = 0;
@@ -27,22 +46,22 @@ public sealed partial class AloeCompiler
             if (comparison < 0) return false;
             var left = SafeOperandType(start, comparison);
             var right = SafeOperandType(comparison + 1, end);
-            return left != null && left == right;
+            if (left == ExprType.String || right == ExprType.String)
+                return left == right && (TokenAt(comparison).Kind is TokenKind.EqualEqual or TokenKind.BangEqual);
+            // Integer/byte promotion to float or decimal is nonthrowing. A float/decimal
+            // pair and char/numeric pairs remain outside the existing VM comparison contract.
+            return left != null && right != null && (left == right ||
+                ((left is ExprType.Int or ExprType.Byte) &&
+                 (right is ExprType.Int or ExprType.Byte or ExprType.Float or ExprType.Decimal)) ||
+                ((right is ExprType.Int or ExprType.Byte) &&
+                 (left is ExprType.Float or ExprType.Decimal)));
 
             ExprType? SafeOperandType(int from, int to)
             {
-                while (to - from >= 2 && TokenAt(from).Kind == TokenKind.LParen &&
-                       FindInterfaceFlowGroupEnd(from, TokenKind.LParen, TokenKind.RParen) == to)
-                {
-                    from++;
-                    to--;
-                }
-                // Typed primitive reads and proven constant arithmetic have no language
-                // exception edge. Variable arithmetic, calls, indexing and members remain unknown.
-                if (to - from == 1 && TokenAt(from).Kind == TokenKind.Identifier &&
-                    TryResolveLocal(TokenAt(from).Lexeme, out var local) &&
-                    local.Type is ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float)
-                    return local.Type;
+                var readType = GetNonthrowingDirectReadType(from, to, localTypes);
+                if (readType is ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String)
+                    return readType;
+                // Variable arithmetic, calls, indexing, members and casts remain unknown.
                 return GetGuaranteedInt32ArithmeticFailure(from, to) == GuaranteedInt32Failure.None
                     ? ExprType.Int : null;
             }
