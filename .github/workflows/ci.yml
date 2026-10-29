@@ -31,6 +31,10 @@ jobs:
           "ALOE_INSTALL_ROOT=$env:RUNNER_TEMP/aloe-validation" >> $env:GITHUB_ENV
           "NUGET_PACKAGES=$env:RUNNER_TEMP/aloe-nuget-packages" >> $env:GITHUB_ENV
 
+      - name: Download and verify official WASM SDK package
+        shell: pwsh
+        run: ./scripts/Initialize-WasmPackageCache.ps1 -PackageDirectory "$env:NUGET_PACKAGES" -WorkDirectory "$env:RUNNER_TEMP/aloe-wasm-download"
+
       - name: Restore locked solution dependencies
         run: dotnet restore Aloe.sln --locked-mode --source https://api.nuget.org/v3/index.json -m:1 -nr:false -p:AloeInstallRoot="$env:ALOE_INSTALL_ROOT"
 
