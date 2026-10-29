@@ -25,6 +25,7 @@ $project = @"
     <TargetFramework>net10.0</TargetFramework>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
     <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+    <DisableImplicitLibraryPacksFolder>true</DisableImplicitLibraryPacksFolder>
   </PropertyGroup>
   <ItemGroup>
     <PackageDownload Include="$packageId" Version="[$($entry.resolved)]" />
@@ -39,6 +40,6 @@ if ($LASTEXITCODE -ne 0) { throw 'Official WASM package download failed.' }
 $metadataPath = Join-Path $packagePath "$($packageId.ToLowerInvariant())/$($entry.resolved)/.nupkg.metadata"
 $metadata = Get-Content -Raw $metadataPath | ConvertFrom-Json
 if ($metadata.contentHash -cne $entry.contentHash) {
-    throw "Official WASM package contentHash does not match the committed lock file: $metadataPath"
+    throw "Official WASM package contentHash does not match the committed lock file. Expected: $($entry.contentHash); actual: $($metadata.contentHash); metadata: $metadataPath"
 }
 Write-Output "Verified $packageId $($entry.resolved) contentHash against the committed lock file."

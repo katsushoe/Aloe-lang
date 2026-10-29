@@ -14,6 +14,8 @@ concurrency:
 jobs:
   validate:
     runs-on: windows-latest
+    env:
+      DisableImplicitLibraryPacksFolder: 'true'
     steps:
       - name: Check out source
         uses: actions/checkout@v4
