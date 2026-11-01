@@ -2434,6 +2434,13 @@ namespace Aloe.CompilerLib
                                 InputPipeType = "pipe<byte>",
                                 OutputPipeType = "pipe<byte>"
                             };
+                        if (filter.FunctionIndex == -32 && currentType == "pipe<bool>")
+                            filter = filter with
+                            {
+                                FunctionIndex = -40,
+                                InputPipeType = "pipe<bool>",
+                                OutputPipeType = "pipe<bool>"
+                            };
                         if (filter.FunctionIndex == -33 && currentType == "pipe<string>")
                             filter = filter with
                             {
@@ -2447,6 +2454,13 @@ namespace Aloe.CompilerLib
                                 FunctionIndex = -39,
                                 InputPipeType = "pipe<byte>",
                                 OutputPipeType = "pipe<byte>"
+                            };
+                        if (filter.FunctionIndex == -33 && currentType == "pipe<bool>")
+                            filter = filter with
+                            {
+                                FunctionIndex = -41,
+                                InputPipeType = "pipe<bool>",
+                                OutputPipeType = "pipe<bool>"
                             };
                         if (!string.Equals(currentType, filter.InputPipeType, StringComparison.Ordinal))
                             throw Error(sourceToken, $"Filter '{filter.Name}' expects {filter.InputPipeType}, found {currentType}.");

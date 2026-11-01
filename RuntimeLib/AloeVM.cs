@@ -89,7 +89,7 @@ namespace Aloe.RuntimeLib
             public string? StringArgument { get; }
             public JsonFilterSchema? JsonSchema { get; }
             public SortFilterSchema? SortSchema { get; }
-            public bool IsBuiltinFilter => FunctionIndex is >= -39 and <= -1;
+            public bool IsBuiltinFilter => FunctionIndex is >= -41 and <= -1;
             public long OutputPipeId { get; }
             public VmExecutionContext? Task { get; set; }
         }
@@ -1392,7 +1392,7 @@ namespace Aloe.RuntimeLib
                 case EnumSyscall.PipeBindFilter:
                     {
                         var functionIndexValue = Pop();
-                        if (!functionIndexValue.IsInt || functionIndexValue.AsInt < -39 || functionIndexValue.AsInt >= _module.Functions.Count)
+                        if (!functionIndexValue.IsInt || functionIndexValue.AsInt < -41 || functionIndexValue.AsInt >= _module.Functions.Count)
                             throw new VmException("PipeBindFilter expects a valid filter function index.");
                         string? stringArgument = null;
                         if (functionIndexValue.AsInt is -7 or -8 or -9 or -10 or -30 or -34 or -35)
@@ -1481,6 +1481,16 @@ namespace Aloe.RuntimeLib
                         {
                             if (stringArgument != null || input.TypeName != "pipe<byte>" || output.TypeName != "pipe<byte>")
                                 throw new VmException("The byte sort standard filter requires pipe<byte> input and output and accepts no argument.");
+                        }
+                        else if (functionIndexValue.AsInt == -40)
+                        {
+                            if (stringArgument != null || input.TypeName != "pipe<bool>" || output.TypeName != "pipe<bool>")
+                                throw new VmException("The bool sort standard filter requires pipe<bool> input and output and accepts no argument.");
+                        }
+                        else if (functionIndexValue.AsInt == -41)
+                        {
+                            if (stringArgument != null || input.TypeName != "pipe<bool>" || output.TypeName != "pipe<bool>")
+                                throw new VmException("The bool shuffle standard filter requires pipe<bool> input and output and accepts no argument.");
                         }
                         else if (functionIndexValue.AsInt == -39)
                         {
@@ -1681,12 +1691,12 @@ namespace Aloe.RuntimeLib
                 RunJsonFilterQuantum(context);
                 return;
             }
-            if (context.Binding!.FunctionIndex is -33 or -37 or -39)
+            if (context.Binding!.FunctionIndex is -33 or -37 or -39 or -41)
             {
                 RunShuffleFilterQuantum(context);
                 return;
             }
-            if (context.Binding!.FunctionIndex is -32 or -35 or -36 or -38)
+            if (context.Binding!.FunctionIndex is -32 or -35 or -36 or -38 or -40)
             {
                 RunSortFilterQuantum(context);
                 return;

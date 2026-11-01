@@ -645,6 +645,23 @@ public sealed partial class AloeCompiler
                     cursor = lastCatchEnd - 1;
                     continue;
                 }
+                // Infer only independently safe primitive expressions; bind after the initializer.
+                if (token.Lexeme == "var" && TokenAt(cursor + 1).Kind == TokenKind.Identifier &&
+                    TokenAt(cursor + 2).Kind == TokenKind.Assign)
+                {
+                    var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
+                    if (statementEnd < 0) return false;
+                    var type = GetNonthrowingDirectReadType(cursor + 3, statementEnd, localTypes);
+                    if (type == null && GetGuaranteedInt32ArithmeticFailure(cursor + 3, statementEnd) == GuaranteedInt32Failure.None)
+                        type = ExprType.Int;
+                    if (type == null && EvaluateNonthrowingBooleanCondition(cursor + 3, statementEnd, localTypes) != null)
+                        type = ExprType.Bool;
+                    if (type is not (ExprType.Int or ExprType.Bool or ExprType.String or ExprType.Byte or
+                        ExprType.Char or ExprType.Float or ExprType.Decimal)) return false;
+                    localTypes[TokenAt(cursor + 1).Lexeme] = type.Value;
+                    cursor = statementEnd;
+                    continue;
+                }
                 // Initialization must independently be safe for the declared target type;
                 // an empty arithmetic failure set alone is not a general nonthrowing proof.
                 if (token.Lexeme == "let" && TokenAt(cursor + 1).Kind == TokenKind.Identifier &&
@@ -726,13 +743,23 @@ public sealed partial class AloeCompiler
         private bool CanProveHandledConstantNestedFailure(int start, int end,
             IReadOnlyList<(int Open, int Close)> handlers, IReadOnlyDictionary<string, ExprType> localTypes)
         {
-            // Restrict this proof to one explicitly typed local initialized by constant int arithmetic.
-            if (TokenAt(start).Lexeme != "let" || TokenAt(start + 1).Kind != TokenKind.Identifier ||
-                TokenAt(start + 2).Kind != TokenKind.Colon || TokenAt(start + 3).Lexeme != "int" ||
-                TokenAt(start + 4).Kind != TokenKind.Assign) return false;
+            // Restrict this proof to one typed/inferred int declaration or local/parameter assignment.
+            // A guaranteed arithmetic failure occurs before the target can be written.
+            int expressionStart;
+            if (TokenAt(start).Lexeme == "let" && TokenAt(start + 1).Kind == TokenKind.Identifier &&
+                TokenAt(start + 2).Kind == TokenKind.Colon && TokenAt(start + 3).Lexeme == "int" &&
+                TokenAt(start + 4).Kind == TokenKind.Assign)
+                expressionStart = start + 5;
+            else if (TokenAt(start).Lexeme == "var" && TokenAt(start + 1).Kind == TokenKind.Identifier &&
+                TokenAt(start + 2).Kind == TokenKind.Assign)
+                expressionStart = start + 3;
+            else if (TokenAt(start).Kind == TokenKind.Identifier && TokenAt(start + 1).Kind == TokenKind.Assign &&
+                GetNonthrowingDirectReadType(start, start + 1, localTypes) == ExprType.Int)
+                expressionStart = start + 2;
+            else return false;
             var statementEnd = FindInterfaceFlowStatementEnd(start, end);
             if (statementEnd < 0 || statementEnd + 1 != end) return false;
-            var exceptionType = GetGuaranteedInt32ArithmeticFailure(start + 5, statementEnd) switch
+            var exceptionType = GetGuaranteedInt32ArithmeticFailure(expressionStart, statementEnd) switch
             {
                 GuaranteedInt32Failure.ZeroDivision => typeof(ZeroDivisionException),
                 GuaranteedInt32Failure.Overflow => typeof(OverflowException),
@@ -1172,17 +1199,34 @@ public sealed partial class AloeCompiler
             };
         }
 
-        private Dictionary<int, int> GetUnreachableCatchEndsInInterfaceFlow(int start, int end)
+        private static Dictionary<string, ExprType> GetUnknownShadowTypes(IEnumerable<string> names)
+            => names.Distinct(StringComparer.Ordinal).ToDictionary(name => name, _ => ExprType.Object, StringComparer.Ordinal);
+
+        private Dictionary<int, int> GetUnreachableCatchEndsInInterfaceFlow(int start, int end,
+            IEnumerable<string>? inheritedShadows = null)
         {
             var ends = new Dictionary<int, int>();
+            var shadowTypes = GetUnknownShadowTypes(inheritedShadows ?? []);
             for (var cursor = start; cursor + 1 < end; cursor++)
+            {
+                // A speculative scan must not resolve an unparsed local through an outer binding.
+                // Keeping expired declarations masked is conservative; this scan does not infer their types.
+                if (TokenAt(cursor).Lexeme is "let" or "var" && TokenAt(cursor + 1).Kind == TokenKind.Identifier)
+                    shadowTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Object;
+                if (TokenAt(cursor).Lexeme == "foreach")
+                {
+                    var bindings = new Dictionary<int, HashSet<string>>();
+                    AddForeachFlowBindings(cursor, bindings);
+                    foreach (var name in bindings.Values.SelectMany(names => names)) shadowTypes[name] = ExprType.Object;
+                }
                 if (TokenAt(cursor).Lexeme == "try" && TokenAt(cursor + 1).Kind == TokenKind.LBrace)
                 {
                     var tryEnd = FindInterfaceFlowGroupEnd(cursor + 1, TokenKind.LBrace, TokenKind.RBrace);
                     if (tryEnd > cursor && TryFindCatchBodies(tryEnd, out _, out var handlerEnd, ends) &&
-                        CanProveTryRangeHasNoExceptionalEdges(cursor + 2, tryEnd - 1))
+                        CanProveTryRangeHasNoExceptionalEdges(cursor + 2, tryEnd - 1, shadowTypes))
                         ends[tryEnd] = handlerEnd;
                 }
+            }
             return ends;
         }
 

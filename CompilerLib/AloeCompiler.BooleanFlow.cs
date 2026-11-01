@@ -18,8 +18,17 @@ public sealed partial class AloeCompiler
                 end--;
             }
             if (end - start != 1) return null;
-            // String constants are loaded directly; no runtime allocation or cast is required.
-            if (TokenAt(start).Kind == TokenKind.StringLiteral) return ExprType.String;
+            // Ordinary parsing validates these literals before emitting a direct constant load.
+            // Recognizing their kind does not prove arithmetic, conversions or casts safe.
+            var literalType = TokenAt(start).Kind switch
+            {
+                TokenKind.StringLiteral => ExprType.String,
+                TokenKind.CharLiteral => ExprType.Char,
+                TokenKind.FloatLiteral => ExprType.Float,
+                TokenKind.DecimalLiteral => ExprType.Decimal,
+                _ => (ExprType?)null
+            };
+            if (literalType != null) return literalType;
             if (TokenAt(start).Kind != TokenKind.Identifier) return null;
             var name = TokenAt(start).Lexeme;
             if (localTypes != null && localTypes.TryGetValue(name, out var type)) return type;

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Standard Library Specification (Filters – Draft, English)</title>
-  <meta name="edit-version" content="47">
-  <meta name="edit-date" content="2026-10-28T23:22:42+09:00">
+  <meta name="edit-version" content="49">
+  <meta name="edit-date" content="2026-10-31T05:08:09+09:00">
   <style>
     :root {
       color-scheme: light dark;
@@ -457,6 +457,7 @@ stdin
         </p>
 
         <h3>4.3 <code>sort</code></h3>
+        <p id="sort-bool-subset">Decision 0036 adds argument-free <code>sort : pipe&lt;bool&gt; -&gt; pipe&lt;bool&gt;</code> in both pipeline filter forms. After input closes, it emits false before true, preserving boolean kinds, values, counts and duplicates. Empty input emits no values; bounded output respects backpressure and closes after draining. Arguments, incompatible pipe types and nonboolean bytecode payloads are rejected without integer/byte coercion. Boolean struct keys are outside this subset.</p>
         <p>Decision 0033 adds argument-free <code>sort : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;</code>: it buffers until input closes, then emits the original byte values in unsigned numeric ascending order, preserving count and duplicates. Empty input closes the output without values; output respects bounded backpressure. Arguments and other input/output types are not accepted by this subset.</p>
         <p>Accepted decision 0026 also implements argument-free <code>sort : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;</code>. It buffers through input closure and emits the original strings in stable ascending ordinal UTF-16 code-unit order, independent of culture. Duplicate values, exact contents and normalization forms are preserved; the empty string sorts first. Empty input emits no values and output observes bounded backpressure. No key argument, case folding or normalization is applied.</p>
         <p>The VM implements argument-free <code>sort : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code>, rejecting values outside signed int32. Under decisions 0025, 0030 and 0035, <code>sort: .Field</code> accepts an exact, direct, case-sensitive int, byte or string field of a declared struct. It buffers the complete input until closure and emits original records in stable ascending order: signed int32 for int keys, unsigned 0–255 for byte keys, ordinal UTF-16 code units for string keys. Duplicate records and source order among ties are retained. String contents and normalization forms are preserved without case folding or culture settings. Empty input closes the output without values. Bounded output respects backpressure; buffer memory grows with input count. Other key types, nested paths and key expressions are rejected.</p>
@@ -478,6 +479,7 @@ stdin
 
         <h3>4.4 <code>shuffle</code></h3>
         <p id="shuffle-int-subset">The current VM implements argument-free <code>shuffle : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code> under accepted decision 0023. It buffers the complete input until closure, applies Fisher-Yates using the noncryptographic System.Random.Shared source, and emits the full permutation under output backpressure. Counts and duplicates are preserved; empty input closes without values. Unchanged order is valid. No seed, deterministic replay, random-state persistence, or cryptographic unpredictability is promised. Accepted decision 0028 extends the same algorithm to pipe&lt;string&gt;, preserving exact original string contents, counts and duplicates without normalization or conversion. Decision 0034 extends the same behavior to pipe&lt;byte&gt;, preserving byte values, counts and duplicates. Other element types and arguments are rejected. Memory grows with input count and the buffer is released on completion. Each shuffle swap yields to the cooperative scheduler; bounded pipes do not bound the aggregate buffer. Do not use this filter to generate secrets.</p>
+        <p id="shuffle-bool-subset">Decision 0037 adds argument-free <code>shuffle : pipe&lt;bool&gt; -&gt; pipe&lt;bool&gt;</code> in both pipeline forms. It buffers until input closure, uses the same Fisher-Yates algorithm and noncryptographic System.Random.Shared source, then drains under bounded backpressure. Exact bool kinds, false/true counts and duplicates are preserved. Empty input closes without values; singleton, all-equal and unchanged-order results are valid. Arguments, incompatible bindings and nonboolean bytecode payloads are rejected without coercion. No seed, replay or cryptographic guarantee is provided.</p>
         <p class="sig">
           Namespace: <code>aloe.collection</code><br>
           filter shuffle : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;

@@ -107,7 +107,8 @@ public sealed partial class AloeCompiler
                         // pre-try state separate from the normally executed try transfer.
                         var tryFlow = AnalyzeRange(position + 2, tryEnd - 1,
                             new Dictionary<int, string?>(state), shadows.Peek(), loopBackEdges, loopBreakEdges);
-                        if (CanProveTryRangeHasNoExceptionalEdges(position + 2, tryEnd - 1))
+                        if (CanProveTryRangeHasNoExceptionalEdges(position + 2, tryEnd - 1,
+                            GetSpeculativePrimitiveTypes(bodyStart + 1, position, initialShadows)))
                         {
                             if (!tryFlow.FallsThrough) return tryFlow;
                             state = tryFlow.State;
@@ -411,7 +412,7 @@ public sealed partial class AloeCompiler
                 var conditionalBlockDepths = new Stack<int>();
                 var optionalRanges = new List<(int Start, int End)>();
                 var unreachableOperands = new List<(int Start, int End)>();
-                var unreachableBranchEnds = GetUnreachableCatchEndsInInterfaceFlow(start, end);
+                var unreachableBranchEnds = GetUnreachableCatchEndsInInterfaceFlow(start, end, shadows);
                 for (var cursor = start; cursor < end; cursor++)
                 {
                     if (unreachableBranchEnds.TryGetValue(cursor, out var afterElse))

@@ -126,13 +126,57 @@ public sealed class InterfacePrimitiveAssignmentFlowTests
         Assert.That(Run(Program("int", "1", body, "value = new Plain();", "value.emit();")), Is.EqualTo("safe\nsafe\n"));
     }
 
+    [TestCase("try { input = 1 / 0; } catch (ZeroDivisionException) { }")]
+    [TestCase("try { input = 2147483647 + 1; } catch (OverflowException) { }")]
+    [TestCase("try { input = -2147483648 / -1; } catch { input = 1; }")]
+    [TestCase("try { input = 1 % 0; } catch { input = 1; }")]
+    [TestCase("let alias: int = input; try { alias = 1 / 0; } catch { alias = input; }")]
+    [TestCase("if(flag) { try { input = 1 / 0; } catch { input = 1; } }")]
+    [TestCase("while(flag) { try { input = 1 / 0; } catch { input = 1; } break; }")]
+    [TestCase("try { input = 1 / 0; } catch (OverflowException) { throw; } catch (ZeroDivisionException) { }")]
+    public void HandledConstantNestedAssignment_RetainsOuterInterfaceFact(string body)
+    {
+        Assert.That(Run(Program("int", "1", body, "value = new Plain();", "value.emit();")), Is.EqualTo("safe\nsafe\n"));
+    }
+
+    [TestCase("try { input = 1 / 0; } catch (OverflowException) { }")]
+    [TestCase("try { input = 1 / 0; } catch { throw; }")]
+    [TestCase("try { input = 1 / 0; } catch { input = 2147483647 + 1; }")]
+    [TestCase("try { input = 1 / 0; } catch { value = new Plain(); }")]
+    [TestCase("try { input = 1 / 0; } catch (ZeroDivisionException) { throw; } catch { }")]
+    [TestCase("try { input = input / 0; } catch { input = 1; }")]
+    [TestCase("try { input = boxed; } catch { input = 1; }")]
+    [TestCase("try { input = 1; input = 1 / 0; } catch { input = 1; }")]
+    [TestCase("let alias: int = input; if(flag) { let alias: bool = false; try { alias = (1 / 0 == 0); } catch { } }")]
+    public void UnknownNestedAssignment_RemainsConservative(string body)
+    {
+        var error = Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
+            Program("int", "1", body, "value = new Plain();", "value.emit();")));
+        Assert.That(error!.Message, Does.Contain("Async member call requires a statically known class instance"));
+    }
+
+    [Test]
+    public void HandledConstantNestedAssignment_PreservesUnassignedTargetValue()
+    {
+        var source = Program("int", "7", "try { input = 1 / 0; } catch { } print(input);", "print(\"caught\");", "");
+        Assert.That(Run(source), Is.EqualTo("7\n7\n"));
+    }
+
+    [TestCase("float", "1.0", "1.0 / 0.0")]
+    [TestCase("decimal", "1.0:d", "1.0:d / 0.0:d")]
+    public void HandledNestedAssignmentToOtherType_RemainsConservative(string type, string initial, string expression)
+    {
+        var error = Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
+            Program(type, initial, $"try {{ input = {expression}; }} catch {{ }}", "value = new Plain();", "value.emit();")));
+        Assert.That(error!.Message, Does.Contain("Async member call requires a statically known class instance"));
+    }
+
     [TestCase("try { let fail: int = 1 / 0; } catch (OverflowException) { }")]
     [TestCase("try { let fail: int = 1 / 0; } catch { throw; }")]
     [TestCase("try { let fail: int = 1 / 0; } catch { let other: int = 1 / 0; }")]
     [TestCase("try { let fail: int = input / 0; } catch { }")]
     [TestCase("try { let fail: int = 2147483647 + 1; } catch (ZeroDivisionException) { }")]
     [TestCase("try { let fail: int = 1 / 0; } catch (ZeroDivisionException) { throw; } catch { }")]
-    [TestCase("try { input = 1 / 0; } catch { input = 1; }")]
     [TestCase("try { input = input + 1; } catch { input = 1; }")]
     [TestCase("try { input = boxed; } catch { input = 1; }")]
     public void UnknownNestedTry_RemainsConservative(string body)

@@ -22,6 +22,11 @@ public sealed partial class AloeVm
                     if (!value.IsString)
                         throw new VmException("The string shuffle standard filter expects string values.");
                 }
+                else if (context.Binding.FunctionIndex == -41)
+                {
+                    if (!value.IsBool)
+                        throw new VmException("The bool shuffle standard filter expects bool values.");
+                }
                 else if (context.Binding.FunctionIndex == -39)
                 {
                     if (!value.IsByte)

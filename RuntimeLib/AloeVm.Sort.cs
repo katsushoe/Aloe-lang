@@ -23,7 +23,12 @@ public sealed partial class AloeVm
             if (input.Values.Count > 0)
             {
                 var value = input.Values.Peek();
-                if (context.Binding.FunctionIndex == -38)
+                if (context.Binding.FunctionIndex == -40)
+                {
+                    if (!value.IsBool) throw new VmException("The bool sort standard filter expects bool values.");
+                    values.Add(value.AsBool ? 1 : 0);
+                }
+                else if (context.Binding.FunctionIndex == -38)
                 {
                     if (!value.IsByte) throw new VmException("The byte sort standard filter expects byte values.");
                     values.Add(value.AsByte);
@@ -58,8 +63,12 @@ public sealed partial class AloeVm
                 return;
             }
             var next = values[context.SortOutputIndex++];
-            output.Values.Enqueue(context.Binding.FunctionIndex == -38
-                ? AloeValue.FromByte((byte)next) : AloeValue.FromInt(next));
+            output.Values.Enqueue(context.Binding.FunctionIndex switch
+            {
+                -40 => AloeValue.FromBool(next != 0),
+                -38 => AloeValue.FromByte((byte)next),
+                _ => AloeValue.FromInt(next)
+            });
             WakeOnePipeReader(outputId, output);
             SchedulePipeFilters(outputId, output);
             return;
