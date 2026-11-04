@@ -162,9 +162,9 @@ public sealed class InterfacePrimitiveAssignmentFlowTests
         Assert.That(Run(source), Is.EqualTo("7\n7\n"));
     }
 
-    [TestCase("float", "1.0", "1.0 / 0.0")]
-    [TestCase("decimal", "1.0:d", "1.0:d / 0.0:d")]
-    public void HandledNestedAssignmentToOtherType_RemainsConservative(string type, string initial, string expression)
+    [TestCase("float", "1.0", "input / 0.0")]
+    [TestCase("decimal", "1.0:d", "input / 0.0:d")]
+    public void UnknownFloatOrDecimalNestedAssignment_RemainsConservative(string type, string initial, string expression)
     {
         var error = Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
             Program(type, initial, $"try {{ input = {expression}; }} catch {{ }}", "value = new Plain();", "value.emit();")));

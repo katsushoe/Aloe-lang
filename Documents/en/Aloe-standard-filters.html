@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Standard Library Specification (Filters – Draft, English)</title>
-  <meta name="edit-version" content="49">
-  <meta name="edit-date" content="2026-10-31T05:08:09+09:00">
+  <meta name="edit-version" content="50">
+  <meta name="edit-date" content="2026-11-03T20:11:19+09:00">
   <style>
     :root {
       color-scheme: light dark;
@@ -457,11 +457,11 @@ stdin
         </p>
 
         <h3>4.3 <code>sort</code></h3>
-        <p id="sort-bool-subset">Decision 0036 adds argument-free <code>sort : pipe&lt;bool&gt; -&gt; pipe&lt;bool&gt;</code> in both pipeline filter forms. After input closes, it emits false before true, preserving boolean kinds, values, counts and duplicates. Empty input emits no values; bounded output respects backpressure and closes after draining. Arguments, incompatible pipe types and nonboolean bytecode payloads are rejected without integer/byte coercion. Boolean struct keys are outside this subset.</p>
+        <p id="sort-bool-subset">Decision 0036 adds argument-free <code>sort : pipe&lt;bool&gt; -&gt; pipe&lt;bool&gt;</code> in both pipeline filter forms. After input closes, it emits false before true, preserving boolean kinds, values, counts and duplicates. Empty input emits no values; bounded output respects backpressure and closes after draining. Arguments, incompatible pipe types and nonboolean bytecode payloads are rejected without integer/byte coercion. Boolean struct keys are covered separately by decision 0039.</p>
         <p>Decision 0033 adds argument-free <code>sort : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;</code>: it buffers until input closes, then emits the original byte values in unsigned numeric ascending order, preserving count and duplicates. Empty input closes the output without values; output respects bounded backpressure. Arguments and other input/output types are not accepted by this subset.</p>
         <p>Accepted decision 0026 also implements argument-free <code>sort : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;</code>. It buffers through input closure and emits the original strings in stable ascending ordinal UTF-16 code-unit order, independent of culture. Duplicate values, exact contents and normalization forms are preserved; the empty string sorts first. Empty input emits no values and output observes bounded backpressure. No key argument, case folding or normalization is applied.</p>
-        <p>The VM implements argument-free <code>sort : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code>, rejecting values outside signed int32. Under decisions 0025, 0030 and 0035, <code>sort: .Field</code> accepts an exact, direct, case-sensitive int, byte or string field of a declared struct. It buffers the complete input until closure and emits original records in stable ascending order: signed int32 for int keys, unsigned 0–255 for byte keys, ordinal UTF-16 code units for string keys. Duplicate records and source order among ties are retained. String contents and normalization forms are preserved without case folding or culture settings. Empty input closes the output without values. Bounded output respects backpressure; buffer memory grows with input count. Other key types, nested paths and key expressions are rejected.</p>
-        <p>Keyed AloeBC schemas retain the legacy three properties typeName, fieldName and fieldIndex for int keys. Optional fieldType accepts exactly int, byte or string; the compiler adds fieldType:byte or fieldType:string for the corresponding keys. Invalid schemas and mismatched record/key values are rejected.</p>
+        <p>The VM implements argument-free <code>sort : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code>, rejecting values outside signed int32. Under decisions 0025, 0030, 0035 and 0039, <code>sort: .Field</code> accepts an exact, direct, case-sensitive int, byte, bool or string field of a declared struct. It buffers the complete input until closure and emits original records in stable ascending order: signed int32 for int keys, unsigned 0–255 for byte keys, false before true for bool keys, ordinal UTF-16 code units for string keys. Duplicate records and source order among ties are retained. String contents and normalization forms are preserved without case folding or culture settings. Empty input closes the output without values. Bounded output respects backpressure; buffer memory grows with input count. Other key types, nested paths and key expressions are rejected.</p>
+        <p>Keyed AloeBC schemas retain the legacy three properties typeName, fieldName and fieldIndex for int keys. Optional fieldType accepts exactly int, byte, bool or string; the compiler adds fieldType:byte, fieldType:bool or fieldType:string for the corresponding keys. Invalid schemas and mismatched record/key values are rejected.</p>
         <p class="filter-header">Namespace / Signature</p>
         <p class="sig">
           Namespace: <code>aloe.collection</code><br>

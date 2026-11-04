@@ -13,8 +13,14 @@ public static partial class AloePackageDatabase
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         RequireExactPackageVersion(version);
         var fullPath = Path.GetFullPath(path);
+        return ResolveSnapshot(fullPath, name, version, Read(fullPath, missingIsEmpty: false));
+    }
+
+    private static AloePackageResolutionPlan ResolveSnapshot(string fullPath, string name, string version,
+        AloePackageDatabaseDocument database)
+    {
         var directory = Path.GetDirectoryName(fullPath)!;
-        var entries = Read(fullPath, missingIsEmpty: false).Packages
+        var entries = database.Packages
             .ToDictionary(entry => new AloePackageIdentity(entry.Name, entry.Version));
         var root = new AloePackageIdentity(name, version);
         var selected = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -72,8 +78,7 @@ public static partial class AloePackageDatabase
 
     private static void RequireExactPackageVersion(string version)
     {
-        if (!Regex.IsMatch(version, @"\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z",
-                RegexOptions.CultureInvariant | RegexOptions.NonBacktracking))
+        if (!IsExactPackageVersion(version))
             throw new InvalidDataException($"Unsupported package version '{version}'; resolve requires an exact three-part numeric version.");
     }
 }

@@ -71,6 +71,7 @@ namespace Aloe.CompilerLib
             Object,
             Struct,
             Void,
+            Unknown, // Speculative shadow only; never emitted as a runtime type.
         }
 
 
@@ -100,7 +101,8 @@ namespace Aloe.CompilerLib
             string? DeclaringStruct = null);
 
 
-        private sealed record FieldSignature(string Name, int Index, ExprType Type, string? ClassName = null);
+        private sealed record FieldSignature(string Name, int Index, ExprType Type, string? ClassName = null,
+            bool IsReadOnly = false, string? DeclaringClass = null);
 
 
         private sealed record PropertySignature(
@@ -236,6 +238,9 @@ namespace Aloe.CompilerLib
                     _nextLocalSlot = 0;
                     _localTypes.Clear();
                     _declaredLocals.Clear();
+                    _immutableLocalSlots.Clear();
+                    _finallyGuards.Clear();
+                    _finallyBodies.Clear();
                     _controlDepth = 0;
                     _currentFunction = function;
                     _scopes.Clear();
@@ -966,8 +971,11 @@ namespace Aloe.CompilerLib
                     var sawStatic = false;
                     var sawVirtual = false;
                     var sawOverride = false;
+                    var sawReadonly = false;
                     while (token.Lexeme is "private" or "protected" or "readonly" or "public" or "async" or "static" or "virtual" or "override")
                     {
+                        if (token.Lexeme == "readonly")
+                            sawReadonly = true;
                         if (token.Lexeme == "public")
                             sawPublic = true;
                         if (token.Lexeme == "async")
@@ -981,6 +989,9 @@ namespace Aloe.CompilerLib
                         position++;
                         token = TokenAt(position);
                     }
+
+                    if (sawReadonly && (token.Lexeme != "field" || sawStatic))
+                        throw Error(token, "readonly is supported only on scalar instance class fields.");
 
                     if (string.Equals(token.Lexeme, "field", StringComparison.Ordinal))
                     {
@@ -997,10 +1008,13 @@ namespace Aloe.CompilerLib
 
                         ExpectAt(ref position, TokenKind.Colon);
                         var fieldType = ScanType(ref position, allowVoid: false, out var fieldClassName);
+                        if (sawReadonly && fieldType is not (ExprType.Int or ExprType.Bool or ExprType.Byte or
+                            ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String))
+                            throw Error(fieldName, "readonly class fields support scalar types only.");
                         if (TokenAt(position).Kind == TokenKind.Assign)
                             throw Error(TokenAt(position), "Field initializers are not supported yet; initialize the field in construct(...).");
                         ExpectAt(ref position, TokenKind.Semicolon);
-                        classInfo.Fields.Add(new FieldSignature(fieldName.Lexeme, GetFieldCount(classInfo.BaseClassName) + classInfo.Fields.Count, fieldType, fieldClassName));
+                        classInfo.Fields.Add(new FieldSignature(fieldName.Lexeme, GetFieldCount(classInfo.BaseClassName) + classInfo.Fields.Count, fieldType, fieldClassName, sawReadonly, classInfo.Name));
                         continue;
                     }
 
@@ -1377,6 +1391,11 @@ namespace Aloe.CompilerLib
 
             private bool ParseStatement()
             {
+                if (Current.Lexeme == "swap")
+                {
+                    ParseSwap();
+                    return true;
+                }
                 if (Current.Lexeme == "delete")
                 {
                     ParseDeleteLocal();
@@ -1394,6 +1413,14 @@ namespace Aloe.CompilerLib
                 }
                 if (Current.Lexeme == "with")
                     return ParseTypeWith();
+
+                if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot &&
+                    Peek(2).Kind == TokenKind.Identifier && Peek(3).Kind == TokenKind.LParen &&
+                    _currentFunction?.DeclaringStruct == null)
+                {
+                    ParseThisClassMethodStatement();
+                    return true;
+                }
 
                 if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot)
                 {
@@ -1428,9 +1455,9 @@ namespace Aloe.CompilerLib
                 }
 
 
-                if (Current.Lexeme == "let")
+                if (Current.Lexeme is "let" or "const")
                 {
-                    ParseLetDeclaration();
+                    ParseLetDeclaration(Current.Lexeme == "const");
                     return true;
                 }
 
@@ -1444,6 +1471,7 @@ namespace Aloe.CompilerLib
                 if (Current.Lexeme == "throw")
                 {
                     var throwToken = Advance();
+                    ValidateFinallyThrow(throwToken);
                     if (_catchDepth == 0)
                         throw Error(throwToken, "Bare throw is supported only inside a catch block.");
                     Expect(TokenKind.Semicolon);
@@ -1512,6 +1540,7 @@ namespace Aloe.CompilerLib
                     if (Check(TokenKind.Dot))
                         throw Error(Current, "Nested with field assignment is supported only for struct values.");
                     var field = ResolveWithField(context.TypeName, member);
+                    RequireWritableField(member, field, throughThis: false);
                     Expect(TokenKind.Assign);
                     Emit(EnumOpcode.LoadLocal, context.InstanceSlot.Value);
                     Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
@@ -1798,12 +1827,15 @@ namespace Aloe.CompilerLib
             }
 
 
-            private void ParseLetDeclaration()
+            private void ParseLetDeclaration(bool immutable = false)
             {
-                Advance(); // let
+                Advance(); // let / const
                 var name = Expect(TokenKind.Identifier);
                 Expect(TokenKind.Colon);
                 var declaredType = ParseTypeName(out var declaredClassName);
+                if (immutable && declaredType is not (ExprType.Int or ExprType.Bool or ExprType.Byte or
+                    ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String))
+                    throw Error(name, "const supports local scalar types only.");
                 Expect(TokenKind.Assign);
                 var expressionStart = _code.Count;
                 var actualType = ParseExpectedExpression(declaredType, declaredClassName);
@@ -1814,6 +1846,7 @@ namespace Aloe.CompilerLib
 
 
                 var local = DeclareLocal(name, declaredType, declaredClassName);
+                if (immutable) _immutableLocalSlots.Add(local.Slot);
                 Emit(EnumOpcode.StoreLocal, local.Slot);
             }
 
@@ -1822,6 +1855,7 @@ namespace Aloe.CompilerLib
             {
                 var name = Expect(TokenKind.Identifier);
                 var local = _declaredLocals[ResolveLocal(name).Slot];
+                RequireMutableLocal(name, local);
                 Expect(TokenKind.Assign);
                 var expressionStart = _code.Count;
                 var actualType = ParseExpectedExpression(local.Type, local.ClassName);
@@ -1844,6 +1878,7 @@ namespace Aloe.CompilerLib
                 Expect(TokenKind.Dot);
                 var fieldToken = Expect(TokenKind.Identifier);
                 var field = ResolveField(function.DeclaringClass, fieldToken);
+                RequireWritableField(fieldToken, field, throughThis: true);
                 Expect(TokenKind.Assign);
 
                 Emit(EnumOpcode.LoadLocal, 0);
@@ -2033,7 +2068,7 @@ namespace Aloe.CompilerLib
                 return thenCanContinueWithElse || elseCanContinueWithElse;
             }
 
-            private bool ParseTryCatch()
+            private bool ParseTryCatchCore()
             {
                 var tryToken = Advance();
                 if (_forWasm)
@@ -2173,9 +2208,9 @@ namespace Aloe.CompilerLib
                         RestoreConstructorInitialization(initialized);
                     }
                 }
+                RestoreInterfaceFlowState(interfaceEntry);
                 if (continuingStates.Count > 0)
                 {
-                    RestoreInterfaceFlowState(interfaceEntry);
                     if (continuingStates.Count == 1)
                         RestoreInterfaceFlowState(continuingStates[0]);
                     else
@@ -2194,7 +2229,7 @@ namespace Aloe.CompilerLib
                 var headerEnd = FindInterfaceFlowGroupEnd(_position + 1, TokenKind.LParen, TokenKind.RParen);
                 var bodyEnd = headerEnd < 0 ? -1 : FindInterfaceFlowGroupEnd(headerEnd, TokenKind.LBrace, TokenKind.RBrace);
                 var preserveFirstIterationFacts = headerEnd > 0 && bodyEnd > headerEnd &&
-                    CanProveLoopBodyHasNoBackEdge(headerEnd, bodyEnd);
+                    !ContainsFinally(headerEnd, bodyEnd) && CanProveLoopBodyHasNoBackEdge(headerEnd, bodyEnd);
                 var interfaceEntry = CaptureLoopInterfaceFlowState();
                 if (preserveFirstIterationFacts)
                     RestoreInterfaceFlowState(preLoopInterfaceState);
@@ -2365,8 +2400,8 @@ namespace Aloe.CompilerLib
                                 if (fieldIndex < 0)
                                     throw Error(keyToken, $"Struct '{elementName}' has no field '{keyToken.Lexeme}'.");
                                 var keyField = structSignature.Fields[fieldIndex];
-                                if (keyField.Type is not (ExprType.Int or ExprType.Byte or ExprType.String))
-                                    throw Error(keyToken, $"Sort key '{elementName}.{keyToken.Lexeme}' must have type int, byte or string.");
+                                if (keyField.Type is not (ExprType.Int or ExprType.Byte or ExprType.Bool or ExprType.String))
+                                    throw Error(keyToken, $"Sort key '{elementName}.{keyToken.Lexeme}' must have type int, byte, bool or string.");
                                 if (Check(TokenKind.Dot))
                                     throw Error(Current, "Keyed sort accepts only one direct field name.");
                                 var keySchema = new Dictionary<string, object>
@@ -2377,6 +2412,7 @@ namespace Aloe.CompilerLib
                                 };
                                 if (keyField.Type == ExprType.String) keySchema["fieldType"] = "string";
                                 if (keyField.Type == ExprType.Byte) keySchema["fieldType"] = "byte";
+                                if (keyField.Type == ExprType.Bool) keySchema["fieldType"] = "bool";
                                 shorthandFilter = shorthandFilter with
                                 {
                                     FunctionIndex = -35,
@@ -2541,7 +2577,7 @@ namespace Aloe.CompilerLib
                 var loopHeaderEnd = FindInterfaceFlowGroupEnd(_position + 1, TokenKind.LParen, TokenKind.RParen);
                 var loopBodyEnd = loopHeaderEnd < 0 ? -1 : FindInterfaceFlowGroupEnd(loopHeaderEnd, TokenKind.LBrace, TokenKind.RBrace);
                 var preserveFirstIterationFacts = loopHeaderEnd > 0 && loopBodyEnd > loopHeaderEnd &&
-                    CanProveLoopBodyHasNoBackEdge(loopHeaderEnd, loopBodyEnd);
+                    !ContainsFinally(loopHeaderEnd, loopBodyEnd) && CanProveLoopBodyHasNoBackEdge(loopHeaderEnd, loopBodyEnd);
                 var interfaceEntry = CaptureLoopInterfaceFlowState();
                 if (preserveFirstIterationFacts)
                     RestoreInterfaceFlowState(preLoopInterfaceState);
@@ -2634,16 +2670,17 @@ namespace Aloe.CompilerLib
 
                 Expect(TokenKind.Semicolon);
                 var loop = _loops.Peek();
+                ValidateFinallyLoopTransfer(token);
                 if (_interfaceFlowReachable)
                 {
                     var state = CaptureInterfaceFlowState();
+                    if (FindExitedFinally(FinallyTransferKind.Break, loop) != null)
+                        foreach (var slot in state.Keys.ToArray()) state[slot] = _declaredLocals[slot];
                     loop.BreakInterfaceStates.Add(state);
                     if (_foreachInterfaceFlows.TryPeek(out var foreachFlow) && foreachFlow.LoopDepth == _loops.Count)
                         foreachFlow.BreakStates.Add(state);
                 }
-                for (var depth = _catchDepth; depth > loop.CatchDepth; depth--)
-                    Emit(EnumOpcode.CatchEnd, 1);
-                Emit(EnumOpcode.Br, _controlDepth - loop.BlockLevel);
+                EmitFinallyTransfer(FinallyTransferKind.Break, loop);
             }
 
 
@@ -2655,11 +2692,10 @@ namespace Aloe.CompilerLib
 
                 Expect(TokenKind.Semicolon);
                 var loop = _loops.Peek();
+                ValidateFinallyLoopTransfer(token);
                 if (_interfaceFlowReachable)
                     loop.HasReachableContinue = true;
-                for (var depth = _catchDepth; depth > loop.CatchDepth; depth--)
-                    Emit(EnumOpcode.CatchEnd, 1);
-                Emit(EnumOpcode.Br, _controlDepth - loop.LoopLevel);
+                EmitFinallyTransfer(FinallyTransferKind.Continue, loop);
             }
 
 
@@ -2836,6 +2872,8 @@ namespace Aloe.CompilerLib
 
 
                 var returnToken = Advance(); // return
+                if (_finallyBodies.Count > 0)
+                    throw Error(returnToken, "Outward return from a finally body is unsupported in this subset.");
 
 
                 if (function.ReturnType == ExprType.Void)
@@ -2854,7 +2892,7 @@ namespace Aloe.CompilerLib
 
 
                 Expect(TokenKind.Semicolon);
-                Emit(EnumOpcode.Return);
+                EmitFinallyTransfer(FinallyTransferKind.Return, null);
             }
 
 
@@ -3438,6 +3476,12 @@ namespace Aloe.CompilerLib
                 if (function == null)
                     throw Error(name, $"Unknown function or private instance method '{name.Lexeme}'.");
 
+                return ParseResolvedFunctionCall(name, function, requireValue, isInstanceSelfCall);
+            }
+
+            private ExprType ParseResolvedFunctionCall(AloeToken name, FunctionSignature function,
+                bool requireValue, bool isInstanceSelfCall)
+            {
                 if (requireValue && function.ReturnType == ExprType.Void)
                     throw Error(name, $"Void function '{name.Lexeme}' cannot be used as a value.");
 
@@ -3597,6 +3641,9 @@ namespace Aloe.CompilerLib
 
                 if (Current.Lexeme == "this" && Peek(1).Kind == TokenKind.Dot)
                 {
+                    if (_currentFunction?.DeclaringStruct == null && Peek(2).Kind == TokenKind.Identifier &&
+                        Peek(3).Kind == TokenKind.LParen)
+                        return ParseThisClassMethodValue();
                     if (_currentFunction?.DeclaringStruct is string structName && Peek(2).Kind == TokenKind.Identifier && Peek(3).Kind == TokenKind.LParen)
                     {
                         Emit(EnumOpcode.LoadLocal, 0);

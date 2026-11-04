@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="193">
-  <meta name="edit-date" content="2026-11-01T08:03:38+09:00">
+  <meta name="edit-version" content="213">
+  <meta name="edit-date" content="2026-11-05T00:23:49+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 193)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 213)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 193<br>
-      edit-date: 2026-11-01T08:03:38+09:00</p>
+      edit-version: 213<br>
+      edit-date: 2026-11-05T00:23:49+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -1111,6 +1111,7 @@ const AppName: string = "Aloe VM";
       <li><code>const</code> 変数は再代入不可。</li>
       <li>const には型注釈が必須。</li>
     </ul>
+<div class="note" id="local-scalar-const-subset">ローカルscalar constの実装範囲（2026-11-04）: <code>const name: T = expression;</code> は型注釈と初期化式を必須とし、int・bool/boolean・byte・char・float・decimal・stringに対応する。宣言へ実行が到達するたびに初期化式を1回評価し、通常の型指定letと同じ変換・値域検査・例外規則を使う。コンパイル時評価は要求しない。値の読み取り・コピーは通常どおり行えるが、再代入と<code>swap</code>のどちらかの対象にすることは、<code>swap(name,name)</code>も含めて拒否する。内側の同名宣言は別の束縛で、初期化式では外側の値を参照する。グローバル・名目型・参照型・コレクション・pipeの定数は対象外。直接WASMは既存のint/bool/byte/char/floatのみで、decimal/stringは未対応。深い不変性の保証やopcode・syscallの追加は行わない。<a href="../decisions/0041-local-scalar-const.md">決定0041</a>を参照。</div>
 
 
 
@@ -1143,6 +1144,7 @@ const AppName: string = "Aloe VM";
       <li>struct は値型であり、本章の Object ownership / CallBuffer 規則は class instance に適用する。</li>
       <li>フィールド初期化を省略した場合は、コンストラクタで必ず初期化されなければならない（未初期化は許可しない）。</li>
     </ul>
+<div class="note" id="readonly-scalar-class-field-subset">classのscalar readonly field（2026-11-04）: <code>readonly field name: T;</code> はint・bool/boolean・byte・char・float・decimal・stringのインスタンスfieldに対応する。宣言元classのconstructor内の<code>this.name = expression;</code>だけ代入でき、constructor内の複数回代入は許可する。method・constructorの補助method・getter・継承元fieldに対する派生constructor・<code>with</code>経由の書き込みは拒否する。読み取りには既存の可視性・getter規則を適用する。参照型・コレクション・pipe・enum・struct・staticのreadonly fieldと、method・property・constructorへのreadonly指定は未対応。field初期化式は引き続き未対応で、classの確実な初期化の検査・深い不変性・runtimeによる書き込み禁止は追加しない。従来はreadonlyを受け付けても保持していなかったが、今回から代入を検査する。<a href="../decisions/0042-readonly-scalar-class-fields.md">決定0042</a>を参照。</div>
     <hr><h2 id="ch7">7. Class / Struct / Interface / Trait</h2>
 
 
@@ -1426,6 +1428,13 @@ sealed class FinalDerived extends Base {
 
     <h3>7.4 interface</h3>
 <div class="note" id="interface-catch-shadowing">順序付き型catchの経路（2026-10-20）：後続catchの型が先行catchの型に包含される場合、その後続catchは到達不能です。同じ型の繰り返しやcatch(Exception)後のcatch-allも含みます。後続catchも構文解析・型検査を行いますが、その書き込み・消費・return/break/continue経路・コンストラクター初期化は継続経路の合流から除外します。ネストしたhandlerの書き込み走査とループ制御移動の分類にも同じ規則を適用します。後続型のほうが広い場合や兄弟型の場合は、保守的に到達可能として扱います。一般のtry本体が送出する例外型そのものを推論する規則ではありません。実行時のcatch順序と出力するhandler表は変更しません。</div>
+<div class="note" id="interface-decimal-initializer-flow">decimal定数初期化の解析（2026-11-03）: decimal型を明示したlet宣言と型推論するvar宣言では、decimalリテラルと括弧に対する +, -, *, / の非例外経路、または評価順で最初のゼロ除算・overflowを区別する。乗除算のunderflowもVMと同じoverflowとして扱う。符号付きリテラルの通常の構文規則は変えない。完全に解析できる非例外の定数式は、字句スコープの影隠し解析にdecimal型を供給できる。変数演算、混合型、代入は保守的に扱い、decimal値の伝播は追加しない。</div>
+<div class="note" id="interface-decimal-assignment-flow">既存decimal変数への代入（2026-11-03）: decimalリテラル、括弧、+, -, *, / から成る完全な式について、VMの値演算を共有する評価器が正常終了を示す場合だけ、独立した非例外の代入と判定する。代入先の型は分岐・ループ内の影隠しを含む字句スコープから解決する。未知またはobject型の代入先、変数演算、混合型、メンバー・添字への書き込み、例外が起こり得る式は保守的に扱う。decimal代入の例外型解析や入れ子の例外処理済み判定までは拡張せず、実行時・バイトコード・値伝播は変更しない。</div>
+<div class="note" id="interface-decimal-constant-comparison-flow">decimal定数式を含む比較（2026-11-03）: 既存の非例外比較の解析は、左右の各項について、decimalリテラルの +, -, *, / から成る完全な式をVMの値演算で評価し、正常終了を証明できる場合も受け付ける。既存のint/byteからの昇格規則を維持し、floatとdecimal、charと数値の組み合わせは対象外とする。条件式、bool型を明示・推論する初期化、bool変数への代入で同じ判定を使う。比較結果の真偽は定数化せず、分岐内の書き込みを除外しない。ゼロ除算、overflow・underflow、未知の式、呼び出し、unboxing、変数演算は保守的に扱い、実行時・バイトコード・値伝播は変更しない。</div>
+<div class="note" id="interface-decimal-handled-assignment-flow">decimal代入の処理済み例外（2026-11-03）: 入れ子のtry内が既存のdecimalローカル変数または引数への代入1文だけの場合、decimalリテラルから成る完全な式が格納前に失敗し、最初に一致する型付きまたは既定のcatchが独立して非例外だと証明できれば、外側へ例外を伝えないと判定する。ゼロ除算とoverflow・underflow、および評価順で最初の失敗を区別し、代入先には元の値が残る。一致しない例外、再throw、例外や参照書き込みを含むcatch、未知・object型の代入先、変数演算、複数文は保守的に扱う。単一文の処理済み例外の証明だけを拡張し、一般のdecimal代入の例外型解析、実行時、バイトコードは変更しない。</div>
+<div class="note" id="interface-nonthrowing-float-literal-expression-flow">非例外のfloatリテラル式（2026-11-03）: floatリテラル、括弧、符号付きリテラル、+, -, *, / から成る完全な式について、共有するAloeValue演算が正常終了を示す場合だけfloat型を供給する。VMのfloat32丸め、overflow・underflow、ゼロ除算の動作を維持する。型を明示・推論する初期化、既存floatローカル変数・引数への代入、比較の項、先読みの字句型解析に同じ証明を使う。初期化の型を判定してから名前を束縛し、object・未知・foreachによる影隠しとスコープ復元を維持する。比較の真偽は定数化しない。例外が起こる式、変数演算、異なる数値型を混ぜた演算、呼び出し、unboxing、未対応構文は保守的に扱う。floatの型付き例外経路や入れ子の処理済み失敗の証明は拡張せず、実行時・バイトコード・値伝播は変更しない。</div>
+<div class="note" id="interface-literal-float-first-failure-flow">floatリテラル式の最初の失敗（2026-11-03）: float型を明示する初期化とvarによる初期化について、完全に認識したfloatリテラル演算の正常終了、または評価順で最初のZeroDivisionException・OverflowExceptionを区別する。float32のunderflowと符号付きゼロも含め、既存の型付きcatch順序・再throwの結合規則を適用する。入れ子のtryがint/decimal/float型の宣言1文、または同じ対象型の既存ローカル変数・引数への代入1文だけで、格納前の既知失敗を最初に一致する非例外のcatchが処理する場合は、外側へ例外を伝えないと判定する。前の注記のfloat除外だけを拡張し、未知・変数・混合型の式、object型の代入先、一致しない例外・再throw、例外や参照書き込みを含むcatch、複数文は保守的に扱う。一般のfloat代入・returnの例外型解析、比較結果の定数化、実行時・バイトコードは変更しない。</div>
+<div class="note" id="interface-exact-typed-numeric-return-flow">数値return式の解析（2026-11-03）: float/decimalを返す関数では、返却型と一致する数値リテラルだけから成る完全な式について、正常終了、または評価順で最初のゼロ除算・overflow（underflowを含む）を区別する。新しい数値判定は返却型で制限し、既存のint/bool式解析は維持する。独立して正常終了を証明できるint/bool/float/decimalのreturnでは、到達しないcatchの書き込みを除外する。単一のprimitive returnが格納・返却前に必ず失敗し、最初に一致するcatchが独立して非例外の場合も、処理済みの失敗と判定する。一致しない例外、再throw、例外を発生させるcatchは保守的に扱う。try/catchから継続する経路がない場合は、未到達文の型検査のために入場時の型情報を復元し、生存する継続経路は作らない。実際に継続する状態の合流規則は変更しない。未知の読み取り・変数演算・呼び出し、unboxing、object返却時のboxingは保守的に扱い、byteリテラルと型不一致は通常の検証を維持する。空の算術例外集合だけでは一般の非例外の証明としない。数値変換、値伝播、実行時・バイトコードの契約は変更しない。</div>
 <div class="note" id="interface-arithmetic-catch-flow">定数算術のcatch経路（2026-10-22）：定数int式のローカル代入では、確実なゼロ除算と検査付きint32オーバーフローを区別し、適合しない型付きcatchをinterface継続経路の合流から除外できます。定数条件で選ばれる<code>if</code>/<code>else if</code>/<code>else</code>の対応済み本体が正常終了すれば後続文の解析へ進み、常に偽のループは読み飛ばします。常に真のループから後続文へ到達するとは推論しません。条件比較でも左からの評価順と短絡評価から確定できる例外型だけを保持し、先行する未知の式があれば後続式の例外型を断定しません。例外を投げないboolローカル・引数、その論理式とbool同士の<code>==</code>／<code>!=</code>比較では、両分岐の対応済み算術結果が同じ場合に合流でき、正常終了の合流後は後続の確実な失敗も解析します。同じ非例外bool解析でwhile条件が常に偽または真になる組み合わせも認識します。対応済み分岐と正常に継続する経路では、発生し得るゼロ除算とオーバーフローを集合で保持し、例外を出さないbool条件の0回反復も含めます。先行handlerを考慮してどの候補例外も到達しない型付きcatchだけを除外します。未知の呼び出し・未対応条件・制御移動は保守的に扱い、handlerの型検査は継続します。解析範囲は決定0017を参照してください。</div>
 <div class="note" id="interface-arithmetic-return-flow">算術return経路（2026-10-22）：対応範囲の有限例外解析では、裸のreturnと正常終了する定数int算術のreturn式は、その関数経路を終了します。返却式が確実に失敗する場合は、ゼロ除算またはcheckedオーバーフローの正確な例外を保持します。それ以前に発生し得る算術例外も集合に残します。演算項の評価順は左から右で、未知の呼び出しや未対応のreturn式のcatch到達性は保守的に扱います。関数が例外を出さないという推論や、実行時のreturn・例外動作の変更は行いません。</div>
 <div class="note" id="interface-arithmetic-loop-transfer-flow">算術ループ制御経路（2026-10-22）：対応範囲の有限例外解析ではbreakとcontinueを区別し、最も内側のwhileが自身の制御経路を処理します。内側のbreakは外側ループを終了しません。breakはそのループ後の文へ進み、continueは条件の再評価へ戻ります。例外を出さずfalseになり得る条件では、0回反復または後続の条件による出口も保持します。条件が常にtrueでbreakがなければ、後続文を到達可能としません。それ以前や別経路の正確な算術例外も集合に残し、未知の操作や未対応構文のcatch到達性は保守的に扱います。</div>
@@ -1442,6 +1451,8 @@ sealed class FinalDerived extends Base {
 <div class="note" id="interface-string-equality-flow">文字列等値比較の例外経路（2026-10-26）：string型のローカル／引数の直接読み取りを==または!=で比較する場合にも、非例外経路として扱います。既存の序数による等値比較に従い、比較結果は変更しません。文字列の順序比較は追加しません。呼び出し・メンバー／添字読み取り・値の相関は新たに推論しません。raw VMでは空文字・Unicode／サロゲート・nullとの等値比較も検証しますが、ソースのnull構文は追加しません。</div>
 <div class="note" id="interface-string-literal-equality-flow">文字列リテラルの等値比較経路（2026-10-26）：直接の文字列リテラルを括弧や左右の配置にかかわらず、string型の読み取りと同じ==／!=の非例外証明に加えます。既存の定数読み取りと序数による等値比較を使い、実行時の割り当てやcastは行いません。bool演算に含まれる算術例外の候補は引き続き合成します。呼び出し・checked cast・参照の書き込み・文字列の順序比較は新たに証明しません。通常のリテラル解析・型検査、比較結果、bytecode、実行時動作は変更しません。</div>
 <div class="note" id="interface-nonthrowing-while-flow">whileの独立した非例外証明（2026-10-26）：条件の非例外性を独立に証明でき、到達する本体の操作も同じ限定的な安全範囲に属する場合に、whileからcatchへの経路を除外します。常にfalseとなる条件では本体を実行対象から外します。入れ子のwhileは自身のbare break／continueを消費し、ループ後の文の例外確認は続けます。呼び出し・変数算術・値付きreturnは保守的に扱い、到達不能なhandlerも型検査します。終了性の証明や実行時／bytecodeの変更は行いません。</div>
+<div class="note" id="interface-reference-alias-flow">参照aliasの解析（2026-11-04）: 確認済みのpipe以外の参照型と、未解析の同名変数などの不明な型情報を区別する。参照の直接読み取りによるvar aliasと、object・class・interface・named boxの単一token型注釈を使うlet aliasでは、aliasの連鎖とハンドルのreturnに確保やunboxの例外経路を追加しない。新しい同名変数の初期化式は外側の値を読み、通常の名目型の代入可能性は引き続き検査する。先行するbox確保の後の参照コピーでは再確保しないが、先行する確保が非例外という保証は追加しない。primitiveのbox、呼び出し・constructor・cast・field・添字、pipe alias、複数tokenの参照型注釈、不明な束縛は保守的に扱う。先行する参照直接returnの解析を拡張するもので、一般的な制御フロー解析の完了やruntime・バイトコードの変更を意味しない。</div>
+<div class="note" id="interface-direct-reference-return-flow">参照の直接return解析（2026-11-04）: pipe以外の参照を返す関数では、解析済みの参照ローカル・引数を単一識別子で返す式（全体を包む対応した括弧も可）を非例外と判定できる。参照のハンドルを返すだけで、確保・unbox・参照先へのアクセス・実行時castを行わず、通常の名目型の代入可能性検査は残す。invalidなハンドルも参照先へアクセスせず返せる。未解析の宣言や同名の隠蔽、primitiveのbox/unbox、constructor・関数呼び出し・field・添字・cast・pipeのreturnは保守的に扱う。runtime・syscall・バイトコードの動作は変えず、一般的な参照・field・添字の制御フロー解析は引き続き未完了とする。</div>
 <div class="note" id="interface-nonthrowing-branch-flow">if分岐の独立した非例外証明（2026-10-26）：if／else／else-ifの到達する条件と選択され得る本体を、それぞれ限定した範囲で非例外と証明できる場合にcatchへの経路を除外します。定数・短絡評価によって本体や後続のelse-if条件を実行対象から外せます。入れ子の分岐と証明済みwhile本体も組み合わせます。分岐後の文は引き続き保守的に確認し、共通の制御移動・終了性・値の相関・関数間契約は推論しません。到達する呼び出し・変数算術・参照の書き込み・値付きreturnは保守的に扱います。非選択の枝とhandlerも型検査し、実行時／bytecodeは変更しません。</div>
 <div class="note" id="interface-scoped-primitive-proof">スコープ別primitive非例外証明（2026-10-26）：独立した証明では、対応するint／bool／stringのlet宣言を字句スコープごとに追跡し、初期化式を確認した後で名前を束縛します。各分岐・while本体・入れ子ブロックに個別の型情報を渡し、内側の同名宣言で外側の束縛を置き換えません。stringの初期化は、括弧を含む直接のstring読み取りかリテラル定数だけを証明します。呼び出し・cast・暗黙unbox・連結・書き込みは新たに証明しません。定数伝播や、別の有限算術例外分類を拡張する変更ではありません。通常の型検査、実行時／bytecodeは変更しません。</div>
 <div class="note" id="interface-nested-try-proof">入れ子のtry（2026-10-28）: 内側のtry本体が独立に非例外と証明できる場合、そのcatchは到達不能として外側の非例外証明を続けます。未知または例外を起こし得る内側のtryは保守的に扱います。通常の型検査と実行時・bytecodeの動作は変わりません。</div>
@@ -1907,6 +1918,7 @@ enum Code {
 
 
     <h2 id="ch14">14. swap Keyword（swap キーワード）</h2>
+<div class="note" id="local-scalar-swap-subset">採用済みローカルscalar swap（決定0040、2026-11-04）: swap(a,b); は同じ宣言型のローカル変数または引数の識別子2つを受け付けます。対象型はint・bool・byte・char・float・decimal・stringです。両方を読み取ってから書き込み、正確な値を保持します。同じslot同士は何もしません。同名変数は通常の字句スコープで解決します。暗黙変換・boxing・名目型の消去は行いません。field・property・添字・関数呼び出し・複合式と、参照型・enum・structは対象外です。直接WASMは既存のint・bool・byte・char・floatに対応し、decimal・stringは引き続き未対応です。将来の変更不可bindingはswapによる書き込みも拒否する必要があります。既存のstack転送で実現し、runtime・bytecodeは変更しません。</div>
 <pre><code>var a = 10;
 var b = 20;
 swap (a, b);
@@ -2016,7 +2028,8 @@ let i3: int = o as int ifnot throw;    // 失敗時は InvalidCastException（�
 <div class="note" id="int-bitwise-subset">現行コンパイラのintビット演算（2026-10-11）：int同士の &amp;、|、^、intの単項 ~、intとintシフト数による &lt;&lt;、&gt;&gt; に対応し、結果はintです。オペランドは実行時に符号付きint32範囲を検査し、シフト数は0..31に限定します。左シフトは上位ビットを捨て、右シフトは符号を拡張します。範囲外はVMでVmException、直接WASMでtrapとなります。byte・bool・char・float・decimal・通常enumやint/bitfield enumの混在はコンパイルエラーです。bitfield enum同士の既存演算は型を保持します。比較はビット演算より優先されるため、ビット判定は <code>(value &amp; mask) == mask</code> と書きます。</div>
 
     <h2 id="ch16">16. Exceptions（例外）</h2>
-<div class="note" id="exception-status">実装済みの同期例外サブセット：<code>try { ... } catch { ... }</code> は、同期的なAloeバイトコード呼び出し中に発生した.NET例外を捕捉します。同期呼び出し先から発生した例外も対象です。<code>catch (ZeroDivisionException)</code> のような型だけを指定する句は、既存の対応例外型またはその派生型を捕捉します。同じtryに複数の句がある場合はソース順に照合し、最初に型が一致した句を使います。型なしcatchは最後にだけ記述できます。一致する句がなければ外側のハンドラーを探索し、見つからなければVMの外へ伝播します。指定できる型名は <code>Exception</code>、<code>SystemException</code>、<code>ZeroDivisionException</code>、<code>InvalidReferenceException</code>、<code>InvalidCastException</code>、<code>OverflowException</code>、<code>ArgumentException</code>、<code>IndexOutOfRangeException</code>、<code>VmException</code> です。catch句は例外値を束縛しません。裸の <code>throw;</code> は現在の例外を再送出し、catchブロック内でのみ使用できます。例外の構築、throw式、<code>finally</code>、async関数内の例外処理、直接WASMでの例外処理は未対応です。別構文の <code>as T ifnot throw</code> は引き続き使用できます。Async CallBufferの例外伝播とTick失敗時のロールバックは未解決であり、この章の残りは設計ドラフトです。</div>
+<div class="note" id="exception-status">実装済みの同期例外サブセット：<code>try { ... } catch { ... }</code> は、同期的なAloeバイトコード呼び出し中に発生した.NET例外を捕捉します。同期呼び出し先から発生した例外も対象です。<code>catch (ZeroDivisionException)</code> のような型だけを指定する句は、既存の対応例外型またはその派生型を捕捉します。同じtryに複数の句がある場合はソース順に照合し、最初に型が一致した句を使います。型なしcatchは最後にだけ記述できます。一致する句がなければ外側のハンドラーを探索し、見つからなければVMの外へ伝播します。指定できる型名は <code>Exception</code>、<code>SystemException</code>、<code>ZeroDivisionException</code>、<code>InvalidReferenceException</code>、<code>InvalidCastException</code>、<code>OverflowException</code>、<code>ArgumentException</code>、<code>IndexOutOfRangeException</code>、<code>VmException</code> です。catch句は例外値を束縛しません。裸の <code>throw;</code> は現在の例外を再送出し、catchブロック内でのみ使用できます。例外の構築、throw式、async関数内の例外処理、直接WASMでの例外処理は未対応です。別構文の <code>as T ifnot throw</code> は引き続き使用できます。Async CallBufferの例外伝播とTick失敗時のロールバックは未解決であり、この章の残りは設計ドラフトです。</div>
+<div class="note" id="synchronous-finally-subset">同期finallyの実装範囲：自由関数、classインスタンスmethod、class constructorで、<code>try { ... } finally { ... }</code>と既存catch句に続くfinallyを使用できます。正常終了・return・break・continue・例外で1回実行します。return値は先に確保し、finallyの例外は保留中の移動や例外に優先します。finallyから外へ出るreturn・break・continueは禁止し、本体内のループへのbreak・continueは許可します。裸のthrowにはfinally内にネストしたcatchが必要です。外側の字句束縛を参照し、interface解析は保守的に扱います。async、直接WASM、struct、通常の同期static methodは未対応です。決定0044を参照してください。</div>
 <pre><code>try {
 }
 catch (e) {
@@ -2138,7 +2151,8 @@ import MyApp.Utils;
 
 
 
-    <h3>17.3 アクセス修飾と公開範囲</h3>
+    <div class="note" id="explicit-this-instance-calls">thisを明示するmethod呼び出し（2026-11-04）: classのインスタンスコードで<code>this.method(arguments)</code>を使える。現在のclassと既存の継承規則でインスタンスmethodを解決し、同名のグローバル関数には代替しない。同期private/protected methodは既存の型付き引数・戻り値の規則を使い、voidは文、非voidは値として利用する。public asyncの文は既存のenqueue・virtual dispatch・循環検査を使い、値にはできない。グローバル/staticのコード、staticの呼び出し先、存在しないmethodは拒否する。既存の裸の呼び出し、structのthis構文、field・readonly・getter/Tickの制限は維持する。thisを一般の参照値として使う機能やruntime・バイトコードの変更は追加しない。<a href="../decisions/0043-explicit-this-instance-calls.md">実装判断</a>を参照。</div>
+<h3>17.3 アクセス修飾と公開範囲</h3>
     <ul>
       <li>トップレベル宣言はデフォルトで public として扱ってよい（実装依存）。</li>
       <li>class の変数 member は public にできない。外部公開には public property を使用する。</li>
@@ -2510,5 +2524,10 @@ main() へ return
 
   </main>
 </div>
+<div class="note" id="direct-return-flow">同型プリミティブの直接return（2026-11-03）：独立した非例外性の証明は、関数の戻り型と字句上の型が完全一致するローカル・引数の直接読出し（括弧を含む）を扱います。対象はint、bool、byte、char、float、decimal、string、および同型のchar/stringリテラルです。安全な別名とシャドーイングは推測型マップで扱い、スコープ外へ束縛を持ち出しません。値の伝播を追加せず、到達不能なcatchの書込みを除外します。boxing、unboxing、添字、メンバー、未知の呼出し、暗黙変換、変数算術は保守的に扱います。既存の定数算術return解析と通常のbyte・リテラル・型検証は維持し、算術例外集合が空という理由だけで一般の非例外性を推論しません。</div>
+<div class="note" id="foreach-binding-return-flow">プリミティブforeach束縛のreturn解析（2026-11-03）：ヘッダーがforeach(name in arrayLocal)そのものである場合、ループ不変条件の証明は宣言済みローカル配列・引数配列の要素型を使用できます。対象はint、bool、byte、char、float、decimal、stringです。ヘッダーの配列名は、要素束縛が名前を隠す前の解析済み外側スコープで解決し、推測的な非例外性の証明にはその要素束縛だけの型を渡します。字句スコープのコピー、別名、終了した内側シャドーの既存規則は維持します。同型の直接returnを囲む到達不能catchを除外でき、0回反復の終了と実際のbreak/continue出口を維持します。呼出し・メンバー・添字など他のヘッダー式、map・set・tuple、入れ子・公称型・不明の要素型は配列の証明で保守的に扱い、プリミティブpipeの束縛は後述の範囲で扱います。値の伝播、配列境界の証明、boxing/unboxingの保証、runtimeやbytecodeの変更は追加しません。</div>
+<div class="note" id="pipe-foreach-return-flow">プリミティブpipeのforeach束縛return解析（2026-11-03）：既存の要素型がint、bool、byte、decimal、stringであるローカル・引数pipeの直接指定に、同じ字句スコープの証明を適用します。独立した非例外性の証明には要素束縛の型だけを渡し、同型の直接読出しと証明済みの別名により到達不能な本体catchを除外できます。空入力による終了、実際のbreak・continue出口、配列名と要素名の字句的シャドーイングは区別します。pipeの読出し・待機・ヘッダー式・先行処理まで非例外・非ブロックと証明するわけではなく、外側catchは保守的に扱います。struct、string[]、map要素はプリミティブの証明の対象外です。新しいpipe型、変換、定数値伝播、runtimeのスケジューリング変更、bytecode変更は追加しません。</div>
+<div class="note" id="collection-foreach-return-flow">コレクションforeach束縛のreturn解析拡張（2026-11-04）: 宣言済みの直接参照元に対する証明を、同種要素のset・tupleと、Mapの単一key束縛／key・valueの二重束縛にも適用します。keyとvalueを別々に分類し、int・bool・byte・char・float・decimal・stringだけを既存の独立した非例外証明へ渡します。本文の束縛が同名変数を隠す前に参照元を解決します。同じ型の直接returnやaliasでは到達不能な本文catchの書き込みを除外できますが、空入力の終了、実際のbreak・continueに至る書き込みは従来どおり合流します。enum・class／interface・object・入れ子・不明な束縛、および関数呼び出し・括弧付き・member・indexの参照元式は保守的なままです。本文returnの証明によってforeachヘッダーやコレクションへのアクセス、外側のcatchまで非例外と判断しません。コレクション型、値の伝播、runtime、syscall、bytecodeの契約は変更しません。先行する配列／pipeの注記を、この宣言済みコレクション束縛の範囲だけ拡張します。</div>
+<div class="note" id="parenthesized-foreach-return-flow">括弧付きコレクション参照元の解析拡張（2026-11-04）: 宣言済みの配列・set・同種tuple・Mapのローカル変数／引数1つを囲む対応した括弧は、既存のプリミティブforeach束縛returnの契約を保持します。参照元式全体を囲む括弧だけを外し、最後に識別子1つであることを確認します。多重括弧、空入力、引数、参照元と同名のmap value束縛でも通常の字句スコープ規則を維持します。関数呼び出し・member・添字などの複合参照元式は括弧内でも保守的に扱います。ヘッダーや外側のcatchを非例外とは判断しません。pipe foreachの直接参照元だけを受け付ける既存構文は変更しません。runtime、値の伝播、syscall、bytecodeの契約は変更しません。</div>
 </body>
 </html>

@@ -18,7 +18,7 @@ public sealed class InterfaceInferredPrimitiveInitializerTests
     [TestCase("var alias = dangerous();", false)]
     [TestCase("var alias = input + 1;", false)]
     [TestCase("var alias = boxed as string;", false)]
-    [TestCase("var alias = value;", false)]
+    [TestCase("var alias = value;", true)]
     [TestCase("var alias = items[0];", false)]
     [TestCase("var alias = item.text;", false)]
     [TestCase("var alias = 1 / 0;", false)]

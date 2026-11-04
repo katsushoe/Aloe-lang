@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="edit-version" content="61" />
-  <meta name="edit-date" content="2026-10-22T15:41:34+09:00" />
+  <meta name="edit-version" content="62" />
+  <meta name="edit-date" content="2026-11-02T22:21:08+09:00" />
   <title>AloeVM Specification (Draft)</title>
   <style>
     * { box-sizing: border-box; }
@@ -1477,6 +1477,7 @@ tick() return
         <li>Heap operations are synchronized. This protects Heap structures and individual field operations; it does not provide a transaction across multiple Objects or enforce ownership of Objects reachable through arguments.</li>
         <li>Host syscall callbacks are serialized per VM. Pipe state changes are synchronized; a blocking pipe operation from a VMThread-pool worker fails with a VM error rather than suspending.</li>
         <li>GC cannot run while <code>tick()</code> is draining worker queues. <code>tick()</code> waits for active workers and newly enqueued calls before committing Volatile State.</li>
+        <li>The synchronous Browser host drains CallBuffers inline on the current thread without blocking monitor waits. Calls remain deferred until tick(), per-object/type FIFO and final commit semantics are preserved, and newly enqueued calls drain before return. MaxVmThreads does not create parallel Browser workers.</li>
       </ul>
 
 

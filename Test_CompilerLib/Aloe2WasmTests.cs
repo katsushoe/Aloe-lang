@@ -10,6 +10,82 @@ namespace Aloe.CompilerLib.Tests;
 
 public sealed class Aloe2WasmTests
 {
+
+    [TestCase("int", "41")]
+    [TestCase("bool", "true")]
+    [TestCase("byte", "255")]
+    [TestCase("char", "'字'")]
+    [TestCase("float", "1.5")]
+    public void Const_ScalarReadsAndShadowsMatchVmAndWasm(string type, string literal)
+    {
+        var source=$$"""
+function identity(value: {{type}}): {{type}} { const result: {{type}}=value; return result; }
+function main(args: string[]): int {
+ const value: {{type}}=identity({{literal}});
+ if(true) { var value=1; value=2; if(value != 2) { return 0; } }
+ if(value == {{literal}}) { return 42; } return 0;
+}
+""";
+        Assert.That(RunVm(new AloeCompiler().Compile(source)), Is.EqualTo(42));
+        var module=AloeBcCodec.Read(AloeBcCodec.Write(new AloeCompiler().CompileForWasm(source)));
+        Assert.That(RunVm(module), Is.EqualTo(42)); Assert.That(RunWasm(new[]{module}), Is.EqualTo(new[]{"42"}));
+    }
+
+    [Test]
+    public void Const_NegativeZeroPreservedInWasm()
+    {
+        var module=new AloeCompiler().CompileForWasm("function zero(): float { const value: float=-0.0; return value; } function main(args: string[]): int { return 0; }");
+        Assert.That(RunWasmExport(module,"zero"), Is.EqualTo("-0"));
+    }
+
+    [TestCase("a=2;")]
+    [TestCase("swap(a,b);")]
+    [TestCase("swap(b,a);")]
+    [TestCase("swap(a,a);")]
+    public void Const_WritesAreRejectedByWasmFrontend(string statement)
+    {
+        var error=Assert.Throws<AloeCompileException>(() => new AloeCompiler().CompileForWasm(
+            "function main(args: string[]): int { const a: int=1; var b=2; " + statement + " return 0; }"));
+        Assert.That(error!.Message, Does.Contain("Cannot write to const local"));
+    }
+
+    [TestCase("string", "\"a\"")]
+    [TestCase("decimal", "1.5:d")]
+    public void Const_UnsupportedWasmTypesRemainRejected(string type, string literal)
+        => Assert.Throws<AloeCompileException>(() => new AloeCompiler().CompileForWasm(
+            "function main(args: string[]): int { const a: " + type + "=" + literal + "; return 0; }"));
+
+
+    [TestCase("int","10","20")]
+    [TestCase("bool","false","true")]
+    [TestCase("byte","0","255")]
+    [TestCase("char","'A'","'字'")]
+    [TestCase("float","1.5","-2.5")]
+    public void Swap_ScalarValuesMatchVmAndWasm(string type,string first,string second)
+    {
+        var source=$$"""
+function exchanged(a: {{type}},b: {{type}}): bool { swap(a,b); return a == {{second}} and b == {{first}}; }
+function main(args: string[]): int {
+ let a: {{type}}={{first}}; let b: {{type}}={{second}}; swap(a,b);
+ if(a == {{second}} and b == {{first}} and exchanged({{first}},{{second}})) { return 42; } return 0;
+}
+""";
+        Assert.That(RunVm(new AloeCompiler().Compile(source)),Is.EqualTo(42));
+        var module=AloeBcCodec.Read(AloeBcCodec.Write(new AloeCompiler().CompileForWasm(source)));
+        Assert.That(RunVm(module),Is.EqualTo(42));Assert.That(RunWasm(new[]{module}),Is.EqualTo(new[]{"42"}));
+    }
+
+    [Test]
+    public void Swap_FloatNegativeZeroSurvivesWasmExchange()
+    {
+        const string source="""
+function choose(a: float,b: float): float { b=-0.0; swap(a,b); return a; }
+function main(args: string[]): int { return 0; }
+""";
+        var module=new AloeCompiler().CompileForWasm(source);
+        Assert.That(RunWasmExport(module,"choose",1,0),Is.EqualTo("-0"));
+    }
+
     [TestCase(0, "0")]
     [TestCase(1, "1")]
     [TestCase(2, "trap")]
@@ -974,7 +1050,7 @@ function main(args: string[]): int {
             const compiled = new WebAssembly.Module(Buffer.from(input.module, 'base64'));
             const instance = new WebAssembly.Instance(compiled);
             const args = input.arguments.map((value, index) => input.integerArguments[index] ? BigInt(value) : Number(value));
-            try { process.stdout.write(instance.exports[input.exportName](...args).toString()); }
+            try { const result = instance.exports[input.exportName](...args); process.stdout.write(Object.is(result, -0) ? '-0' : result.toString()); }
             catch (error) { if (error instanceof WebAssembly.RuntimeError) process.stdout.write('trap'); else throw error; }
             """;
         var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("ALOE_TEST_NODE") ?? "node")

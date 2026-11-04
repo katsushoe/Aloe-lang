@@ -85,7 +85,7 @@ internal static class Program
             "list" => new HashSet<string>(["--name", "--package-db"], StringComparer.Ordinal),
             "add" => new HashSet<string>(["--name", "--version", "--abc", "--meta", "--package-db"], StringComparer.Ordinal),
             "remove" => new HashSet<string>(["--name", "--version", "--package-db"], StringComparer.Ordinal),
-            "resolve" => new HashSet<string>(["--name", "--version", "--package-db"], StringComparer.Ordinal),
+            "resolve" => new HashSet<string>(["--name", "--version", "--version-range", "--package-db"], StringComparer.Ordinal),
             _ => throw new ArgumentException($"Unknown package-db operation: {operation}")
         };
         var options = ParsePackageDbOptions(args, allowed);
@@ -96,10 +96,15 @@ internal static class Program
         switch (operation)
         {
             case "resolve":
-                var plan = AloePackageDatabase.Resolve(databasePath,
-                    RequirePackageDbOption(options, "--name"), RequirePackageDbOption(options, "--version"));
-                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(plan,
-                    new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                if (options.ContainsKey("--version") && options.ContainsKey("--version-range"))
+                    throw new ArgumentException("Options --version and --version-range are mutually exclusive.");
+                var name = RequirePackageDbOption(options, "--name");
+                var jsonOptions = new System.Text.Json.JsonSerializerOptions { WriteIndented = true };
+                var json = options.TryGetValue("--version-range", out var range)
+                    ? System.Text.Json.JsonSerializer.Serialize(AloePackageDatabase.ResolveRange(databasePath, name, range), jsonOptions)
+                    : System.Text.Json.JsonSerializer.Serialize(AloePackageDatabase.Resolve(databasePath, name,
+                        RequirePackageDbOption(options, "--version")), jsonOptions);
+                Console.WriteLine(json);
                 break;
             case "list":
                 foreach (var package in AloePackageDatabase.List(databasePath, options.GetValueOrDefault("--name"))
@@ -178,5 +183,6 @@ internal static class Program
         Console.WriteLine("  aloec run <source.aloe>");
         Console.WriteLine("  aloec package-db <list|add|remove|resolve> [--package-db path]");
         Console.WriteLine("  aloec package-db resolve --name name --version 1.2.3 [--package-db path]");
+        Console.WriteLine("  aloec package-db resolve --name name --version-range \">=1.2.0 <2.0.0\" [--package-db path]");
     }
 }

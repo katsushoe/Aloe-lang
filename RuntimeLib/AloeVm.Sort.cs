@@ -111,6 +111,11 @@ public sealed partial class AloeVm
                         if (!key.IsByte)
                             throw new VmException($"The sort key '{schema.FieldName}' must be a byte field.");
                     }
+                    else if (schema.IsBoolKey)
+                    {
+                        if (!key.IsBool)
+                            throw new VmException($"The sort key '{schema.FieldName}' must be a bool field.");
+                    }
                     else if (!key.IsInt || key.AsInt < int.MinValue || key.AsInt > int.MaxValue)
                         throw new VmException($"The sort key '{schema.FieldName}' must be a signed int32 field.");
                 }
@@ -131,7 +136,9 @@ public sealed partial class AloeVm
                     ? values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsString, StringComparer.Ordinal).ToList()
                     : schema.IsByteKey
                         ? values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsByte).ToList()
-                        : values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsInt).ToList();
+                        : schema.IsBoolKey
+                            ? values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsBool).ToList()
+                            : values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsInt).ToList();
             context.SortItemValues = values;
             context.SortReady = true;
         }

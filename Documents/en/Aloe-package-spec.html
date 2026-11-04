@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Aloe Package Specification (Draft, English Version)</title>
-  <meta name="edit-version" content="2" />
-  <meta name="edit-date" content="2026-10-24T00:00:00+09:00" />
+  <meta name="edit-version" content="3" />
+  <meta name="edit-date" content="2026-11-03T14:00:00+09:00" />
   <style>
     :root {
       color-scheme: light dark;
@@ -700,5 +700,8 @@ package-db.json          // Package database (see chapter 4)
 
   </main>
 </div>
+<section id="root-range-selection"><h3>Local root interval selection (decision 0038)</h3>
+<p><code>aloec package-db resolve --name NAME --version-range "&gt;=1.2.0 &lt;2.0.0" [--package-db PATH]</code> selects the highest indexed root in the interval. Exactly one ASCII space separates the inclusive lower and exclusive upper bounds; both are required and lower must be less than upper. Three-part ASCII numeric versions have no leading zeros except zero; components have no fixed integer size limit. Names are ordinal and case sensitive. Other range syntax is rejected.</p>
+<p><code>--version</code> and <code>--version-range</code> are mutually exclusive. Exact resolution keeps formatVersion 1. Range resolution returns formatVersion 2 with requestedName, requestedRange, selectedRoot, indexSha256, ordinal-sorted excludedVersions (nonconforming versions of the requested name), and the unchanged formatVersion 1 plan. Selection and closure use one index byte snapshot, whose raw bytes are hashed. Selected metadata is read afresh and identity checked; all transitive dependencies remain exact-only. A selected root failure is an error, with no fallback to a lower root and no partial successful JSON. No matching version is also an error. There is no solver, timestamp, external retrieval, installation, index mutation, code execution or permanent lock file. Hashes identify bytes, not publisher trust.</p></section>
 </body>
 </html>

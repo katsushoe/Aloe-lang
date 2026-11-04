@@ -225,7 +225,7 @@ function main(args: string[]): int {
     {
         Assert.Throws<AloeCompileException>(() => CompileKeyedSort("struct Item { field key: int; }", "Item", ".missing"));
         Assert.Throws<AloeCompileException>(() => CompileKeyedSort("struct Item { field key: int; }", "Item", ".Key"));
-        Assert.Throws<AloeCompileException>(() => CompileKeyedSort("struct Item { field key: bool; }", "Item", ".key"));
+        Assert.Throws<AloeCompileException>(() => CompileKeyedSort("struct Item { field key: decimal; }", "Item", ".key"));
         Assert.Throws<AloeCompileException>(() => CompileKeyedSort("struct Item { field nested: Inner; } struct Inner { field key: int; }", "Item", ".nested.key"));
         Assert.Throws<AloeCompileException>(() => CompileKeyedSort("", "int", ".key"));
     }

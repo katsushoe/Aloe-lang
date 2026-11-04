@@ -84,9 +84,14 @@ public static partial class AloePackageDatabase
             throw new FileNotFoundException("Aloe package database was not found.", fullPath);
         }
 
+        using var stream = File.OpenRead(fullPath);
+        return ReadSnapshot(stream, fullPath);
+    }
+
+    private static AloePackageDatabaseDocument ReadSnapshot(Stream stream, string fullPath)
+    {
         try
         {
-            using var stream = File.OpenRead(fullPath);
             using var json = JsonDocument.Parse(stream);
             if (json.RootElement.ValueKind != JsonValueKind.Object ||
                 !json.RootElement.TryGetProperty("formatVersion", out var formatVersion) ||

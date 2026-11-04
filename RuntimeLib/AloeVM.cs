@@ -2745,6 +2745,8 @@ namespace Aloe.RuntimeLib
 
         private void ProcessCallBuffersToQuiescence()
         {
+            // Synchronous browser hosts cannot block waiting for Task.Run workers.
+            var runInline = OperatingSystem.IsBrowser();
             while (true)
             {
                 lock (_callBufferGate)
@@ -2754,10 +2756,20 @@ namespace Aloe.RuntimeLib
 
                     if (!_tickFaulted)
                     {
-                        while (_tickInFlight < _maxVmThreads &&
+                        while (!_tickFaulted && _tickInFlight < _maxVmThreads &&
                                TryTakeRunnableCall(out var instanceCall, out var staticCall))
                         {
                             _tickInFlight++;
+                            if (runInline)
+                            {
+                                // ExecutePendingCall owns worker failure recording and cleanup.
+                                // Keep it outside the task-dispatch catch to avoid double cleanup.
+                                if (instanceCall != null) ExecutePendingInstanceCall(instanceCall);
+                                else if (staticCall != null) ExecutePendingStaticCall(staticCall);
+                                else throw new InvalidOperationException("CallBuffer scheduler selected an empty call.");
+                                continue;
+                            }
+
                             try
                             {
                                 if (instanceCall != null)

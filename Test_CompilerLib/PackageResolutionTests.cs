@@ -175,6 +175,118 @@ public sealed class PackageResolutionTests
         Assert.Throws<KeyNotFoundException>(() => AloePackageDatabase.Resolve(store.Index, "root", "1.0.0"));
     }
 
+    [TestCase(">=1.0.0 <2.0.0", "1.10.0")]
+    [TestCase(">=1.10.0 <1.10.1", "1.10.0")]
+    [TestCase(">=1.0.0 <1.10.0", "1.9.99")]
+    [TestCase(">=0.0.0 <1.0.0", "0.0.0")]
+    [TestCase(">=1.0.0 <999999999999999999999.0.0", "2.0.0")]
+    [TestCase(">=999999999999999999999.0.0 <1000000000000000000000.0.0", "999999999999999999999.0.0")]
+    public void RootRange_SelectsNumericallyAndPreservesExactPlan(string range, string expected)
+    {
+        using var store = new Store();
+        foreach (var version in new[] { "1.10.0", "0.0.0", "2.0.0", "1.9.99", "999999999999999999999.0.0" })
+            store.Add("root", version);
+        store.Add("root", "1.0");
+        store.Add("root", "01.0.0");
+        store.Add("Other", "legacy");
+        var before = store.Snapshot();
+        var bytes = File.ReadAllBytes(store.Index);
+        var selection = AloePackageDatabase.ResolveRange(store.Index, "root", range);
+        Assert.That(selection.FormatVersion, Is.EqualTo(2));
+        Assert.That(selection.RequestedName, Is.EqualTo("root"));
+        Assert.That(selection.RequestedRange, Is.EqualTo(range));
+        Assert.That(selection.SelectedRoot, Is.EqualTo(new AloePackageIdentity("root", expected)));
+        Assert.That(selection.IndexSha256, Is.EqualTo(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant()));
+        Assert.That(selection.ExcludedVersions, Is.EqualTo(new[] { "01.0.0", "1.0" }));
+        Assert.That(selection.Plan.FormatVersion, Is.EqualTo(1));
+        Assert.That(JsonSerializer.Serialize(selection.Plan),
+            Is.EqualTo(JsonSerializer.Serialize(AloePackageDatabase.Resolve(store.Index, "root", expected))));
+        Assert.That(JsonSerializer.Serialize(AloePackageDatabase.ResolveRange(store.Index, "root", range)),
+            Is.EqualTo(JsonSerializer.Serialize(selection)));
+        Assert.That(store.Snapshot(), Is.EqualTo(before));
+    }
+
+    [TestCase("")]
+    [TestCase("1.0.0")]
+    [TestCase(">=1.0.0")]
+    [TestCase("<2.0.0")]
+    [TestCase(">=1.0.0  <2.0.0")]
+    [TestCase(">=1.0.0\t<2.0.0")]
+    [TestCase(" >=1.0.0 <2.0.0")]
+    [TestCase(">=1.0.0 <2.0.0 ")]
+    [TestCase(">1.0.0 <2.0.0")]
+    [TestCase(">=1.0.0 <=2.0.0")]
+    [TestCase(">=01.0.0 <2.0.0")]
+    [TestCase(">=1.0.0 <2.0")]
+    [TestCase(">=1.0.0-beta <2.0.0")]
+    [TestCase(">=1.0.0 <2.0.0+build")]
+    [TestCase(">=1.0.0 <１.0.0")]
+    [TestCase(">=1.0.0 <1.0.0")]
+    [TestCase(">=2.0.0 <1.0.0")]
+    [TestCase("^1.0.0")]
+    [TestCase("~1.0.0")]
+    [TestCase("1.*")]
+    public void RootRange_RejectsUnsupportedSyntaxBeforeReadingIndex(string range)
+    {
+        using var store = new Store();
+        Assert.Throws<InvalidDataException>(() => AloePackageDatabase.ResolveRange(store.Index, "root", range));
+        Assert.That(File.Exists(store.Index), Is.False);
+    }
+
+    [TestCase("root", ">=2.0.0 <3.0.0")]
+    [TestCase("Root", ">=1.0.0 <2.0.0")]
+    public void RootRange_NoEligibleVersionFailsWithoutMutation(string name, string range)
+    {
+        using var store = new Store();
+        store.Add("root", "1.0.0");
+        store.Add("root", "legacy");
+        var before = store.Snapshot();
+        Assert.Throws<KeyNotFoundException>(() => AloePackageDatabase.ResolveRange(store.Index, name, range));
+        Assert.That(store.Snapshot(), Is.EqualTo(before));
+    }
+
+    [TestCase("missing-abc")]
+    [TestCase("missing-meta")]
+    [TestCase("identity")]
+    [TestCase("missing-dependency")]
+    [TestCase("range-dependency")]
+    [TestCase("cycle")]
+    [TestCase("conflict")]
+    public void RootRange_SelectedFailureNeverFallsBack(string failure)
+    {
+        using var store = new Store();
+        store.Add("root", "1.0.0");
+        store.Add("root", "1.1.0");
+        switch (failure)
+        {
+            case "missing-abc": File.Delete(store.Abc("root", "1.1.0")); break;
+            case "missing-meta": File.Delete(store.Meta("root", "1.1.0")); break;
+            case "identity": File.Copy(store.Meta("root", "1.0.0"), store.Meta("root", "1.1.0"), true); break;
+            case "missing-dependency": store.WriteMetadata("root", "1.1.0", [new("missing", "1.0.0")]); break;
+            case "range-dependency": store.WriteMetadata("root", "1.1.0", [new("root", ">=1.0.0 <2.0.0")]); break;
+            case "cycle": store.WriteMetadata("root", "1.1.0", [new("root", "1.1.0")]); break;
+            case "conflict": store.WriteMetadata("root", "1.1.0", [new("root", "1.0.0")]); break;
+        }
+        var before = store.Snapshot();
+        Assert.That(() => AloePackageDatabase.ResolveRange(store.Index, "root", ">=1.0.0 <2.0.0"), Throws.Exception);
+        Assert.That(AloePackageDatabase.Resolve(store.Index, "root", "1.0.0").Root.Version, Is.EqualTo("1.0.0"));
+        Assert.That(store.Snapshot(), Is.EqualTo(before));
+    }
+
+    [Test]
+    public void RootRange_DuplicateIdentityIsRejected()
+    {
+        using var store = new Store();
+        store.Add("root", "1.0.0");
+        var document = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(store.Index))!;
+        var packages = document["packages"]!.AsArray();
+        packages.Add(packages[0]!.DeepClone());
+        File.WriteAllText(store.Index, document.ToJsonString());
+        var before = store.Snapshot();
+        Assert.Throws<InvalidDataException>(() => AloePackageDatabase.ResolveRange(store.Index, "root", ">=1.0.0 <2.0.0"));
+        Assert.That(store.Snapshot(), Is.EqualTo(before));
+    }
+
     private sealed class Store : IDisposable
     {
         private readonly string root = Path.Combine(Path.GetTempPath(), "aloe-resolve-" + Guid.NewGuid().ToString("N"));

@@ -16,6 +16,7 @@ public sealed partial class AloeCompiler
             var bindings = new Dictionary<int, HashSet<string>>();
             if (TokenAt(_position).Lexeme == "foreach") AddForeachFlowBindings(_position, bindings);
             var initialShadows = bindings.GetValueOrDefault(bodyStart) ?? new HashSet<string>(StringComparer.Ordinal);
+            var initialPrimitiveTypes = GetLoopPrimitiveBindingTypes(bodyStart, initialShadows);
             var head = firstEntry;
             // Each slot ranges over the finite interface names plus unknown. Joining the first entry
             // with every back edge makes transfer lose candidates; a failed bound widens safely.
@@ -108,7 +109,7 @@ public sealed partial class AloeCompiler
                         var tryFlow = AnalyzeRange(position + 2, tryEnd - 1,
                             new Dictionary<int, string?>(state), shadows.Peek(), loopBackEdges, loopBreakEdges);
                         if (CanProveTryRangeHasNoExceptionalEdges(position + 2, tryEnd - 1,
-                            GetSpeculativePrimitiveTypes(bodyStart + 1, position, initialShadows)))
+                            GetSpeculativePrimitiveTypes(bodyStart + 1, position, initialPrimitiveTypes)))
                         {
                             if (!tryFlow.FallsThrough) return tryFlow;
                             state = tryFlow.State;
@@ -278,7 +279,7 @@ public sealed partial class AloeCompiler
                         state[target.Slot] = GetNominalLoopAssignmentType(TokenAt(position).Lexeme,
                             position + 2, statementEnd, shadows, state[target.Slot]);
 
-                    if (TokenAt(position).Kind == TokenKind.Keyword && TokenAt(position).Lexeme is "let" or "var")
+                    if (TokenAt(position).Kind == TokenKind.Keyword && TokenAt(position).Lexeme is "let" or "var" or "const")
                         shadows.Peek().Add(TokenAt(position + 1).Lexeme);
                     position = statementEnd + 1;
                 }
@@ -527,7 +528,7 @@ public sealed partial class AloeCompiler
                         continue;
                     }
 
-                    if (token.Kind == TokenKind.Keyword && token.Lexeme is "let" or "var")
+                    if (token.Kind == TokenKind.Keyword && token.Lexeme is "let" or "var" or "const")
                     {
                         declarationScope = assignmentShadows.Peek();
                         declarationName = TokenAt(cursor + 1).Lexeme;
@@ -569,7 +570,7 @@ public sealed partial class AloeCompiler
             if (statementEnd <= position) return false;
 
             int assignment;
-            if (TokenAt(position).Lexeme is "let" or "var")
+            if (TokenAt(position).Lexeme is "let" or "var" or "const")
             {
                 assignment = position + 1;
                 while (assignment < statementEnd && TokenAt(assignment).Kind != TokenKind.Assign)
@@ -714,7 +715,7 @@ public sealed partial class AloeCompiler
             if (statementEnd <= position) return false;
 
             int assignment;
-            if (TokenAt(position).Lexeme is "let" or "var")
+            if (TokenAt(position).Lexeme is "let" or "var" or "const")
             {
                 assignment = position + 1;
                 while (assignment < statementEnd && TokenAt(assignment).Kind != TokenKind.Assign)

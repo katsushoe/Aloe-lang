@@ -32,7 +32,8 @@ public sealed partial class AloeCompiler
             if (TokenAt(start).Kind != TokenKind.Identifier) return null;
             var name = TokenAt(start).Lexeme;
             if (localTypes != null && localTypes.TryGetValue(name, out var type)) return type;
-            return TryResolveLocal(name, out var local) ? local.Type : null;
+            if (!TryResolveLocal(name, out var local)) return null;
+            return local.Type == ExprType.Object && IsPipeTypeName(local.ClassName) ? ExprType.Unknown : local.Type;
         }
 
         private bool IsNonthrowingPrimitiveComparison(int start, int end,
@@ -70,10 +71,28 @@ public sealed partial class AloeCompiler
                 var readType = GetNonthrowingDirectReadType(from, to, localTypes);
                 if (readType is ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String)
                     return readType;
+                if (GetGuaranteedInt32ArithmeticFailure(from, to) == GuaranteedInt32Failure.None)
+                    return ExprType.Int;
+                if (TryGetDecimalConstantFlow(from, to, out var decimalFlow) &&
+                    decimalFlow == ArithmeticTryFlow.FallsThrough)
+                    return ExprType.Decimal;
+                if (TryGetFloatConstantFlow(from, to, out var floatFlow) &&
+                    floatFlow == ArithmeticTryFlow.FallsThrough)
+                    return ExprType.Float;
                 // Variable arithmetic, calls, indexing, members and casts remain unknown.
-                return GetGuaranteedInt32ArithmeticFailure(from, to) == GuaranteedInt32Failure.None
-                    ? ExprType.Int : null;
+                return null;
             }
+        }
+
+        private ArithmeticTryFlow GetReturnExpressionFlow(int start, int end)
+        {
+            if (_currentFunction?.ReturnType == ExprType.Decimal &&
+                TryGetDecimalConstantFlow(start, end, out var decimalFlow))
+                return decimalFlow;
+            if (_currentFunction?.ReturnType == ExprType.Float &&
+                TryGetFloatConstantFlow(start, end, out var floatFlow))
+                return floatFlow;
+            return GetPrimitiveExpressionFlow(start, end);
         }
 
         private ArithmeticTryFlow GetPrimitiveExpressionFlow(int start, int end)

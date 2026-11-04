@@ -254,7 +254,7 @@ function main(args: string[]): int {
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
             "function main(args: string[]): int { try { print(1); } catch { } catch (Exception) { } return 0; }"));
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
-            "function main(args: string[]): int { try { print(1); } catch { } finally { print(2); } return 0; }"));
+            "function main(args: string[]): int { try { print(1); } catch { } finally { return 2; } return 0; }"));
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
             "class C { public async method run(): void { try { print(1); } catch { } } } function main(args: string[]): int { return 0; }"));
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().CompileForWasm(

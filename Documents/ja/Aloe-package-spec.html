@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Aloe パッケージ仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="2" />
-  <meta name="edit-date" content="2026-10-24T00:00:00+09:00" />
+  <meta name="edit-version" content="3" />
+  <meta name="edit-date" content="2026-11-03T14:00:00+09:00" />
   <style>
     :root {
       color-scheme: light dark;
@@ -685,5 +685,8 @@ package-db.json          // パッケージデータベース（4章参照）
 
   </main>
 </div>
+<section id="root-range-selection"><h3>ローカルroot範囲選択（決定0038）</h3>
+<p><code>aloec package-db resolve --name NAME --version-range "&gt;=1.2.0 &lt;2.0.0" [--package-db PATH]</code> は索引内で範囲に合う最高版を選択します。下限を含み上限を含まない両境界が必須で、下限は上限より小さく、区切りはASCII空白1個のみです。版はASCII数字の3成分で、0以外の先頭ゼロを禁止し、成分の固定整数サイズ制限は設けません。名前は序数で大文字小文字を区別します。他の範囲構文はエラーです。</p>
+<p><code>--version</code> と <code>--version-range</code> は同時指定できません。完全一致はformatVersion 1を維持します。範囲指定はformatVersion 2でrequestedName、requestedRange、selectedRoot、indexSha256、excludedVersions（指定名の非適合版を序数順）、既存formatVersion 1のplanを返します。選択と依存解決には同じ索引バイトスナップショットを使い、元バイト列をハッシュします。選択版のメタデータを新たに読み、識別子を照合し、推移依存は完全一致のみです。選択版が壊れていても下位版へ切り替えずエラーとし、成功JSONを部分出力しません。候補がない場合もエラーです。制約ソルバー、時刻、外部取得、インストール、索引変更、コード実行、永続lock fileは追加しません。ハッシュはバイトの識別であり発行者の信頼を示しません。</p></section>
 </body>
 </html>

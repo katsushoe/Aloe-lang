@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="edit-version" content="61" />
-  <meta name="edit-date" content="2026-10-22T15:41:34+09:00" />
+  <meta name="edit-version" content="62" />
+  <meta name="edit-date" content="2026-11-02T22:21:08+09:00" />
   <title>AloeVM 仕様書（ドラフト）</title>
   <style>
     * { box-sizing: border-box; }
@@ -1481,6 +1481,7 @@ tick() return
         <li>Heap 操作は同期する。Heap 構造と個々の field 操作を保護するが、複数 Object にまたがる transaction や、引数から辿れる Object の所有権までは保証しない。</li>
         <li>Host syscall callback は VM ごとに直列化する。Pipe 状態も同期し、worker 内の blocking pipe 操作は suspend せず VM error にする。</li>
         <li><code>tick()</code> の worker queue 処理中は GC を実行できない。新規 enqueue を含む worker が終了してから Volatile State を commit する。</li>
+        <li>同期 Browser host は monitor の待機を使わず、現在の thread で CallBuffer を順に処理する。呼び出しは tick() まで遅延し、Object / type ごとの FIFO と最後の commit を維持する。新たに enqueue された呼び出しも戻る前に処理する。MaxVmThreads による Browser worker の並列化は行わない。</li>
       </ul>
 
 

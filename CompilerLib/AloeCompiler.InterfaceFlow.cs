@@ -654,17 +654,37 @@ public sealed partial class AloeCompiler
                     var type = GetNonthrowingDirectReadType(cursor + 3, statementEnd, localTypes);
                     if (type == null && GetGuaranteedInt32ArithmeticFailure(cursor + 3, statementEnd) == GuaranteedInt32Failure.None)
                         type = ExprType.Int;
+                    if (type == null && TryGetDecimalConstantFlow(cursor + 3, statementEnd, out var inferredDecimalFlow) &&
+                        inferredDecimalFlow == ArithmeticTryFlow.FallsThrough)
+                        type = ExprType.Decimal;
+                    if (type == null && TryGetFloatConstantFlow(cursor + 3, statementEnd, out var inferredFloatFlow) &&
+                        inferredFloatFlow == ArithmeticTryFlow.FallsThrough)
+                        type = ExprType.Float;
                     if (type == null && EvaluateNonthrowingBooleanCondition(cursor + 3, statementEnd, localTypes) != null)
                         type = ExprType.Bool;
                     if (type is not (ExprType.Int or ExprType.Bool or ExprType.String or ExprType.Byte or
-                        ExprType.Char or ExprType.Float or ExprType.Decimal)) return false;
+                        ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Object)) return false;
                     localTypes[TokenAt(cursor + 1).Lexeme] = type.Value;
+                    cursor = statementEnd;
+                    continue;
+                }
+                // A reference alias loads a known non-pipe handle; scalar-to-object boxing
+                // and unparsed/unknown bindings must retain their exceptional edges.
+                if (token.Lexeme == "let" && TokenAt(cursor + 1).Kind == TokenKind.Identifier &&
+                    TokenAt(cursor + 2).Kind == TokenKind.Colon &&
+                    IsReferenceFlowAnnotation(TokenAt(cursor + 3).Lexeme) &&
+                    TokenAt(cursor + 4).Kind == TokenKind.Assign)
+                {
+                    var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
+                    if (statementEnd < 0 || GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) != ExprType.Object)
+                        return false;
+                    localTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Object;
                     cursor = statementEnd;
                     continue;
                 }
                 // Initialization must independently be safe for the declared target type;
                 // an empty arithmetic failure set alone is not a general nonthrowing proof.
-                if (token.Lexeme == "let" && TokenAt(cursor + 1).Kind == TokenKind.Identifier &&
+                if ((token.Lexeme is "let" or "const") && TokenAt(cursor + 1).Kind == TokenKind.Identifier &&
                     TokenAt(cursor + 2).Kind == TokenKind.Colon && TokenAt(cursor + 3).Lexeme is "int" or "bool" or "string" or "byte" or "char" or "float" or "decimal" &&
                     TokenAt(cursor + 4).Kind == TokenKind.Assign)
                 {
@@ -685,6 +705,12 @@ public sealed partial class AloeCompiler
                         ExprType.Int => GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) == ExprType.Int ||
                             GetGuaranteedInt32ArithmeticFailure(cursor + 5, statementEnd) == GuaranteedInt32Failure.None,
                         ExprType.Bool => EvaluateNonthrowingBooleanCondition(cursor + 5, statementEnd, localTypes) != null,
+                        ExprType.Float => GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) == ExprType.Float ||
+                            (TryGetFloatConstantFlow(cursor + 5, statementEnd, out var floatFlow) &&
+                             floatFlow == ArithmeticTryFlow.FallsThrough),
+                        ExprType.Decimal => GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) == ExprType.Decimal ||
+                            (TryGetDecimalConstantFlow(cursor + 5, statementEnd, out var decimalFlow) &&
+                             decimalFlow == ArithmeticTryFlow.FallsThrough),
                         _ => GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) == type
                     };
                     if (!initializerIsSafe) return false;
@@ -693,7 +719,7 @@ public sealed partial class AloeCompiler
                     cursor = statementEnd;
                     continue;
                 }
-                // Same-type primitive reads and independently proven boolean or int constants are safe assignments.
+                // Same-type primitive reads and independently proven boolean, int, float or decimal constants are safe assignments.
                 // Unproven calls, unboxing, conversions and member/index writes stay unknown.
                 if (token.Kind == TokenKind.Identifier && TokenAt(cursor + 1).Kind == TokenKind.Assign)
                 {
@@ -706,7 +732,13 @@ public sealed partial class AloeCompiler
                         EvaluateNonthrowingBooleanCondition(cursor + 2, statementEnd, localTypes) != null;
                     var provenIntConstant = targetType == ExprType.Int &&
                         GetGuaranteedInt32ArithmeticFailure(cursor + 2, statementEnd) == GuaranteedInt32Failure.None;
-                    if (!provenBoolExpression && !provenIntConstant &&
+                    var provenDecimalConstant = targetType == ExprType.Decimal &&
+                        TryGetDecimalConstantFlow(cursor + 2, statementEnd, out var decimalFlow) &&
+                        decimalFlow == ArithmeticTryFlow.FallsThrough;
+                    var provenFloatConstant = targetType == ExprType.Float &&
+                        TryGetFloatConstantFlow(cursor + 2, statementEnd, out var floatFlow) &&
+                        floatFlow == ArithmeticTryFlow.FallsThrough;
+                    if (!provenBoolExpression && !provenIntConstant && !provenDecimalConstant && !provenFloatConstant &&
                         GetNonthrowingDirectReadType(cursor + 2, statementEnd, localTypes) != targetType)
                         return false;
                     cursor = statementEnd;
@@ -731,6 +763,26 @@ public sealed partial class AloeCompiler
                     cursor = bodyEnd - 1;
                     continue;
                 }
+                // A normal primitive return must not introduce boxing or unboxing.
+                // Ordinary parsing still validates the destination type.
+                if (token.Kind == TokenKind.Keyword && token.Lexeme == "return" &&
+                    TokenAt(cursor + 1).Kind != TokenKind.Semicolon)
+                {
+                    var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
+                    if (statementEnd < 0) return false;
+                    var returnType = _currentFunction?.ReturnType;
+                    // The lexical type map includes speculative locals and shadows. A direct
+                    // same-kind primitive load needs no allocation, conversion or unboxing.
+                    if (returnType is ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or
+                        ExprType.Float or ExprType.Decimal or ExprType.String &&
+                        GetNonthrowingDirectReadType(cursor + 1, statementEnd, localTypes) == returnType)
+                        return true;
+                    if (IsNonthrowingReferenceReturn(cursor + 1, statementEnd, localTypes))
+                        return true;
+                    if (returnType is not (ExprType.Int or ExprType.Bool or ExprType.Float or ExprType.Decimal))
+                        return false;
+                    return GetReturnExpressionFlow(cursor + 1, statementEnd) == ArithmeticTryFlow.FallsThrough;
+                }
                 // Each nested loop consumes its own bare transfers before scanning resumes.
                 if (token.Kind == TokenKind.Keyword && token.Lexeme is "return" or "break" or "continue" &&
                     TokenAt(cursor + 1).Kind == TokenKind.Semicolon)
@@ -743,23 +795,64 @@ public sealed partial class AloeCompiler
         private bool CanProveHandledConstantNestedFailure(int start, int end,
             IReadOnlyList<(int Open, int Close)> handlers, IReadOnlyDictionary<string, ExprType> localTypes)
         {
-            // Restrict this proof to one typed/inferred int declaration or local/parameter assignment.
-            // A guaranteed arithmetic failure occurs before the target can be written.
+            // Restrict this proof to one typed/inferred int, decimal or float declaration,
+            // an existing int/decimal/float local/parameter assignment, or a primitive return.
+            // A guaranteed arithmetic failure precedes the store or completed return.
             int expressionStart;
-            if (TokenAt(start).Lexeme == "let" && TokenAt(start + 1).Kind == TokenKind.Identifier &&
-                TokenAt(start + 2).Kind == TokenKind.Colon && TokenAt(start + 3).Lexeme == "int" &&
+            var explicitDecimal = (TokenAt(start).Lexeme is "let" or "const") && TokenAt(start + 3).Lexeme == "decimal";
+            var explicitFloat = (TokenAt(start).Lexeme is "let" or "const") && TokenAt(start + 3).Lexeme == "float";
+            var returnExpression = TokenAt(start).Kind == TokenKind.Keyword && TokenAt(start).Lexeme == "return" &&
+                _currentFunction?.ReturnType is ExprType.Int or ExprType.Bool or ExprType.Float or ExprType.Decimal;
+            var assignmentType = TokenAt(start).Kind == TokenKind.Identifier &&
+                TokenAt(start + 1).Kind == TokenKind.Assign
+                ? GetNonthrowingDirectReadType(start, start + 1, localTypes) : null;
+            if ((TokenAt(start).Lexeme is "let" or "const") && TokenAt(start + 1).Kind == TokenKind.Identifier &&
+                TokenAt(start + 2).Kind == TokenKind.Colon && TokenAt(start + 3).Lexeme is "int" or "decimal" or "float" &&
                 TokenAt(start + 4).Kind == TokenKind.Assign)
                 expressionStart = start + 5;
             else if (TokenAt(start).Lexeme == "var" && TokenAt(start + 1).Kind == TokenKind.Identifier &&
                 TokenAt(start + 2).Kind == TokenKind.Assign)
                 expressionStart = start + 3;
-            else if (TokenAt(start).Kind == TokenKind.Identifier && TokenAt(start + 1).Kind == TokenKind.Assign &&
-                GetNonthrowingDirectReadType(start, start + 1, localTypes) == ExprType.Int)
+            else if (assignmentType is ExprType.Int or ExprType.Decimal or ExprType.Float)
                 expressionStart = start + 2;
+            else if (returnExpression)
+                expressionStart = start + 1;
             else return false;
             var statementEnd = FindInterfaceFlowStatementEnd(start, end);
             if (statementEnd < 0 || statementEnd + 1 != end) return false;
-            var exceptionType = GetGuaranteedInt32ArithmeticFailure(expressionStart, statementEnd) switch
+            Type? exceptionType;
+            if (returnExpression)
+            {
+                exceptionType = GetReturnExpressionFlow(expressionStart, statementEnd) switch
+                {
+                    ArithmeticTryFlow.ZeroDivision => typeof(ZeroDivisionException),
+                    ArithmeticTryFlow.Overflow => typeof(OverflowException),
+                    _ => null
+                };
+            }
+            else if (explicitDecimal || assignmentType == ExprType.Decimal || (TokenAt(start).Lexeme == "var" &&
+                TryGetDecimalConstantFlow(expressionStart, statementEnd, out _)))
+            {
+                if (!TryGetDecimalConstantFlow(expressionStart, statementEnd, out var decimalFlow)) return false;
+                exceptionType = decimalFlow switch
+                {
+                    ArithmeticTryFlow.ZeroDivision => typeof(ZeroDivisionException),
+                    ArithmeticTryFlow.Overflow => typeof(OverflowException),
+                    _ => null
+                };
+            }
+            else if (explicitFloat || assignmentType == ExprType.Float || (TokenAt(start).Lexeme == "var" &&
+                TryGetFloatConstantFlow(expressionStart, statementEnd, out _)))
+            {
+                if (!TryGetFloatConstantFlow(expressionStart, statementEnd, out var floatFlow)) return false;
+                exceptionType = floatFlow switch
+                {
+                    ArithmeticTryFlow.ZeroDivision => typeof(ZeroDivisionException),
+                    ArithmeticTryFlow.Overflow => typeof(OverflowException),
+                    _ => null
+                };
+            }
+            else exceptionType = GetGuaranteedInt32ArithmeticFailure(expressionStart, statementEnd) switch
             {
                 GuaranteedInt32Failure.ZeroDivision => typeof(ZeroDivisionException),
                 GuaranteedInt32Failure.Overflow => typeof(OverflowException),
@@ -934,13 +1027,13 @@ public sealed partial class AloeCompiler
                         return priorOutcomes | ArithmeticTryFlow.DoesNotReturn;
                     // Evaluate the return operand before leaving the try. Unknown calls and
                     // other expressions must preserve their possible exceptional edges.
-                    var returnFlow = GetPrimitiveExpressionFlow(cursor + 1, statementEnd);
+                    var returnFlow = GetReturnExpressionFlow(cursor + 1, statementEnd);
                     return returnFlow == ArithmeticTryFlow.Unknown ? ArithmeticTryFlow.Unknown :
                         priorOutcomes | (returnFlow & ~ArithmeticTryFlow.FallsThrough) |
                         ((returnFlow & ArithmeticTryFlow.FallsThrough) != 0 ? ArithmeticTryFlow.DoesNotReturn : 0);
                 }
 
-                if (TokenAt(cursor).Lexeme is not ("let" or "var") &&
+                if (TokenAt(cursor).Lexeme is not ("let" or "var" or "const") &&
                     !(TokenAt(cursor).Kind == TokenKind.Identifier && TokenAt(cursor + 1).Kind == TokenKind.Assign))
                     return ArithmeticTryFlow.Unknown;
 
@@ -950,7 +1043,21 @@ public sealed partial class AloeCompiler
                 if (assignment >= statementEnd)
                     return ArithmeticTryFlow.Unknown;
 
-                var expressionFlow = GetPrimitiveExpressionFlow(assignment + 1, statementEnd);
+                var explicitDecimal = (TokenAt(cursor).Lexeme is "let" or "const") &&
+                    TokenAt(cursor + 2).Kind == TokenKind.Colon && TokenAt(cursor + 3).Lexeme == "decimal" &&
+                    TokenAt(cursor + 4).Kind == TokenKind.Assign;
+                var decimalInitializer = explicitDecimal || (TokenAt(cursor).Lexeme == "var" &&
+                    TokenAt(cursor + 2).Kind == TokenKind.Assign);
+                var explicitFloat = (TokenAt(cursor).Lexeme is "let" or "const") &&
+                    TokenAt(cursor + 2).Kind == TokenKind.Colon && TokenAt(cursor + 3).Lexeme == "float" &&
+                    TokenAt(cursor + 4).Kind == TokenKind.Assign;
+                var floatInitializer = explicitFloat || (TokenAt(cursor).Lexeme == "var" &&
+                    TokenAt(cursor + 2).Kind == TokenKind.Assign);
+                var expressionFlow = decimalInitializer &&
+                    TryGetDecimalConstantFlow(assignment + 1, statementEnd, out var decimalFlow)
+                    ? decimalFlow : floatInitializer &&
+                    TryGetFloatConstantFlow(assignment + 1, statementEnd, out var floatFlow)
+                    ? floatFlow : GetPrimitiveExpressionFlow(assignment + 1, statementEnd);
                 if (expressionFlow == ArithmeticTryFlow.Unknown) return ArithmeticTryFlow.Unknown;
                 priorOutcomes |= expressionFlow & ~ArithmeticTryFlow.FallsThrough;
                 if ((expressionFlow & ArithmeticTryFlow.FallsThrough) == 0) return priorOutcomes;
@@ -1200,7 +1307,7 @@ public sealed partial class AloeCompiler
         }
 
         private static Dictionary<string, ExprType> GetUnknownShadowTypes(IEnumerable<string> names)
-            => names.Distinct(StringComparer.Ordinal).ToDictionary(name => name, _ => ExprType.Object, StringComparer.Ordinal);
+            => names.Distinct(StringComparer.Ordinal).ToDictionary(name => name, _ => ExprType.Unknown, StringComparer.Ordinal);
 
         private Dictionary<int, int> GetUnreachableCatchEndsInInterfaceFlow(int start, int end,
             IEnumerable<string>? inheritedShadows = null)
@@ -1211,13 +1318,13 @@ public sealed partial class AloeCompiler
             {
                 // A speculative scan must not resolve an unparsed local through an outer binding.
                 // Keeping expired declarations masked is conservative; this scan does not infer their types.
-                if (TokenAt(cursor).Lexeme is "let" or "var" && TokenAt(cursor + 1).Kind == TokenKind.Identifier)
-                    shadowTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Object;
+                if (TokenAt(cursor).Lexeme is "let" or "var" or "const" && TokenAt(cursor + 1).Kind == TokenKind.Identifier)
+                    shadowTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Unknown;
                 if (TokenAt(cursor).Lexeme == "foreach")
                 {
                     var bindings = new Dictionary<int, HashSet<string>>();
                     AddForeachFlowBindings(cursor, bindings);
-                    foreach (var name in bindings.Values.SelectMany(names => names)) shadowTypes[name] = ExprType.Object;
+                    foreach (var name in bindings.Values.SelectMany(names => names)) shadowTypes[name] = ExprType.Unknown;
                 }
                 if (TokenAt(cursor).Lexeme == "try" && TokenAt(cursor + 1).Kind == TokenKind.LBrace)
                 {
@@ -1379,7 +1486,7 @@ public sealed partial class AloeCompiler
                     blockDepth--;
                 }
 
-                if (token.Kind == TokenKind.Keyword && token.Lexeme is "let" or "var")
+                if (token.Kind == TokenKind.Keyword && token.Lexeme is "let" or "var" or "const")
                 {
                     declarationScope = shadows.Peek();
                     declarationName = TokenAt(cursor + 1).Lexeme;
@@ -1432,6 +1539,11 @@ public sealed partial class AloeCompiler
             var isWhileLoop = TokenAt(_position).Lexeme == "while";
             if (isWhileLoop && !HasPossibleTrueConditionOutcome(_position + 2, headerEnd - 1))
                 return CaptureInterfaceFlowState();
+            if (ContainsFinally(headerEnd, bodyEnd))
+            {
+                WidenFinallyInterfaceFacts();
+                return CaptureInterfaceFlowState();
+            }
             var backEdgeInvariantTypes = GetLoopBackEdgeInvariantTypes(headerEnd, bodyEnd);
             var unreachableLogicalOperands = new List<(int Start, int End)>();
             foreach (var (slot, typeName) in backEdgeInvariantTypes)
@@ -1737,7 +1849,7 @@ public sealed partial class AloeCompiler
                         continue;
                     }
                 }
-                if (token.Kind == TokenKind.Keyword && token.Lexeme is "let" or "var")
+                if (token.Kind == TokenKind.Keyword && token.Lexeme is "let" or "var" or "const")
                 {
                     declarationScope = shadows.Peek();
                     declarationName = TokenAt(position + 1).Lexeme;
