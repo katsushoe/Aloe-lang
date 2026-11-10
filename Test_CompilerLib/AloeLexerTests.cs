@@ -105,7 +105,7 @@ namespace Aloe.CompilerLib.Tests
         [Test]
         public void Integer_Hex_Binary_Literals_AreRecognized()
         {
-            var src = @"0 10 -5 0x1A 0XFF 0b1010 0B11;";
+            var src = @"0, 10, -5, 0x1A, 0XFF, 0b1010, 0B11;";
             var tokens = NonEof(Lex(src));
 
 
@@ -156,7 +156,7 @@ namespace Aloe.CompilerLib.Tests
         [Test]
         public void Float_And_Decimal_Literals_AreRecognized()
         {
-            var src = @"10.5 0.0 -3.14 10.12345678901234567890:d 1.0:D;";
+            var src = @"10.5, 0.0, -3.14, 10.12345678901234567890:d, 1.0:D;";
             var tokens = NonEof(Lex(src));
 
 

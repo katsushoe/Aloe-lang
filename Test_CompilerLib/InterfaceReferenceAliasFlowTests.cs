@@ -54,8 +54,8 @@ public sealed class InterfaceReferenceAliasFlowTests
             "var stream=pipe<int>.create(); try { var alias=stream; return alias; } catch { marker=new Plain(); }"));
 
     [Test]
-    public void MultiTokenTypedArrayAliasRemainsConservative()
-        => AssertConservative(Source("int[]","[7]",
+    public void MultiTokenTypedArrayAliasPreservesReferenceIdentity()
+        => AssertSafe(Source("int[]","[7]",
             "try { let alias: int[]=input; return alias; } catch { marker=new Plain(); }"));
 
     [Test]

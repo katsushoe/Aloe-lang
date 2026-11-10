@@ -1,4 +1,4 @@
-using Aloe.CommonLib;
+﻿using Aloe.CommonLib;
 using Aloe.CompilerLib;
 using Aloe.RuntimeLib;
 
@@ -77,7 +77,7 @@ internal static class Program
     private static int PackageDb(string[] args)
     {
         if (args.Length < 2)
-            throw new ArgumentException("Usage: aloec package-db <list|add|remove|resolve> [options]");
+            throw new ArgumentException("Usage: aloec package-db <list|add|remove|resolve|lock|verify-lock> [options]");
 
         var operation = args[1].ToLowerInvariant();
         var allowed = operation switch
@@ -85,6 +85,8 @@ internal static class Program
             "list" => new HashSet<string>(["--name", "--package-db"], StringComparer.Ordinal),
             "add" => new HashSet<string>(["--name", "--version", "--abc", "--meta", "--package-db"], StringComparer.Ordinal),
             "remove" => new HashSet<string>(["--name", "--version", "--package-db"], StringComparer.Ordinal),
+            "lock" => new HashSet<string>(["--name", "--version", "--version-range", "--out", "--package-db"], StringComparer.Ordinal),
+            "verify-lock" => new HashSet<string>(["--lock", "--package-db"], StringComparer.Ordinal),
             "resolve" => new HashSet<string>(["--name", "--version", "--version-range", "--package-db"], StringComparer.Ordinal),
             _ => throw new ArgumentException($"Unknown package-db operation: {operation}")
         };
@@ -105,6 +107,21 @@ internal static class Program
                     : System.Text.Json.JsonSerializer.Serialize(AloePackageDatabase.Resolve(databasePath, name,
                         RequirePackageDbOption(options, "--version")), jsonOptions);
                 Console.WriteLine(json);
+                break;
+            case "lock":
+                if(options.ContainsKey("--version") && options.ContainsKey("--version-range"))
+                    throw new ArgumentException("Options --version and --version-range are mutually exclusive.");
+                var lockName=RequirePackageDbOption(options,"--name");
+                var lockPath=RequirePackageDbOption(options,"--out");
+                var lockDocument=options.TryGetValue("--version-range",out var lockRange)
+                    ? AloePackageDatabase.CreateRangeLock(databasePath,lockName,lockRange)
+                    : AloePackageDatabase.CreateLock(databasePath,lockName,RequirePackageDbOption(options,"--version"));
+                AloePackageDatabase.WriteLock(lockPath,lockDocument);
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(lockDocument,new System.Text.Json.JsonSerializerOptions{WriteIndented=true}));
+                break;
+            case "verify-lock":
+                var verifiedPlan=AloePackageDatabase.VerifyLock(databasePath,RequirePackageDbOption(options,"--lock"));
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(verifiedPlan,new System.Text.Json.JsonSerializerOptions{WriteIndented=true}));
                 break;
             case "list":
                 foreach (var package in AloePackageDatabase.List(databasePath, options.GetValueOrDefault("--name"))
@@ -181,7 +198,9 @@ internal static class Program
         Console.WriteLine("Aloe Compiler CLI");
         Console.WriteLine("  aloec build <source.aloe> [-o output.aloebc]");
         Console.WriteLine("  aloec run <source.aloe>");
-        Console.WriteLine("  aloec package-db <list|add|remove|resolve> [--package-db path]");
+        Console.WriteLine("  aloec package-db <list|add|remove|resolve|lock|verify-lock> [--package-db path]");
+        Console.WriteLine("  aloec package-db lock --name name (--version 1.2.3 | --version-range range) --out aloe.lock.json [--package-db path]");
+        Console.WriteLine("  aloec package-db verify-lock --lock aloe.lock.json [--package-db path]");
         Console.WriteLine("  aloec package-db resolve --name name --version 1.2.3 [--package-db path]");
         Console.WriteLine("  aloec package-db resolve --name name --version-range \">=1.2.0 <2.0.0\" [--package-db path]");
     }

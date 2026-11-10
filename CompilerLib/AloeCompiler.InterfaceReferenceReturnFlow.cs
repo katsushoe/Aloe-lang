@@ -6,9 +6,29 @@ public sealed partial class AloeCompiler
 {
     private sealed partial class Parser
     {
-        private bool IsReferenceFlowAnnotation(string name)
-            => name == "object" || _classes.ContainsKey(name) || _interfaces.ContainsKey(name) ||
-               TryGetNamedBoxType(name, out _);
+        private bool TryGetReferenceFlowInitializer(int start, int end, out int initializer)
+        {
+            initializer = -1;
+            if (TokenAt(start).Lexeme != "let" || TokenAt(start + 1).Kind != TokenKind.Identifier ||
+                TokenAt(start + 2).Kind != TokenKind.Colon) return false;
+            var savedPosition = _position;
+            try
+            {
+                // Reuse the type grammar without emitting code or changing lexical bindings.
+                // Collection suffixes and map annotations are references too; pipes are not.
+                _position = start + 3;
+                if (ParseTypeName(out var name) != ExprType.Object || IsPipeTypeName(name) ||
+                    _position >= end || !Check(TokenKind.Assign)) return false;
+                initializer = _position + 1;
+                return true;
+            }
+            catch (AloeCompileException)
+            {
+                // Ordinary parsing owns diagnostics for invalid or unsupported annotations.
+                return false;
+            }
+            finally { _position = savedPosition; }
+        }
 
         private bool IsNonthrowingReferenceReturn(int start, int end,
             IReadOnlyDictionary<string, ExprType> speculativeTypes)

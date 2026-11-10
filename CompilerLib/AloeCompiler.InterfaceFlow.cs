@@ -663,22 +663,34 @@ public sealed partial class AloeCompiler
                     if (type == null && EvaluateNonthrowingBooleanCondition(cursor + 3, statementEnd, localTypes) != null)
                         type = ExprType.Bool;
                     if (type is not (ExprType.Int or ExprType.Bool or ExprType.String or ExprType.Byte or
-                        ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Object)) return false;
+                        ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Object or ExprType.Enum)) return false;
                     localTypes[TokenAt(cursor + 1).Lexeme] = type.Value;
                     cursor = statementEnd;
                     continue;
                 }
                 // A reference alias loads a known non-pipe handle; scalar-to-object boxing
                 // and unparsed/unknown bindings must retain their exceptional edges.
+                if (TryGetReferenceFlowInitializer(cursor, end, out var referenceInitializer))
+                {
+                    var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
+                    if (statementEnd < 0 || GetNonthrowingDirectReadType(referenceInitializer, statementEnd, localTypes) != ExprType.Object)
+                        return false;
+                    localTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Object;
+                    cursor = statementEnd;
+                    continue;
+                }
+                // A named enum annotation loads the same kind without boxing or conversion.
+                // Ordinary parsing retains the exact nominal enum identity check.
                 if (token.Lexeme == "let" && TokenAt(cursor + 1).Kind == TokenKind.Identifier &&
                     TokenAt(cursor + 2).Kind == TokenKind.Colon &&
-                    IsReferenceFlowAnnotation(TokenAt(cursor + 3).Lexeme) &&
+                    _enumMembers.ContainsKey(TokenAt(cursor + 3).Lexeme) &&
                     TokenAt(cursor + 4).Kind == TokenKind.Assign)
                 {
                     var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
-                    if (statementEnd < 0 || GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) != ExprType.Object)
+                    if (statementEnd < 0 ||
+                        GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) != ExprType.Enum)
                         return false;
-                    localTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Object;
+                    localTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Enum;
                     cursor = statementEnd;
                     continue;
                 }
@@ -719,14 +731,15 @@ public sealed partial class AloeCompiler
                     cursor = statementEnd;
                     continue;
                 }
-                // Same-type primitive reads and independently proven boolean, int, float or decimal constants are safe assignments.
+                // Same-kind reference handles and primitive reads do not dereference or allocate.
+                // Independently proven boolean, int, float or decimal constants are safe too.
                 // Unproven calls, unboxing, conversions and member/index writes stay unknown.
                 if (token.Kind == TokenKind.Identifier && TokenAt(cursor + 1).Kind == TokenKind.Assign)
                 {
                     var targetType = GetNonthrowingDirectReadType(cursor, cursor + 1, localTypes);
                     var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
                     if (targetType is not (ExprType.Int or ExprType.Bool or ExprType.String or ExprType.Byte or
-                        ExprType.Char or ExprType.Float or ExprType.Decimal) || statementEnd < 0)
+                        ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Object or ExprType.Enum) || statementEnd < 0)
                         return false;
                     var provenBoolExpression = targetType == ExprType.Bool &&
                         EvaluateNonthrowingBooleanCondition(cursor + 2, statementEnd, localTypes) != null;
@@ -774,14 +787,14 @@ public sealed partial class AloeCompiler
                     // The lexical type map includes speculative locals and shadows. A direct
                     // same-kind primitive load needs no allocation, conversion or unboxing.
                     if (returnType is ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or
-                        ExprType.Float or ExprType.Decimal or ExprType.String &&
+                        ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Enum &&
                         GetNonthrowingDirectReadType(cursor + 1, statementEnd, localTypes) == returnType)
                         return true;
                     if (IsNonthrowingReferenceReturn(cursor + 1, statementEnd, localTypes))
                         return true;
                     if (returnType is not (ExprType.Int or ExprType.Bool or ExprType.Float or ExprType.Decimal))
                         return false;
-                    return GetReturnExpressionFlow(cursor + 1, statementEnd) == ArithmeticTryFlow.FallsThrough;
+                    return GetReturnExpressionFlow(cursor + 1, statementEnd, localTypes) == ArithmeticTryFlow.FallsThrough;
                 }
                 // Each nested loop consumes its own bare transfers before scanning resumes.
                 if (token.Kind == TokenKind.Keyword && token.Lexeme is "return" or "break" or "continue" &&

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Aloe Package Specification (Draft, English Version)</title>
-  <meta name="edit-version" content="3" />
-  <meta name="edit-date" content="2026-11-03T14:00:00+09:00" />
+  <meta name="edit-version" content="4" />
+  <meta name="edit-date" content="2026-11-05T06:58:46+09:00" />
   <style>
     :root {
       color-scheme: light dark;
@@ -698,10 +698,16 @@ package-db.json          // Package database (see chapter 4)
           Those are to be defined separately in the “Build Tool Specification”.</li>
     </ul>
 
-  </main>
+  <section id="persistent-local-lock"><h3>Reproducible local lock (decision0046)</h3>
+<pre>aloec package-db lock --name NAME --version 1.2.3 --out aloe.lock.json [--package-db INDEX]
+aloec package-db lock --name NAME --version-range "&gt;=1.0.0 &lt;2.0.0" --out aloe.lock.json [--package-db INDEX]
+aloec package-db verify-lock --lock aloe.lock.json [--package-db INDEX]</pre>
+<p>Lock creation requires exactly one version option. The selected root is pinned exactly; later higher versions and unrelated index changes do not update it. The new UTF-8 JSON file is atomically created without overwriting an existing destination; its parent directory must exist. Successful lock output is the lock JSON. Verification returns the current exact plan as JSON; mismatches/missing content/malformed input fail with nonzero exit status and do not modify index, lock or packages.</p>
+<p>Schema: kind=aloe-package-lock, formatVersion=1, exact root{name,version}, packages in canonical dependency-first DFS order. Each package has name, version, abcSha256, metaSha256 and sorted exact dependencies{name,version}. Hashes are lowercase64-character SHA256 hex. No paths/URLs are stored. Unknown/duplicate/missing fields, invalid identities/hashes, duplicate names, cycles, incomplete/unreachable graphs and noncanonical order are errors. Verification resolves only the exact locked root through the current local index, then compares all identities, dependencies and raw-content hashes. Byte-identical relocation is allowed; metadata whitespace changes invalidate its hash. Transitive ranges/backtracking, acquisition, installation, publisher trust/signatures remain separate. Library APIs are CreateLock, CreateRangeLock, WriteLock, ReadLock and VerifyLock. See <a href="../decisions/0046-reproducible-local-package-lock.md">decision0046</a>.</p></section>
+</main>
 </div>
 <section id="root-range-selection"><h3>Local root interval selection (decision 0038)</h3>
 <p><code>aloec package-db resolve --name NAME --version-range "&gt;=1.2.0 &lt;2.0.0" [--package-db PATH]</code> selects the highest indexed root in the interval. Exactly one ASCII space separates the inclusive lower and exclusive upper bounds; both are required and lower must be less than upper. Three-part ASCII numeric versions have no leading zeros except zero; components have no fixed integer size limit. Names are ordinal and case sensitive. Other range syntax is rejected.</p>
-<p><code>--version</code> and <code>--version-range</code> are mutually exclusive. Exact resolution keeps formatVersion 1. Range resolution returns formatVersion 2 with requestedName, requestedRange, selectedRoot, indexSha256, ordinal-sorted excludedVersions (nonconforming versions of the requested name), and the unchanged formatVersion 1 plan. Selection and closure use one index byte snapshot, whose raw bytes are hashed. Selected metadata is read afresh and identity checked; all transitive dependencies remain exact-only. A selected root failure is an error, with no fallback to a lower root and no partial successful JSON. No matching version is also an error. There is no solver, timestamp, external retrieval, installation, index mutation, code execution or permanent lock file. Hashes identify bytes, not publisher trust.</p></section>
+<p><code>--version</code> and <code>--version-range</code> are mutually exclusive. Exact resolution keeps formatVersion 1. Range resolution returns formatVersion 2 with requestedName, requestedRange, selectedRoot, indexSha256, ordinal-sorted excludedVersions (nonconforming versions of the requested name), and the unchanged formatVersion 1 plan. Selection and closure use one index byte snapshot, whose raw bytes are hashed. Selected metadata is read afresh and identity checked; all transitive dependencies remain exact-only. A selected root failure is an error, with no fallback to a lower root and no partial successful JSON. No matching version is also an error. There is no solver, timestamp, external retrieval, installation, index mutation, code execution or implicit lock file; explicit lock export is described in decision0046. Hashes identify bytes, not publisher trust.</p></section>
 </body>
 </html>

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <title>Aloe パッケージ仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="3" />
-  <meta name="edit-date" content="2026-11-03T14:00:00+09:00" />
+  <meta name="edit-version" content="4" />
+  <meta name="edit-date" content="2026-11-05T06:58:46+09:00" />
   <style>
     :root {
       color-scheme: light dark;
@@ -683,7 +683,13 @@ package-db.json          // パッケージデータベース（4章参照）
           それらは別途「ビルドツール仕様書」で定義する。</li>
     </ul>
 
-  </main>
+  <section id="persistent-local-lock"><h3>再現可能なローカルlock（決定0046）</h3>
+<pre>aloec package-db lock --name NAME --version 1.2.3 --out aloe.lock.json [--package-db INDEX]
+aloec package-db lock --name NAME --version-range "&gt;=1.0.0 &lt;2.0.0" --out aloe.lock.json [--package-db INDEX]
+aloec package-db verify-lock --lock aloe.lock.json [--package-db INDEX]</pre>
+<p>作成時は版指定をどちらか1つ必須とし、選択したrootを完全一致で固定します。後から新しい版や無関係な索引項目が増えても更新しません。UTF-8 JSONを原子的に新規作成し、既存ファイルを上書きしません。親ディレクトリは事前に存在する必要があります。作成成功時はlock JSON、検証成功時は現在の完全一致planをJSONで出力します。不一致・欠損・不正入力は非0で終了し、索引・lock・packageを変更しません。</p>
+<p>形式はkind=aloe-package-lock、formatVersion=1、完全一致root{name,version}と、依存先を先にした正規DFS順のpackagesです。各項目はname、version、abcSha256、metaSha256、ソート済みの完全一致dependencies{name,version}を持ちます。hashは小文字64桁のSHA256 hexで、パスやURLを含みません。未知・重複・不足フィールド、不正identity/hash、同名packageの重複、循環、欠損・到達不能なグラフ、不正順序は拒否します。現在のローカル索引から固定rootだけを解決し、全identity・依存・内容のhashを比較します。同じバイト内容での移設は許可し、metadataの空白変更もhash不一致とします。推移依存の版範囲・backtracking、取得、インストール、発行者の信頼・署名は別件です。APIはCreateLock、CreateRangeLock、WriteLock、ReadLock、VerifyLockです。<a href="../decisions/0046-reproducible-local-package-lock.md">決定0046</a>を参照してください。</p></section>
+</main>
 </div>
 <section id="root-range-selection"><h3>ローカルroot範囲選択（決定0038）</h3>
 <p><code>aloec package-db resolve --name NAME --version-range "&gt;=1.2.0 &lt;2.0.0" [--package-db PATH]</code> は索引内で範囲に合う最高版を選択します。下限を含み上限を含まない両境界が必須で、下限は上限より小さく、区切りはASCII空白1個のみです。版はASCII数字の3成分で、0以外の先頭ゼロを禁止し、成分の固定整数サイズ制限は設けません。名前は序数で大文字小文字を区別します。他の範囲構文はエラーです。</p>

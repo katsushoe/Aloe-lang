@@ -20,7 +20,7 @@ public sealed class InterfaceInferredPrimitiveInitializerTests
     [TestCase("var alias = boxed as string;", false)]
     [TestCase("var alias = value;", true)]
     [TestCase("var alias = items[0];", false)]
-    [TestCase("var alias = item.text;", false)]
+    [TestCase("var alias = item.text;", true)]
     [TestCase("var alias = 1 / 0;", false)]
     [TestCase("var alias = flag and (1 / 0 == 0);", false)]
     public void InferredInitializer_HasBoundedNonthrowingFlow(string body, bool accepted)

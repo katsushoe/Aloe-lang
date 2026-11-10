@@ -2507,7 +2507,7 @@ function main(args: string[]): int {
 
 
         [Test]
-        public void InstancePropertySetter_IsRejected()
+        public void InstancePropertySetter_ExecutesSynchronously()
         {
             const string source = """
 class Box {
@@ -2523,13 +2523,15 @@ class Box {
 
 function main(args: string[]): int {
     var box = new Box(1);
+    box.Value = 42;
+    print(box.Value);
     return 0;
 }
 """;
 
-            Assert.That(
-                () => new AloeCompiler().Compile(source),
-                Throws.TypeOf<AloeCompileException>());
+            var result = CompileAndRun(source);
+            Assert.That(result.Output, Is.EqualTo("42\n"));
+            Assert.That(result.ExitCode, Is.EqualTo(0));
         }
 
 

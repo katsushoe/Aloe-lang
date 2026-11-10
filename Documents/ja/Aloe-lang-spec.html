@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="213">
-  <meta name="edit-date" content="2026-11-05T00:23:49+09:00">
+  <meta name="edit-version" content="222">
+  <meta name="edit-date" content="2026-11-05T21:06:43+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 213)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 222)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 213<br>
-      edit-date: 2026-11-05T00:23:49+09:00</p>
+      edit-version: 222<br>
+      edit-date: 2026-11-05T21:06:43+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -392,6 +392,7 @@ print(x);
     </ul>
 
     <h3>1.6 Whitespace（空白）</h3>
+<div class="note" id="subtraction-tokenization">減算の字句解析（2026-11-05）：被演算子を終えるトークンの後の<code>-</code>は、隣接する空白やコメントにかかわらず減算として扱います。<code>n-1</code>、<code>n -1</code>、<code>n- 1</code>、<code>n - 1</code>は同等です。左辺がリテラル・呼び出し/getter・括弧付き式・添字式の場合も対象です。前置位置では連続する負数リテラルを1トークンとして維持し、符号付き最小値とfloatの負のゼロを保持します。<code>n--1</code>は負の1の減算であり、decrement演算子は追加しません。既存のリテラル範囲、検査付き演算、優先順位、runtime・bytecode契約は変更しません。大きな正の整数リテラルも既存の読み取りと実行時の被演算子範囲検査を維持します。</div>
     <ul>
       <li>スペース、タブ、改行はトークン区切りとして扱われる。</li>
       <li>連続する空白は 1 つの区切りとみなされる。</li>
@@ -1199,7 +1200,7 @@ const AppName: string = "Aloe VM";
     <h4>7.1.1 public property（instance）</h4>
     <ul>
       <li><code>public property</code> は Object instance の状態を外部 Object から同期的に取得するための Query とする。</li>
-      <li>instance の public property setter は存在しない。<code>player.HP = 100;</code> のような外部代入構文はコンパイルエラーとする。</li>
+      <li>classのinstance public propertyは、getterの後に決定0047の同期scalar setterを宣言できる。<code>player.HP = 100;</code> のような外部代入にはsetterが必要で、getterのみのpropertyへの代入はコンパイルエラーとする。</li>
       <li>外部 Object から getter を実行した場合、対象 Object の <strong>Committed State</strong> を参照する。</li>
       <li>対象 Object 自身が member variable を読む場合は、現在 Tick の最新 <strong>Volatile State</strong> を参照し、Volatile 値が無ければ Committed 値を参照する。</li>
       <li>public property getter の副作用をどこまで許可するかは未決事項であり、Read-only Query に制限する案を検討する。</li>
@@ -1452,6 +1453,13 @@ sealed class FinalDerived extends Base {
 <div class="note" id="interface-string-literal-equality-flow">文字列リテラルの等値比較経路（2026-10-26）：直接の文字列リテラルを括弧や左右の配置にかかわらず、string型の読み取りと同じ==／!=の非例外証明に加えます。既存の定数読み取りと序数による等値比較を使い、実行時の割り当てやcastは行いません。bool演算に含まれる算術例外の候補は引き続き合成します。呼び出し・checked cast・参照の書き込み・文字列の順序比較は新たに証明しません。通常のリテラル解析・型検査、比較結果、bytecode、実行時動作は変更しません。</div>
 <div class="note" id="interface-nonthrowing-while-flow">whileの独立した非例外証明（2026-10-26）：条件の非例外性を独立に証明でき、到達する本体の操作も同じ限定的な安全範囲に属する場合に、whileからcatchへの経路を除外します。常にfalseとなる条件では本体を実行対象から外します。入れ子のwhileは自身のbare break／continueを消費し、ループ後の文の例外確認は続けます。呼び出し・変数算術・値付きreturnは保守的に扱い、到達不能なhandlerも型検査します。終了性の証明や実行時／bytecodeの変更は行いません。</div>
 <div class="note" id="interface-reference-alias-flow">参照aliasの解析（2026-11-04）: 確認済みのpipe以外の参照型と、未解析の同名変数などの不明な型情報を区別する。参照の直接読み取りによるvar aliasと、object・class・interface・named boxの単一token型注釈を使うlet aliasでは、aliasの連鎖とハンドルのreturnに確保やunboxの例外経路を追加しない。新しい同名変数の初期化式は外側の値を読み、通常の名目型の代入可能性は引き続き検査する。先行するbox確保の後の参照コピーでは再確保しないが、先行する確保が非例外という保証は追加しない。primitiveのbox、呼び出し・constructor・cast・field・添字、pipe alias、複数tokenの参照型注釈、不明な束縛は保守的に扱う。先行する参照直接returnの解析を拡張するもので、一般的な制御フロー解析の完了やruntime・バイトコードの変更を意味しない。</div>
+<div class="note" id="interface-reference-copy-flow">参照コピー解析の拡張（2026-11-05）：型注釈付きletの別名定義で、既存の型構文全体（配列・set・listの接尾辞、map注釈）を使用して解析します。pipe以外の参照を直接読み取る初期化・代入は、既存ハンドルを割当・unbox・逆参照なしでコピーするため、無効ハンドルもコピーできます。括弧や別名の連鎖も対象です。初期化式は新しい字句束縛より先に解決し、不明なshadowは不明のまま扱います。通常の名目的・collection型の代入検査は維持します。scalarのbox化、呼び出し、生成、cast、field・添字、pipe読み取りは対象外です。interface受信変数への到達可能な書き込みは引き続き絞り込みを無効にします。一般制御フロー解析の一部の拡張であり、例外・runtime・bytecodeの契約は変更しません。</div>
+<div class="note" id="interface-struct-scalar-field-flow">structのscalarフィールド解析（2026-11-05）：解析済みでソース上の型が確定したstructローカル変数・引数からの直接読み取りを、既存の非例外scalar読み取りの解析へ接続します。structフィールドの連鎖と式全体の括弧も対象で、末尾の型はint/bool/byte/char/float/decimal/stringに限定します。割当やheapの逆参照を行わず、scalar初期化・return・既存の比較へ適用します。宣言済みstructのフィールド形状を検査し、property/method、呼び出し、生成、添字、enum/structの結果、不明なshadowは保守的に扱います。class getterをfieldとは見なしません。通常のfield・型・初期化検査と実行時の保護は維持し、一般的な参照・field・添字のCFG解析全体の完了とは数えません。</div>
+<div class="note" id="interface-reference-equality-flow">参照の等値比較解析（2026-11-05）：pipe以外のheap参照を持つローカル変数・引数の直接読み取り同士の == と != を、例外を発生させないハンドル比較として解析します。各オペランド全体の括弧と、非例外の参照別名も対象とし、既存のbool初期化・return・短絡評価・分岐の解析で利用します。参照同士が同一であるとは推論せず、参照先の調査や通常の型検査の省略も行いません。呼び出し・割当・添字・キャスト・unbox・pipe・不明なshadowの例外経路は維持します。一般的な参照・field・添字のCFG解析全体は未完了です。</div>
+<div class="note" id="interface-reference-validity-flow">参照のinvalid比較解析（2026-11-05）：既存の単独invalidを、pipe以外のheap参照ローカル変数・引数との ==/!= の左右いずれかに置く式を、非例外のハンドル比較として解析します。参照先を読み取らず、存続中とdelete済みの引数値の両方に対応します。参照の生存性や比較結果の定数値は推論しません。実行を伴うオペランド・キャスト・添字・不明なshadow・到達可能な例外は保守的に扱い、scalar/pipeとの比較や未対応位置のinvalidは通常の構文・型検査で拒否します。</div>
+<div class="note" id="interface-enum-return-flow">enumのreturn解析（2026-11-05）：enumローカル変数・引数の直接読み取りと、解析済みで型が確定したstructのenumフィールド（structフィールドの連鎖を含む）を、同種の値を例外なく返す解析へ接続します。これらの直接読み取りで初期化した推論別名も、字句スコープ内でenumの種類を保持します。正確なenum名の一致は通常の構文・型解析で検査し、enum/int変換・例外解析内でのenum比較・呼び出し・property・添字・割当・不明なshadowは対象外です。先行するscalarフィールドの範囲をenumの読み取りとreturnへ拡張するもので、bytecode・runtimeや一般CFGの未完了状態は変えません。</div>
+<div class="note" id="scalar-class-property-setters">採用0047のclass property setter（2026-11-05）：public instance propertyのget { ... }の後に、int/bool/byte/char/float/decimal/string用のset { ... }を宣言できます。setterは型付きの暗黙引数valueを受け取り、voidを返します。local.Property = expression;とthis.Property = expression;は、receiverの有効性を確認し、値を1回評価して通常の代入型規則で同期呼び出しします。継承したsetterは宣言元の実装を使い、overrideは追加しません。fieldとpropertyが同名なら既存のthis.Fieldの優先順を保ちます。readonly fieldへの直接書き込みは引き続き宣言元constructor内に限り、constructorから呼んだsetterにも許可しません。既存のtry/catch/finallyと例外伝播を使い、完了済みの書き込みは巻き戻しません。interface解析ではsetter呼び出しに例外経路を残します。getterのみのpropertyへの代入、setterのみ・順序違い・重複accessor、async/static/virtual/override property、非scalar setter、複合代入、複雑なreceiver、struct setter、直接WASMは未対応です。決定0047を参照してください。</div>
+<div class="note" id="interface-enum-binding-flow">enumの束縛解析（2026-11-05）：enumローカル変数・引数・宣言済みstructのenumフィールドからの型付きlet初期化と、ローカル変数への直接代入を、非例外のenum読み取り・return解析へ接続します。字句スコープ内の別名とshadowのenum種別を保持し、正確なenum名の一致は通常の型検査で確認します。呼び出し・添字・変換・不明なshadow・到達可能な例外は引き続き例外経路を持ちます。enum const宣言やenum比較の解析は追加せず、runtime・bytecodeは変更しません。</div>
 <div class="note" id="interface-direct-reference-return-flow">参照の直接return解析（2026-11-04）: pipe以外の参照を返す関数では、解析済みの参照ローカル・引数を単一識別子で返す式（全体を包む対応した括弧も可）を非例外と判定できる。参照のハンドルを返すだけで、確保・unbox・参照先へのアクセス・実行時castを行わず、通常の名目型の代入可能性検査は残す。invalidなハンドルも参照先へアクセスせず返せる。未解析の宣言や同名の隠蔽、primitiveのbox/unbox、constructor・関数呼び出し・field・添字・cast・pipeのreturnは保守的に扱う。runtime・syscall・バイトコードの動作は変えず、一般的な参照・field・添字の制御フロー解析は引き続き未完了とする。</div>
 <div class="note" id="interface-nonthrowing-branch-flow">if分岐の独立した非例外証明（2026-10-26）：if／else／else-ifの到達する条件と選択され得る本体を、それぞれ限定した範囲で非例外と証明できる場合にcatchへの経路を除外します。定数・短絡評価によって本体や後続のelse-if条件を実行対象から外せます。入れ子の分岐と証明済みwhile本体も組み合わせます。分岐後の文は引き続き保守的に確認し、共通の制御移動・終了性・値の相関・関数間契約は推論しません。到達する呼び出し・変数算術・参照の書き込み・値付きreturnは保守的に扱います。非選択の枝とhandlerも型検査し、実行時／bytecodeは変更しません。</div>
 <div class="note" id="interface-scoped-primitive-proof">スコープ別primitive非例外証明（2026-10-26）：独立した証明では、対応するint／bool／stringのlet宣言を字句スコープごとに追跡し、初期化式を確認した後で名前を束縛します。各分岐・while本体・入れ子ブロックに個別の型情報を渡し、内側の同名宣言で外側の束縛を置き換えません。stringの初期化は、括弧を含む直接のstring読み取りかリテラル定数だけを証明します。呼び出し・cast・暗黙unbox・連結・書き込みは新たに証明しません。定数伝播や、別の有限算術例外分類を拡張する変更ではありません。通常の型検査、実行時／bytecodeは変更しません。</div>
@@ -2029,7 +2037,8 @@ let i3: int = o as int ifnot throw;    // 失敗時は InvalidCastException（�
 
     <h2 id="ch16">16. Exceptions（例外）</h2>
 <div class="note" id="exception-status">実装済みの同期例外サブセット：<code>try { ... } catch { ... }</code> は、同期的なAloeバイトコード呼び出し中に発生した.NET例外を捕捉します。同期呼び出し先から発生した例外も対象です。<code>catch (ZeroDivisionException)</code> のような型だけを指定する句は、既存の対応例外型またはその派生型を捕捉します。同じtryに複数の句がある場合はソース順に照合し、最初に型が一致した句を使います。型なしcatchは最後にだけ記述できます。一致する句がなければ外側のハンドラーを探索し、見つからなければVMの外へ伝播します。指定できる型名は <code>Exception</code>、<code>SystemException</code>、<code>ZeroDivisionException</code>、<code>InvalidReferenceException</code>、<code>InvalidCastException</code>、<code>OverflowException</code>、<code>ArgumentException</code>、<code>IndexOutOfRangeException</code>、<code>VmException</code> です。catch句は例外値を束縛しません。裸の <code>throw;</code> は現在の例外を再送出し、catchブロック内でのみ使用できます。例外の構築、throw式、async関数内の例外処理、直接WASMでの例外処理は未対応です。別構文の <code>as T ifnot throw</code> は引き続き使用できます。Async CallBufferの例外伝播とTick失敗時のロールバックは未解決であり、この章の残りは設計ドラフトです。</div>
-<div class="note" id="synchronous-finally-subset">同期finallyの実装範囲：自由関数、classインスタンスmethod、class constructorで、<code>try { ... } finally { ... }</code>と既存catch句に続くfinallyを使用できます。正常終了・return・break・continue・例外で1回実行します。return値は先に確保し、finallyの例外は保留中の移動や例外に優先します。finallyから外へ出るreturn・break・continueは禁止し、本体内のループへのbreak・continueは許可します。裸のthrowにはfinally内にネストしたcatchが必要です。外側の字句束縛を参照し、interface解析は保守的に扱います。async、直接WASM、struct、通常の同期static methodは未対応です。決定0044を参照してください。</div>
+<div class="note" id="synchronous-finally-subset">同期finallyの実装範囲：自由関数、classインスタンスmethod、class constructorで、<code>try { ... } finally { ... }</code>と既存catch句に続くfinallyを使用できます。正常終了・return・break・continue・例外で1回実行します。return値は先に確保し、finallyの例外は保留中の移動や例外に優先します。finallyから外へ出るreturn・break・continueは禁止し、本体内のループへのbreak・continueは許可します。裸のthrowにはfinally内にネストしたcatchが必要です。外側の字句束縛を参照し、interface解析は保守的に扱います。async、直接WASM、structは未対応です。決定0045で同期static scalar methodを追加しました。決定0044を参照してください。</div>
+<div class="note" id="synchronous-static-scalar-subset">同期static scalar method（2026-11-05）：<code>public static method name(...): T</code>で、int/bool/byte/char/float/decimal/stringの引数・戻り値とvoid戻り値に対応します。明示的な<code>ClassName.name(...)</code>は現在の同期呼び出しスタックで即時実行し、scalar戻り値は式、void呼び出しは文として使用します。通常の型・引数数検査、左から右の引数評価、再帰、同期try/catch/finallyを適用します。Tickへのキュー投入やthis・暗黙のinstanceアクセスは行いません。private/protected、virtual/override、継承検索、overload、static状態、型withの省略形、参照型・enum・structのsignature、直接WASMは対象外です。static async commandの既存キュー契約は維持します。決定0045を参照してください。</div>
 <pre><code>try {
 }
 catch (e) {
@@ -2156,7 +2165,7 @@ import MyApp.Utils;
     <ul>
       <li>トップレベル宣言はデフォルトで public として扱ってよい（実装依存）。</li>
       <li>class の変数 member は public にできない。外部公開には public property を使用する。</li>
-      <li>instance の public property は getter による同期 Query であり、setter は存在しない。</li>
+      <li>instance の public property は getter による同期 Query を提供する。classのscalar propertyは決定0047の同期setterも宣言でき、setter呼び出しはenqueueしない。</li>
       <li>public static property は static context に属し、getter と setter を定義できる。setter は同期実行する。</li>
       <li><code>TypeName.StaticProperty</code> の TypeName は Object ではなく型 / static 名前空間として解決する。</li>
       <li>外部から呼び出せる public instance method は <code>public async method ... : void</code> とする。</li>

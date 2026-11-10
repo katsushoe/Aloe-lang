@@ -202,6 +202,7 @@ namespace Aloe.CompilerLib.Lexer
             private int _pos;
             private int _line;
             private int _column;
+            private bool _canStartSignedNumber = true;
 
 
             public LexerState(string text)
@@ -359,6 +360,14 @@ namespace Aloe.CompilerLib.Lexer
 
             private AloeToken MakeToken(TokenKind kind, string lexeme, int startPos, int line, int column)
             {
+                // Whitespace/comments do not change whether the previous token ends an operand.
+                // Keep signed literals in prefix positions (including Int32.MinValue), but
+                // tokenize the '-' after a value as subtraction even when digits touch it.
+                _canStartSignedNumber = kind is not (TokenKind.Identifier or TokenKind.IntegerLiteral or
+                    TokenKind.FloatLiteral or TokenKind.DecimalLiteral or TokenKind.StringLiteral or
+                    TokenKind.CharLiteral or TokenKind.BoolLiteral or TokenKind.NullLiteral or
+                    TokenKind.RParen or TokenKind.RBracket or TokenKind.RBrace) &&
+                    !(kind == TokenKind.Keyword && lexeme == "this");
                 return new AloeToken(kind, lexeme, startPos, line, column);
             }
 
@@ -425,12 +434,12 @@ namespace Aloe.CompilerLib.Lexer
 
 
             /// <summary>
-            /// 現在位置が '-' で、直後が数字(or 0x/0b) の場合に true。
+            /// 前置位置の '-' の直後が数字(or 0x/0b) の場合に true。
             /// 「-5」「-0xFF」のような負のリテラルを 1 トークンとして扱うため。
             /// </summary>
             private bool IsStartOfNumber()
             {
-                if (Peek() != '-') return false;
+                if (!_canStartSignedNumber || Peek() != '-') return false;
 
 
                 char next = Peek(1);

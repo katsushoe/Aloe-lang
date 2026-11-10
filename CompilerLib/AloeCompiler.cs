@@ -109,7 +109,8 @@ namespace Aloe.CompilerLib
             string Name,
             ExprType Type,
             string? ClassName,
-            FunctionSignature Getter);
+            FunctionSignature Getter,
+            FunctionSignature? Setter = null);
 
 
         private sealed record MethodSignature(
@@ -150,6 +151,7 @@ namespace Aloe.CompilerLib
             public List<PropertySignature> Properties { get; } = new();
             public List<MethodSignature> Methods { get; } = new();
             public List<MethodSignature> StaticAsyncMethods { get; } = new();
+            public List<MethodSignature> SynchronousStaticMethods { get; } = new();
             public List<string> Interfaces { get; } = new();
             public FunctionSignature? Constructor { get; set; }
         }
@@ -1103,8 +1105,11 @@ namespace Aloe.CompilerLib
                             else if (bodyToken.Kind == TokenKind.RBrace) depth--;
                             position++;
                         }
+                        var getterBodyEnd = position - 1;
+                        var setter = ScanScalarPropertySetter(ref position, classInfo, propertyName,
+                            propertyType, propertyClassName, sawStatic);
                         if (TokenAt(position).Kind != TokenKind.RBrace)
-                            throw Error(TokenAt(position), "Instance property setters are not supported; close the property after get { ... }.");
+                            throw Error(TokenAt(position), "Close the property after its getter and optional scalar setter.");
                         position++; // property }
 
                         var getter = new FunctionSignature(
@@ -1113,21 +1118,23 @@ namespace Aloe.CompilerLib
                             Parameters: Array.Empty<ParameterSignature>(),
                             ReturnType: propertyType,
                             BodyStart: bodyStart,
-                            BodyEnd: position - 2,
+                            BodyEnd: getterBodyEnd,
                             IsMain: false,
                             DeclaringClass: classInfo.Name,
                             ReturnClassName: propertyClassName,
                             IsPropertyGetter: true);
                         _functions.Add(getter);
                         classInfo.Properties.Add(new PropertySignature(
-                            propertyName.Lexeme, propertyType, propertyClassName, getter));
+                            propertyName.Lexeme, propertyType, propertyClassName, getter, setter));
                         continue;
                     }
 
                     if (string.Equals(token.Lexeme, "method", StringComparison.Ordinal))
                     {
-                        if (sawStatic && (!sawPublic || !sawAsync))
-                            throw Error(token, "Only public static async methods are supported by the current static method subset.");
+                        if (sawStatic && !sawPublic)
+                            throw Error(token, "Only public static methods are supported by the current static method subset.");
+                        if (sawStatic && !sawAsync && _forWasm)
+                            throw Error(token, "Synchronous static methods are unsupported by direct WASM.");
                         if (!sawStatic && sawPublic && !sawAsync)
                             throw Error(token, "Public instance methods must be declared async.");
                         if (!sawStatic && sawAsync && !sawPublic)
@@ -1137,7 +1144,8 @@ namespace Aloe.CompilerLib
                         if (methodName.Kind != TokenKind.Identifier)
                             throw Error(methodName, "Expected method name.");
                         var inheritedMethod = FindMethod(classInfo.BaseClassName, methodName.Lexeme);
-                        if (classInfo.Methods.Concat(classInfo.StaticAsyncMethods).Any(x => x.Name == methodName.Lexeme))
+                        if (classInfo.Methods.Concat(classInfo.StaticAsyncMethods).Concat(classInfo.SynchronousStaticMethods)
+                            .Any(x => x.Name == methodName.Lexeme))
                             throw Error(methodName, $"Method '{methodName.Lexeme}' is already declared in class '{classInfo.Name}'.");
                         if (sawOverride && (inheritedMethod == null || !inheritedMethod.Function.IsVirtual))
                             throw Error(methodName, $"Method '{methodName.Lexeme}' does not override an inherited virtual method.");
@@ -1166,6 +1174,10 @@ namespace Aloe.CompilerLib
                         ExpectAt(ref position, TokenKind.RParen);
                         ExpectAt(ref position, TokenKind.Colon);
                         var returnType = ScanType(ref position, allowVoid: true, out var returnClassName);
+                        if (sawStatic && !sawAsync &&
+                            (parameters.Any(x => !IsStaticScalarType(x.Type)) ||
+                             returnType != ExprType.Void && !IsStaticScalarType(returnType)))
+                            throw Error(methodName, "Synchronous static methods support scalar parameters and scalar or void results only.");
                         if (sawPublic && sawAsync && returnType != ExprType.Void)
                             throw Error(methodName, "public async methods must return void.");
                         if (sawOverride && !HasMatchingMethodSignature(inheritedMethod!.Function, parameters, returnType, returnClassName))
@@ -1198,7 +1210,9 @@ namespace Aloe.CompilerLib
                             IsStaticMethod: sawStatic);
                         methodFunction = methodFunction with { IsVirtual = sawVirtual || sawOverride };
                         _functions.Add(methodFunction);
-                        if (sawStatic)
+                        if (sawStatic && !sawAsync)
+                            classInfo.SynchronousStaticMethods.Add(new MethodSignature(methodName.Lexeme, methodFunction));
+                        else if (sawStatic)
                             classInfo.StaticAsyncMethods.Add(new MethodSignature(methodName.Lexeme, methodFunction));
                         else
                             classInfo.Methods.Add(new MethodSignature(methodName.Lexeme, methodFunction));
@@ -1409,6 +1423,11 @@ namespace Aloe.CompilerLib
                 if (IsStructFieldAssignment())
                 {
                     ParseStructFieldAssignment();
+                    return true;
+                }
+                if (IsScalarPropertyAssignment())
+                {
+                    ParseScalarPropertyAssignment();
                     return true;
                 }
                 if (Current.Lexeme == "with")
@@ -1676,9 +1695,9 @@ namespace Aloe.CompilerLib
                         ParseListMutationStatement(listTarget);
                         return true;
                     }
-                    if (_classes.TryGetValue(Current.Lexeme, out _))
+                    if (!TryResolveLocal(Current.Lexeme, out _) && _classes.TryGetValue(Current.Lexeme, out _))
                     {
-                        ParseStaticAsyncMethodCallStatement();
+                        ParseClassStaticMethodCallStatement();
                         return true;
                     }
                     ParseInstanceAsyncMethodCallStatement();
@@ -3462,7 +3481,8 @@ namespace Aloe.CompilerLib
                         }
                     }
                     var declaringClass = _currentFunction?.DeclaringClass;
-                    if (function == null && declaringClass != null && _classes.TryGetValue(declaringClass, out var classInfo))
+                    if (function == null && _currentFunction?.IsStaticMethod != true &&
+                        declaringClass != null && _classes.TryGetValue(declaringClass, out var classInfo))
                     {
                         var method = FindMethod(classInfo.Name, name.Lexeme);
                         if (method != null)
@@ -3677,6 +3697,11 @@ namespace Aloe.CompilerLib
                 if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.Dot &&
                     _enumMembers.ContainsKey(Current.Lexeme))
                     return ParseEnumLiteral();
+
+                if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.Dot &&
+                    Peek(2).Kind == TokenKind.Identifier && Peek(3).Kind == TokenKind.LParen &&
+                    !TryResolveLocal(Current.Lexeme, out _) && _classes.ContainsKey(Current.Lexeme))
+                    return ParseSynchronousStaticMethodValue();
 
                 if (Check(TokenKind.Identifier) && Peek(1).Kind == TokenKind.Dot)
                     return ParseInstancePropertyRead();

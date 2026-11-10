@@ -10,6 +10,29 @@ namespace Aloe.CompilerLib.Tests;
 
 public sealed class Aloe2WasmTests
 {
+    [TestCase("var n=43; return n-1;",42)]
+    [TestCase("return 0x2b-0x1;",42)]
+    [TestCase("return 0b101011-0b1;",42)]
+    [TestCase("return 41--1;",42)]
+    [TestCase("return -2147483647-1;",int.MinValue)]
+    [TestCase("return (44)-1*2;",42)]
+    [TestCase("if(1.5-0.5 == 1.0) { return 42; } return 0;",42)]
+    public void SubtractionWithoutWhitespaceMatchesVmAndWasm(string body,int expected)
+    {
+        var source="function main(args: string[]): int { "+body+" }";
+        var module=AloeBcCodec.Read(AloeBcCodec.Write(new AloeCompiler().CompileForWasm(source)));
+        Assert.That(RunVm(module),Is.EqualTo(expected));
+        Assert.That(RunWasm(new[]{module}),Is.EqualTo(new[]{expected.ToString(System.Globalization.CultureInfo.InvariantCulture)}));
+    }
+
+    [Test]
+    public void SubtractionWideLiteralRetainsVmAndWasmRangeFailure()
+    {
+        var module=AloeBcCodec.Read(AloeBcCodec.Write(new AloeCompiler().CompileForWasm(
+            "function main(args: string[]): int { return 0-2147483648; }")));
+        Assert.Throws<OverflowException>(()=>RunVm(module));
+        Assert.That(RunWasm(new[]{module}),Is.EqualTo(new[]{"trap"}));
+    }
 
     [TestCase("int", "41")]
     [TestCase("bool", "true")]

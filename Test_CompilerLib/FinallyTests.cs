@@ -283,11 +283,14 @@ function main(args: string[]): int { var box=new Box(); return box.Value; }
     }
 
     [Test]
-    public void OrdinarySynchronousStaticMethodRemainsUnsupported()
-        => Assert.Throws<AloeCompileException>(()=>new AloeCompiler().Compile("""
+    public void SynchronousStaticMethodRunsFinallyBeforeReturning()
+    {
+        var result=Run("""
 class Box { public static method choose(): int { try { return 42; } finally { print("F"); } } }
 function main(args: string[]): int { return Box.choose(); }
-"""));
+""");
+        Assert.That(result.Exit,Is.EqualTo(42)); Assert.That(result.Output,Is.EqualTo(new[]{"F"}));
+    }
 
     [TestCase("try { print(1); } finally { return 0; }")]
     [TestCase("while(true) { try { break; } finally { break; } }")]

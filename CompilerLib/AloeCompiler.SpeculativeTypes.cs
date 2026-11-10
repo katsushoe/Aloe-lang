@@ -86,8 +86,10 @@ public sealed partial class AloeCompiler
 
                 var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
                 var type = (ExprType?)null;
+                var referenceDeclaration = TryGetReferenceFlowInitializer(cursor, end, out var referenceInitializer);
                 var initializer = token.Lexeme == "var" && TokenAt(cursor + 2).Kind == TokenKind.Assign
                     ? cursor + 3
+                    : referenceDeclaration ? referenceInitializer
                     : (token.Lexeme is "let" or "const") && TokenAt(cursor + 2).Kind == TokenKind.Colon &&
                       TokenAt(cursor + 4).Kind == TokenKind.Assign ? cursor + 5 : -1;
                 // Read before binding: var alias = alias reads the outer lexical binding.
@@ -101,13 +103,15 @@ public sealed partial class AloeCompiler
                         floatFlow == ArithmeticTryFlow.FallsThrough)
                         type = ExprType.Float;
                     if ((token.Lexeme is "let" or "const") &&
-                        !(type == ExprType.Object && token.Lexeme == "let" && IsReferenceFlowAnnotation(TokenAt(cursor + 3).Lexeme)) &&
+                        !(type == ExprType.Object && referenceDeclaration) &&
+                        !(token.Lexeme == "let" && type == ExprType.Enum &&
+                          _enumMembers.ContainsKey(TokenAt(cursor + 3).Lexeme)) &&
                         TokenAt(cursor + 3).Lexeme != type?.ToString().ToLowerInvariant())
                         type = null;
                 }
                 scopes.Peek()[TokenAt(cursor + 1).Lexeme] =
                     type is ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or
-                        ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Object ? type.Value : ExprType.Unknown;
+                        ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Object or ExprType.Enum ? type.Value : ExprType.Unknown;
                 if (statementEnd >= cursor) cursor = statementEnd;
             }
             return scopes.Peek();

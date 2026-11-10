@@ -17,7 +17,8 @@ public sealed partial class AloeCompiler
                 start++;
                 end--;
             }
-            if (end - start != 1) return null;
+            if (end - start != 1)
+                return GetNonthrowingStructFieldReadType(start, end, localTypes);
             // Ordinary parsing validates these literals before emitting a direct constant load.
             // Recognizing their kind does not prove arithmetic, conversions or casts safe.
             var literalType = TokenAt(start).Kind switch
@@ -56,6 +57,14 @@ public sealed partial class AloeCompiler
             if (comparison < 0) return false;
             var left = SafeOperandType(start, comparison);
             var right = SafeOperandType(comparison + 1, end);
+            // Heap-reference equality compares handles without looking up an object.
+            // Mixed object/scalar operands can unbox; ordered comparisons can execute
+            // numeric conversion. Neither belongs to this nonthrowing identity proof.
+            if (left == ExprType.Object || right == ExprType.Object)
+                // Token-only arithmetic scans do not carry lexical shadow kinds. Only
+                // their scope-aware caller can enable this reference comparison proof.
+                return localTypes != null && left == right &&
+                    (TokenAt(comparison).Kind is TokenKind.EqualEqual or TokenKind.BangEqual);
             if (left == ExprType.String || right == ExprType.String)
                 return left == right && (TokenAt(comparison).Kind is TokenKind.EqualEqual or TokenKind.BangEqual);
             // Integer/byte promotion to float or decimal is nonthrowing. A float/decimal
@@ -68,8 +77,12 @@ public sealed partial class AloeCompiler
 
             ExprType? SafeOperandType(int from, int to)
             {
+                // The comparison parser emits only ReferenceInvalid (a null constant)
+                // for this bare sentinel. It still rejects scalar/pipe operands and
+                // unsupported placements during ordinary parsing.
+                if (to - from == 1 && TokenAt(from).Lexeme == "invalid") return ExprType.Object;
                 var readType = GetNonthrowingDirectReadType(from, to, localTypes);
-                if (readType is ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String)
+                if (readType is ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Object)
                     return readType;
                 if (GetGuaranteedInt32ArithmeticFailure(from, to) == GuaranteedInt32Failure.None)
                     return ExprType.Int;
@@ -84,7 +97,8 @@ public sealed partial class AloeCompiler
             }
         }
 
-        private ArithmeticTryFlow GetReturnExpressionFlow(int start, int end)
+        private ArithmeticTryFlow GetReturnExpressionFlow(int start, int end,
+            IReadOnlyDictionary<string, ExprType>? localTypes = null)
         {
             if (_currentFunction?.ReturnType == ExprType.Decimal &&
                 TryGetDecimalConstantFlow(start, end, out var decimalFlow))
@@ -92,10 +106,11 @@ public sealed partial class AloeCompiler
             if (_currentFunction?.ReturnType == ExprType.Float &&
                 TryGetFloatConstantFlow(start, end, out var floatFlow))
                 return floatFlow;
-            return GetPrimitiveExpressionFlow(start, end);
+            return GetPrimitiveExpressionFlow(start, end, localTypes);
         }
 
-        private ArithmeticTryFlow GetPrimitiveExpressionFlow(int start, int end)
+        private ArithmeticTryFlow GetPrimitiveExpressionFlow(int start, int end,
+            IReadOnlyDictionary<string, ExprType>? localTypes = null)
         {
             var arithmetic = GetGuaranteedInt32ArithmeticFailure(start, end);
             if (arithmetic != GuaranteedInt32Failure.Unknown)
@@ -105,12 +120,13 @@ public sealed partial class AloeCompiler
                     GuaranteedInt32Failure.ZeroDivision => ArithmeticTryFlow.ZeroDivision,
                     _ => ArithmeticTryFlow.Overflow
                 };
-            var boolean = EvaluateBooleanExceptionFlow(start, end);
+            var boolean = EvaluateBooleanExceptionFlow(start, end, localTypes);
             return boolean == null ? ArithmeticTryFlow.Unknown : boolean.Value.Failures |
                 (boolean.Value.Values != ConditionEvaluation.None ? ArithmeticTryFlow.FallsThrough : 0);
         }
 
-        private BooleanExceptionFlow? EvaluateBooleanExceptionFlow(int start, int end)
+        private BooleanExceptionFlow? EvaluateBooleanExceptionFlow(int start, int end,
+            IReadOnlyDictionary<string, ExprType>? localTypes = null)
         {
             while (end - start >= 2 && TokenAt(start).Kind == TokenKind.LParen &&
                 FindInterfaceFlowGroupEnd(start, TokenKind.LParen, TokenKind.RParen) == end)
@@ -144,7 +160,7 @@ public sealed partial class AloeCompiler
             var logical = firstOr >= 0 ? firstOr : firstAnd;
             if (logical >= 0)
             {
-                var left = EvaluateBooleanExceptionFlow(start, logical);
+                var left = EvaluateBooleanExceptionFlow(start, logical, localTypes);
                 if (left == null) return null;
                 var isAnd = TokenAt(logical).Lexeme == "and";
                 var skipped = isAnd ? ConditionEvaluation.False : ConditionEvaluation.True;
@@ -152,7 +168,7 @@ public sealed partial class AloeCompiler
                 var values = left.Value.Values & skipped;
                 if ((left.Value.Values & evaluatesRight) == 0)
                     return new BooleanExceptionFlow(values, left.Value.Failures);
-                var right = EvaluateBooleanExceptionFlow(logical + 1, end);
+                var right = EvaluateBooleanExceptionFlow(logical + 1, end, localTypes);
                 if (right == null) return null;
                 return new BooleanExceptionFlow(values | right.Value.Values,
                     left.Value.Failures | right.Value.Failures);
@@ -161,16 +177,16 @@ public sealed partial class AloeCompiler
             var failure = GetGuaranteedInt32ConditionFailure(start, end);
             if (failure != ArithmeticTryFlow.Unknown)
                 return new BooleanExceptionFlow(ConditionEvaluation.None, failure);
-            var safe = EvaluateNonthrowingBooleanCondition(start, end);
+            var safe = EvaluateNonthrowingBooleanCondition(start, end, localTypes);
             if (safe != null) return new BooleanExceptionFlow(safe.Value, 0);
 
             if (equalities == 1)
             {
-                var left = EvaluateBooleanExceptionFlow(start, equality);
+                var left = EvaluateBooleanExceptionFlow(start, equality, localTypes);
                 if (left == null) return null;
                 // Equality evaluates both sides, but a failing left operand prevents the right.
                 if (left.Value.Values == ConditionEvaluation.None) return left;
-                var right = EvaluateBooleanExceptionFlow(equality + 1, end);
+                var right = EvaluateBooleanExceptionFlow(equality + 1, end, localTypes);
                 if (right == null) return null;
                 var equal = (left.Value.Values & right.Value.Values) != 0;
                 var different = (left.Value.Values & ConditionEvaluation.False) != 0 &&
@@ -185,7 +201,7 @@ public sealed partial class AloeCompiler
             if (equalities > 1) return null;
             if (TokenAt(start).Lexeme == "not")
             {
-                var operand = EvaluateBooleanExceptionFlow(start + 1, end);
+                var operand = EvaluateBooleanExceptionFlow(start + 1, end, localTypes);
                 if (operand == null) return null;
                 var values = ConditionEvaluation.None;
                 if ((operand.Value.Values & ConditionEvaluation.False) != 0) values |= ConditionEvaluation.True;
