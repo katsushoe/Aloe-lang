@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="222">
-  <meta name="edit-date" content="2026-11-05T21:06:43+09:00">
+  <meta name="edit-version" content="223">
+  <meta name="edit-date" content="2026-11-10T15:00:37+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 222)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 223)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 222<br>
-      edit-date: 2026-11-05T21:06:43+09:00</p>
+      edit-version: 223<br>
+      edit-date: 2026-11-10T15:00:37+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -1146,6 +1146,7 @@ const AppName: string = "Aloe VM";
       <li>フィールド初期化を省略した場合は、コンストラクタで必ず初期化されなければならない（未初期化は許可しない）。</li>
     </ul>
 <div class="note" id="readonly-scalar-class-field-subset">classのscalar readonly field（2026-11-04）: <code>readonly field name: T;</code> はint・bool/boolean・byte・char・float・decimal・stringのインスタンスfieldに対応する。宣言元classのconstructor内の<code>this.name = expression;</code>だけ代入でき、constructor内の複数回代入は許可する。method・constructorの補助method・getter・継承元fieldに対する派生constructor・<code>with</code>経由の書き込みは拒否する。読み取りには既存の可視性・getter規則を適用する。参照型・コレクション・pipe・enum・struct・staticのreadonly fieldと、method・property・constructorへのreadonly指定は未対応。field初期化式は引き続き未対応で、classの確実な初期化の検査・深い不変性・runtimeによる書き込み禁止は追加しない。従来はreadonlyを受け付けても保持していなかったが、今回から代入を検査する。<a href="../decisions/0042-readonly-scalar-class-fields.md">決定0042</a>を参照。</div>
+<div class="note" id="readonly-class-field-types">採用0048のclass readonly field（2026-11-10）：既存のenum・struct・pipe以外のheap参照型を、先行する7種類のscalar型へ追加します。readonlyのfield自体の代入・delete・消費unboxは、宣言元constructorのthis.fieldだけに許可し、constructor内の複数回代入を維持します。method・getter・setter・派生constructor・withからの置換や無効化は拒否します。コピーした参照は通常の別名で、そのローカル変数のdelete/unboxはfieldを消しません。参照先のobjectやcollectionの内容は変更でき、structのコピーの変更は保存値へ反映しません。class内structの入れ子代入構文・field初期値・初期化や非nullの保証・structのreadonly field・static状態・pipe・直接WASMは追加しません。既存runtime・GC・opcodeの動作は維持します。決定0048を参照してください。</div>
     <hr><h2 id="ch7">7. Class / Struct / Interface / Trait</h2>
 
 

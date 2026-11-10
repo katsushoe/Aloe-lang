@@ -25,3 +25,5 @@ This is a compiler restriction, not heap isolation against host APIs. Constructo
 
 ## Implementation, tests and documentation
 FieldSignature retains readonly and declaring class. RequireWritableField guards both direct this assignments and with assignments. ReadonlyFieldTests cover scalar values, constructors, helper/method/derived/with rejection, mutable controls and unsupported forms. Bilingual chapter6 documents the subset. L39 also includes setter and static contracts and remains open.
+
+2026-11-10: user-adopted decision0048 extends the initial seven scalar types to existing enum/struct/non-pipe reference fields and applies the same binding checks to delete/unbox. See [decision0048](0048-readonly-class-field-types.md); the original constructor-only assignment contract is retained.

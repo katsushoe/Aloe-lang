@@ -993,7 +993,7 @@ namespace Aloe.CompilerLib
                     }
 
                     if (sawReadonly && (token.Lexeme != "field" || sawStatic))
-                        throw Error(token, "readonly is supported only on scalar instance class fields.");
+                        throw Error(token, "readonly is supported only on instance class fields.");
 
                     if (string.Equals(token.Lexeme, "field", StringComparison.Ordinal))
                     {
@@ -1010,9 +1010,8 @@ namespace Aloe.CompilerLib
 
                         ExpectAt(ref position, TokenKind.Colon);
                         var fieldType = ScanType(ref position, allowVoid: false, out var fieldClassName);
-                        if (sawReadonly && fieldType is not (ExprType.Int or ExprType.Bool or ExprType.Byte or
-                            ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.String))
-                            throw Error(fieldName, "readonly class fields support scalar types only.");
+                        if (sawReadonly && IsPipeTypeName(fieldClassName))
+                            throw Error(fieldName, "readonly class fields do not support pipe values.");
                         if (TokenAt(position).Kind == TokenKind.Assign)
                             throw Error(TokenAt(position), "Field initializers are not supported yet; initialize the field in construct(...).");
                         ExpectAt(ref position, TokenKind.Semicolon);
@@ -3910,7 +3909,7 @@ namespace Aloe.CompilerLib
                 var field = ResolveField(function.DeclaringClass, fieldToken);
                 Emit(EnumOpcode.LoadLocal, 0);
                 EmitIntConstant(field.Index);
-                Emit(EnumOpcode.Syscall, (int)(field.Type == ExprType.Object && !IsPipeTypeName(field.ClassName) ? EnumSyscall.ReferenceFieldGet : EnumSyscall.ObjectFieldGet));
+                EmitClassFieldRead(field, throughThis: true);
                 _lastExpressionClassName = field.ClassName;
                 return field.Type;
             }
@@ -4004,7 +4003,7 @@ namespace Aloe.CompilerLib
                 }
                 var field = ResolveWithField(className, member);
                 EmitIntConstant(field.Index);
-                Emit(EnumOpcode.Syscall, (int)(field.Type == ExprType.Object && !IsPipeTypeName(field.ClassName) ? EnumSyscall.ReferenceFieldGet : EnumSyscall.ObjectFieldGet));
+                EmitClassFieldRead(field, throughThis: false);
                 _lastExpressionClassName = field.ClassName;
                 return field.Type;
             }

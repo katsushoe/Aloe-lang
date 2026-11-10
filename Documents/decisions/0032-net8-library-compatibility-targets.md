@@ -48,3 +48,6 @@ No new filesystem, network, syscall or execution permission is introduced. Consu
 - Existing target declarations in CommonLib, CompilerLib, RuntimeLib, Aloe2WasmLib, AloeRepl.Core and Test_CompilerLib; shared output rules in `Directory.Build.props`.
 - [Microsoft .NET 8 and .NET 9 end-of-support notice](https://devblogs.microsoft.com/dotnet/dotnet-8-9-end-of-support/).
 - [Microsoft .NET support policy](https://dotnet.microsoft.com/en-us/platform/support/policy).
+
+## Support-boundary review (2026-11-10)
+The user adopted continued net8.0 legacy compatibility for the existing Neon requirement. Keep all five library/test targets net8.0/net10.0 and keep applications, MSI and Browser on .NET10. This does not extend Microsoft servicing. Revisit removal after the consuming requirement changes; do not migrate Neon from this repository. The official support boundary remains2026-11-10 (sources above). Current4494 tests per target and the independent SDK255 capture support compatibility, not actual Neon delivery or a security-support promise.

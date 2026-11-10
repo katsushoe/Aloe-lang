@@ -1,11 +1,22 @@
 ﻿using Aloe.CompilerLib.Lexer;
 
+using Aloe.CommonLib.Constants;
+
 namespace Aloe.CompilerLib;
 
 public sealed partial class AloeCompiler
 {
     private sealed partial class Parser
     {
+        private (FieldSignature Field, bool ThroughThis)? _referenceTargetFieldRead;
+
+        private void EmitClassFieldRead(FieldSignature field, bool throughThis)
+        {
+            Emit(EnumOpcode.Syscall, (int)(field.Type == ExprType.Object && !IsPipeTypeName(field.ClassName)
+                ? EnumSyscall.ReferenceFieldGet : EnumSyscall.ObjectFieldGet));
+            _referenceTargetFieldRead = (field, throughThis);
+        }
+
         private void RequireWritableField(AloeToken name, FieldSignature field, bool throughThis)
         {
             if (!field.IsReadOnly) return;

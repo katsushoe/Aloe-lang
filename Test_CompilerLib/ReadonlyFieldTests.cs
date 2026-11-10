@@ -83,14 +83,6 @@ function main(args: string[]): int { var box=new Box(); return box.Value; }
 """);
 
     [TestCase("readonly field value: pipe<int>;")]
-    [TestCase("readonly field value: object;")]
-    [TestCase("readonly field value: int[];")]
-    [TestCase("readonly field value: int{};")]
-    [TestCase("readonly field value: int();")]
-    [TestCase("readonly field value: map<int>;")]
-    [TestCase("readonly field value: Tone;")]
-    [TestCase("readonly field value: Point;")]
-    [TestCase("readonly field value: Integer;")]
     [TestCase("readonly static field value: int;")]
     [TestCase("readonly private method change(): void { }")]
     [TestCase("readonly construct() { }")]

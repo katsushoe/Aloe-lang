@@ -29,6 +29,7 @@ public sealed partial class AloeCompiler
         private ReferenceTarget ParseReferenceTarget(AloeToken operation)
         {
             var start = _code.Count;
+            _referenceTargetFieldRead = null;
             var type = ParsePrimary();
             if (type != ExprType.Object || IsPipeTypeName(_lastExpressionClassName) || _code.Count == start)
                 throw Error(operation, "Invalidation requires a heap-reference local, field or array element.");
@@ -43,6 +44,11 @@ public sealed partial class AloeCompiler
             }
             if (last.Opcode != EnumOpcode.Syscall || last.Operand0 is not ((int)EnumSyscall.ArrayGet) and not ((int)EnumSyscall.ReferenceFieldGet))
                 throw Error(operation, "Invalidation requires a local, accessible reference field or indexed reference element; properties and temporaries are read-only.");
+            if (last.Operand0 == (int)EnumSyscall.ReferenceFieldGet)
+            {
+                var target = _referenceTargetFieldRead ?? throw Error(operation, "Cannot resolve the reference field target.");
+                RequireWritableField(operation, target.Field, target.ThroughThis);
+            }
             if (_currentFunction?.IsPropertyGetter == true)
                 throw Error(operation, "Property getters cannot invalidate heap fields or array elements.");
             _code.RemoveAt(_code.Count - 1);
