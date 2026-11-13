@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="226">
-  <meta name="edit-date" content="2026-11-13T23:22:10+09:00">
+  <meta name="edit-version" content="227">
+  <meta name="edit-date" content="2026-11-14T04:30:00+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 226)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 227)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 226<br>
-      edit-date: 2026-11-13T23:22:10+09:00</p>
+      edit-version: 227<br>
+      edit-date: 2026-11-14T04:30:00+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -2541,6 +2541,7 @@ main() へ return
 <div class="note" id="parenthesized-foreach-return-flow">括弧付きコレクション参照元の解析拡張（2026-11-04）: 宣言済みの配列・set・同種tuple・Mapのローカル変数／引数1つを囲む対応した括弧は、既存のプリミティブforeach束縛returnの契約を保持します。参照元式全体を囲む括弧だけを外し、最後に識別子1つであることを確認します。多重括弧、空入力、引数、参照元と同名のmap value束縛でも通常の字句スコープ規則を維持します。関数呼び出し・member・添字などの複合参照元式は括弧内でも保守的に扱います。ヘッダーや外側のcatchを非例外とは判断しません。pipe foreachの直接参照元だけを受け付ける既存構文は変更しません。runtime、値の伝播、syscall、bytecodeの契約は変更しません。</div>
 <div class="note" id="catch-exception-info-bindings">決定0049：catch (error: Exception)は、既存の対応済み例外型名を指定し、handler内だけで使えるExceptionInfoのstructコピーを束縛します。fieldはMessage: stringとTypeName: string（元のCLR例外型の単純名）の順です。従来の引数なし・型のみのcatchは維持します。通常の構築・コピー・引数・戻り値・再代入・field編集はstructの値規則に従い、throw;が再送出する元の例外は変更しません。外側の同名変数を隠す範囲はhandler内だけです。既存の同期自由関数・class constructor・同期method/getter/setterに対応し、queued async・throw式・独自例外型・直接WASMは対象外です。ExceptionInfoは組み込み型名として予約します。先読みの例外経路解析では変数付きhandlerを保守的に未知とします。追加する組み込みsyscall52には更新版VMが必要で、既存syscall番号とバイトコード形式は維持します。決定0049を参照してください。</div>
 <div class="note" id="task-declaration-front-end">Task宣言の初期パーサー（2026-11-13、決定0050/0051）：taskを予約語とし、トップレベル宣言、scalar/宣言済みclass/objectのfield・引数型、constructorとvoidメソッドの見出し、波括弧で区切る本体範囲を読み取ります。名前の重複・予約名、Task値のシグネチャ、collection、非対応メンバー/修飾子、不正なrunを拒否し、引数なしvoidのrunを1つ必須とします。この段階では本体の意味解析・Task呼出先解決・実行バイトコード生成は行いません。CompileとCompileForWasmは、認識したTaskプログラムに実行コード生成が未実装である旨を明示して拒否し、Taskはまだ動作しません。既存Object実行・VM/syscall・バイトコード形式は維持します。参照受け渡し/effect検査、ライフサイクル、Pool、Scheduler、例外統合は後続です。taskという識別子は改名が必要になり、文字列・コメント中のtaskには影響しません。</div>
-<div class="note" id="task-pool-foundation">Task Pool基盤（2026-11-13、決定0051）：参照VMに型別チャンク（既定128slot、型別容量設定）、平坦なfield格納、再利用しないpositive int64識別子、非実行slotのLIFO再利用と削除検査を内部実装しました。削除済みでも実行entryが残る間は格納領域と通常Objectの参照を保持し、最後のentry終了後に解放します。実行対象snapshotは型登録順/slot順の識別子であり、それ自体はrunを実行しません。Taskが保持するObjectをVMの一時rootへ反映し、共有Objectと参照グループの規則を維持します。通常の実行リセットは識別子を再利用せずTask instanceを消し、状態維持モードでは保持します。これは内部基盤で、ソースの実行コード生成・constructor実行・class fieldの名目的な型結合・通知キュー・Scheduler・自己削除時のfinally/unwindは未実装です。Taskソースの明示的な実行未対応エラーは維持します。この段階ではTask用VM値種別・syscall/opcode番号・AloeBC形式を追加しません。既存scalar/stringの管理payloadやboxingは変えず、割付ゼロや高速化は主張しません。</div>
+<div class="note" id="task-pool-foundation">Pool基盤時点の記録（Schedulerの現状は次の注記を参照）：Task Pool基盤（2026-11-13、決定0051）：参照VMに型別チャンク（既定128slot、型別容量設定）、平坦なfield格納、再利用しないpositive int64識別子、非実行slotのLIFO再利用と削除検査を内部実装しました。削除済みでも実行entryが残る間は格納領域と通常Objectの参照を保持し、最後のentry終了後に解放します。実行対象snapshotは型登録順/slot順の識別子であり、それ自体はrunを実行しません。Taskが保持するObjectをVMの一時rootへ反映し、共有Objectと参照グループの規則を維持します。通常の実行リセットは識別子を再利用せずTask instanceを消し、状態維持モードでは保持します。これは内部基盤で、ソースの実行コード生成・constructor実行・class fieldの名目的な型結合・通知キュー・Scheduler・自己削除時のfinally/unwindは未実装です。Taskソースの明示的な実行未対応エラーは維持します。この段階ではTask用VM値種別・syscall/opcode番号・AloeBC形式を追加しません。既存scalar/stringの管理payloadやboxingは変えず、割付ゼロや高速化は主張しません。</div>
+<div class="note" id="task-scheduler-foundation">内部Task SchedulerはTick開始時の全生存Task識別子、Running対象、通知キューを確定します。型・slot順に、Stoppedを含め通知をFIFO実行し、その後に対象runを最大1回実行します。途中の新規Task・通知は次Tick、start/stopは現在の対象を変えず、deleteは後続処理を即時除外します。実行中slotはcleanupまで再利用しません。この段階の実行先は内部C#の結合だけです。Taskソース本体・constructor・自己呼出し判定/effect検査・自己削除のbytecode巻き戻しは未実装で、taskソースの明示的な実行コード生成未対応エラーを維持します。</div>
 </body>
 </html>

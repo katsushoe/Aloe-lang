@@ -212,6 +212,9 @@ namespace Aloe.RuntimeLib
         public AloeHeap Heap { get; }
 
         internal AloeTaskPool TaskPool { get; }
+        internal AloeTaskScheduler TaskScheduler { get; }
+        /// <summary>Most recent unhandled Task entry failure, cleared by runtime reset.</summary>
+        public AloeTaskFailure? LastTaskFailure => TaskScheduler.LastFailure;
 
         /// <summary>Plan -> Sweep/Move -> FreeBlock garbage collector.</summary>
         public AloeGarbageCollector GarbageCollector { get; }
@@ -310,6 +313,7 @@ namespace Aloe.RuntimeLib
             _hostSyscalls = HostSyscallRegistry.CreateDefault();
             Heap = new AloeHeap();
             TaskPool = new AloeTaskPool(Heap.ContainsObject);
+            TaskScheduler = new AloeTaskScheduler(TaskPool);
             GarbageCollector = new AloeGarbageCollector(Heap);
             Logger = new AloeLogger(settings.Logging, settings.ConfigDirectory);
             TraceEnabled = settings.Debug;
@@ -574,7 +578,7 @@ namespace Aloe.RuntimeLib
 
 
             // ★ ここがポイント：returnAddress を追加で渡す（エントリフレームなので -1 などの番兵値）
-            if (!preserveRuntimeState) TaskPool.ResetInstances();
+            if (!preserveRuntimeState) TaskScheduler.Reset();
             var frame = new CallFrame(
                 module: _module,
                 function: entryFunction,
@@ -2733,7 +2737,21 @@ namespace Aloe.RuntimeLib
             _tickActive = true;
             try
             {
+                TaskScheduler.Tick();
                 ProcessCallBuffersToQuiescence();
+            }
+            catch (Exception exception)
+            {
+                lock (_callBufferGate)
+                {
+                    _tickFailure ??= exception;
+                    _tickFaulted = true;
+                    _instanceCallBuffer.Clear();
+                    foreach (var buffer in _staticCallBuffers.Values) buffer.Clear();
+                    _readyStaticCallTypes.Clear();
+                    TaskScheduler.DiscardPending();
+                }
+                throw;
             }
             finally
             {
@@ -3067,6 +3085,7 @@ namespace Aloe.RuntimeLib
         {
             var roots = new List<long>();
             roots.AddRange(TaskPool.GetObjectRoots());
+            roots.AddRange(TaskScheduler.GetObjectRoots());
 
             foreach (var value in _valueStack)
             {

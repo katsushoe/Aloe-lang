@@ -59,6 +59,10 @@ internal sealed class AloeTaskPool
 
     internal int DefaultChunkCapacity { get; }
     internal int LiveCount { get; private set; }
+    internal event Action<long>? Deleted;
+    internal bool HasType(string name) => _types.ContainsKey(name);
+    internal static bool IsSupportedKind(EnumValueKind kind) => kind is EnumValueKind.Int or EnumValueKind.Float or
+        EnumValueKind.Decimal or EnumValueKind.Bool or EnumValueKind.String or EnumValueKind.Byte or EnumValueKind.Char or EnumValueKind.Object;
 
     internal void RegisterType(string name, params EnumValueKind[] fieldKinds)
         => RegisterType(name, DefaultChunkCapacity, fieldKinds);
@@ -122,6 +126,7 @@ internal sealed class AloeTaskPool
         if (slot.State == AloeTaskState.Deleted) return;
         slot.State = AloeTaskState.Deleted;
         LiveCount--;
+        Deleted?.Invoke(identity);
         if (slot.ActiveEntries == 0) Release(identity, address);
     }
 
@@ -155,6 +160,12 @@ internal sealed class AloeTaskPool
         var address = RequireLive(identity);
         CheckField(address, field);
         var kind = address.Pool.FieldKinds[field];
+        ValidateValue(kind, value);
+        FieldAt(address, field) = value;
+    }
+
+    internal void ValidateValue(EnumValueKind kind, AloeValue value)
+    {
         if (kind == EnumValueKind.Object)
         {
             if (!value.IsNull && (!value.IsObject || !_isLiveObject(value.AsObjectId)))
@@ -163,7 +174,18 @@ internal sealed class AloeTaskPool
         else if (value.Kind != kind || value.IsInt && (value.AsInt < int.MinValue || value.AsInt > int.MaxValue) ||
                  value.IsFloat && !double.IsFinite(value.AsFloat))
             throw new VmException("Task field value must preserve its declared scalar kind and domain.");
-        FieldAt(address, field) = value;
+    }
+
+    internal IReadOnlyList<long> CaptureTasks()
+    {
+        var identities = new List<long>();
+        foreach (var pool in _orderedTypes)
+            for (var index = 0; index < pool.NextSlot; index++)
+            {
+                ref var slot = ref SlotAt(new Address(pool, index));
+                if (slot.Identity != 0 && slot.State != AloeTaskState.Deleted) identities.Add(slot.Identity);
+            }
+        return identities.ToArray();
     }
 
     internal IReadOnlyList<long> CaptureRunningTasks()
