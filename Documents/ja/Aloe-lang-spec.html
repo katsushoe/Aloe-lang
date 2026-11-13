@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="224">
-  <meta name="edit-date" content="2026-11-10T16:02:50+09:00">
+  <meta name="edit-version" content="225">
+  <meta name="edit-date" content="2026-11-13T15:48:49+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 224)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 225)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 224<br>
-      edit-date: 2026-11-10T16:02:50+09:00</p>
+      edit-version: 225<br>
+      edit-date: 2026-11-13T15:48:49+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -2540,5 +2540,6 @@ main() へ return
 <div class="note" id="collection-foreach-return-flow">コレクションforeach束縛のreturn解析拡張（2026-11-04）: 宣言済みの直接参照元に対する証明を、同種要素のset・tupleと、Mapの単一key束縛／key・valueの二重束縛にも適用します。keyとvalueを別々に分類し、int・bool・byte・char・float・decimal・stringだけを既存の独立した非例外証明へ渡します。本文の束縛が同名変数を隠す前に参照元を解決します。同じ型の直接returnやaliasでは到達不能な本文catchの書き込みを除外できますが、空入力の終了、実際のbreak・continueに至る書き込みは従来どおり合流します。enum・class／interface・object・入れ子・不明な束縛、および関数呼び出し・括弧付き・member・indexの参照元式は保守的なままです。本文returnの証明によってforeachヘッダーやコレクションへのアクセス、外側のcatchまで非例外と判断しません。コレクション型、値の伝播、runtime、syscall、bytecodeの契約は変更しません。先行する配列／pipeの注記を、この宣言済みコレクション束縛の範囲だけ拡張します。</div>
 <div class="note" id="parenthesized-foreach-return-flow">括弧付きコレクション参照元の解析拡張（2026-11-04）: 宣言済みの配列・set・同種tuple・Mapのローカル変数／引数1つを囲む対応した括弧は、既存のプリミティブforeach束縛returnの契約を保持します。参照元式全体を囲む括弧だけを外し、最後に識別子1つであることを確認します。多重括弧、空入力、引数、参照元と同名のmap value束縛でも通常の字句スコープ規則を維持します。関数呼び出し・member・添字などの複合参照元式は括弧内でも保守的に扱います。ヘッダーや外側のcatchを非例外とは判断しません。pipe foreachの直接参照元だけを受け付ける既存構文は変更しません。runtime、値の伝播、syscall、bytecodeの契約は変更しません。</div>
 <div class="note" id="catch-exception-info-bindings">決定0049：catch (error: Exception)は、既存の対応済み例外型名を指定し、handler内だけで使えるExceptionInfoのstructコピーを束縛します。fieldはMessage: stringとTypeName: string（元のCLR例外型の単純名）の順です。従来の引数なし・型のみのcatchは維持します。通常の構築・コピー・引数・戻り値・再代入・field編集はstructの値規則に従い、throw;が再送出する元の例外は変更しません。外側の同名変数を隠す範囲はhandler内だけです。既存の同期自由関数・class constructor・同期method/getter/setterに対応し、queued async・throw式・独自例外型・直接WASMは対象外です。ExceptionInfoは組み込み型名として予約します。先読みの例外経路解析では変数付きhandlerを保守的に未知とします。追加する組み込みsyscall52には更新版VMが必要で、既存syscall番号とバイトコード形式は維持します。決定0049を参照してください。</div>
+<div class="note" id="task-declaration-front-end">Task宣言の初期パーサー（2026-11-13、決定0050/0051）：taskを予約語とし、トップレベル宣言、scalar/宣言済みclass/objectのfield・引数型、constructorとvoidメソッドの見出し、波括弧で区切る本体範囲を読み取ります。名前の重複・予約名、Task値のシグネチャ、collection、非対応メンバー/修飾子、不正なrunを拒否し、引数なしvoidのrunを1つ必須とします。この段階では本体の意味解析・Task呼出先解決・実行バイトコード生成は行いません。CompileとCompileForWasmは、認識したTaskプログラムに実行コード生成が未実装である旨を明示して拒否し、Taskはまだ動作しません。既存Object実行・VM/syscall・バイトコード形式は維持します。参照受け渡し/effect検査、ライフサイクル、Pool、Scheduler、例外統合は後続です。taskという識別子は改名が必要になり、文字列・コメント中のtaskには影響しません。</div>
 </body>
 </html>

@@ -220,6 +220,11 @@ namespace Aloe.CompilerLib
 
             public Module CompileProgram()
             {
+                if (_tokens.Any(token => token.Kind == TokenKind.Keyword && token.Lexeme == "task"))
+                {
+                    _ = TaskDeclarationReader.Read(_tokens);
+                    throw new AloeCompileException("Task declarations are recognized, but Task execution lowering is not implemented yet.");
+                }
                 CollectFunctionSignatures();
                 if (_forWasm && (_classes.Count != 0 || _structs.Count != 1 || _interfaces.Count != 0))
                     throw new AloeCompileException("Direct WASM source compilation does not support classes, structs or interfaces.");

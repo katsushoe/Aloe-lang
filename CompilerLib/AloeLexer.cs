@@ -151,6 +151,7 @@ namespace Aloe.CompilerLib.Lexer
             "super",
             "switch",
             "swap",
+            "task",
             "this",
             "throw",
             "throws",
