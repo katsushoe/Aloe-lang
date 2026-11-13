@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Language Spec (Draft, English)</title>
-  <meta name="edit-version" content="225">
-  <meta name="edit-date" content="2026-11-13T15:48:49+09:00">
+  <meta name="edit-version" content="226">
+  <meta name="edit-date" content="2026-11-13T23:22:10+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- Left menu -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - English + validity model (edit-version 225)</div>
+    <div class="subtitle">Draft - English + validity model (edit-version 226)</div>
 
 
 
@@ -148,8 +148,8 @@
   <main class="content">
     <h1 id="top">Aloe Language Spec (Draft, English)</h1>
     <p class="note">
-      edit-version: 225<br>
-      edit-date: 2026-11-13T15:48:49+09:00</p>
+      edit-version: 226<br>
+      edit-date: 2026-11-13T23:22:10+09:00</p>
     <p class="note">
       This document is an English draft based on the upstream specification.<br>
       In addition, it introduces a reference validity model using <strong>valid / invalid</strong> and
@@ -2142,5 +2142,6 @@ return to main()
 <div class="note" id="parenthesized-foreach-return-flow">Parenthesized collection-source refinement (2026-11-04): balanced grouping parentheses around a single declared array, set, homogeneous tuple or Map local/parameter preserve its existing primitive foreach binding-return contract. Unwrap only parentheses spanning the complete source expression, then require one identifier. Nested grouping, empty sources, parameters and map value bindings that shadow the source name retain ordinary lexical rules. Calls, members, indexes and other compound source expressions remain conservative even inside parentheses. This does not prove the header or outer catch nonthrowing. The existing direct-only pipe foreach grammar is unchanged. No runtime, value propagation, syscall or bytecode contract changes.</div>
 <div class="note" id="catch-exception-info-bindings">Decision0049: catch (error: Exception), using any existing supported catch type name, binds a handler-local ExceptionInfo struct snapshot with Message: string and TypeName: string (original CLR simple name). Existing bare/type-only catches remain unchanged. Ordinary construction, copying, passing, returning, reassignment and field edits use struct value semantics; they do not change the original exception used by throw;. The binding shadows an outer local only within its handler. The existing synchronous free functions, class constructors and methods/getters/setters are supported; queued async, throw expressions, custom exception hierarchies and direct WASM remain outside this subset. ExceptionInfo is a reserved built-in type name. Bound handlers are conservatively unknown in speculative exception-flow proofs. The appended builtin syscall52 requires the updated VM; existing syscall IDs and bytecode encoding stay unchanged. See decision0049.</div>
 <div class="note" id="task-declaration-front-end">Task declaration front end (2026-11-13), under decisions0050/0051: task is a reserved keyword. The compiler reads top-level Task declarations, scalar/declared-class/object field and parameter signatures, constructor and void method headers, and balanced body ranges. It rejects duplicate/reserved names, Task-valued signatures, collections, unsupported members/modifiers and invalid run headers. One argument-free void run is required. This stage does not bind member bodies, resolve Task calls or emit executable Task bytecode. Compile and CompileForWasm explicitly reject recognized Task programs with an execution-lowering-not-implemented diagnostic; Tasks cannot yet run. Existing Object execution, VM/syscall layout and bytecode format are unchanged. Initial handle-transfer/effect checks, lifecycle, pools, scheduler and exception integration remain to be implemented. Identifiers named task now require renaming; task text inside strings/comments is unaffected.</div>
+<div class="note" id="task-pool-foundation">Task pool foundation (2026-11-13), under decision0051: the reference VM now has internal per-type chunk storage with a default128 slots and configurable per-type capacities, flattened field storage, stable non-reused positive int64 identities, LIFO inactive-slot reuse and deletion guards. Active deleted entries retain storage/ordinary Object roots until the last entry exits. Running-target snapshots contain identities in type-registration/slot order; they do not themselves execute run. Ordinary Object fields held by Tasks participate in VM temporary roots, preserving shared Objects and reference groups. Full runtime reset clears Task instances without restarting identities; preserved submissions retain them. This is internal infrastructure only: source Task lowering, constructor execution, nominal class-field binding, notification queues, Scheduler and self-delete/finally unwinding are not implemented. Source Task programs still receive the explicit lowering-not-implemented compile error. No Task VM value kind, syscall/opcode ID or AloeBC format is added by this step. Managed scalar/string payload boxing is unchanged; no zero-allocation or speedup claim is made.</div>
 </body>
 </html>

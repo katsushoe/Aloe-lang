@@ -211,6 +211,8 @@ namespace Aloe.RuntimeLib
         /// <summary>C# VM reference heap. ObjectId remains stable across GC movement.</summary>
         public AloeHeap Heap { get; }
 
+        internal AloeTaskPool TaskPool { get; }
+
         /// <summary>Plan -> Sweep/Move -> FreeBlock garbage collector.</summary>
         public AloeGarbageCollector GarbageCollector { get; }
 
@@ -307,6 +309,7 @@ namespace Aloe.RuntimeLib
             _opcodeCommands = CreateDefaultOpcodeCommands();
             _hostSyscalls = HostSyscallRegistry.CreateDefault();
             Heap = new AloeHeap();
+            TaskPool = new AloeTaskPool(Heap.ContainsObject);
             GarbageCollector = new AloeGarbageCollector(Heap);
             Logger = new AloeLogger(settings.Logging, settings.ConfigDirectory);
             TraceEnabled = settings.Debug;
@@ -571,6 +574,7 @@ namespace Aloe.RuntimeLib
 
 
             // ★ ここがポイント：returnAddress を追加で渡す（エントリフレームなので -1 などの番兵値）
+            if (!preserveRuntimeState) TaskPool.ResetInstances();
             var frame = new CallFrame(
                 module: _module,
                 function: entryFunction,
@@ -3062,6 +3066,7 @@ namespace Aloe.RuntimeLib
         private int RefreshRuntimeTemporaryRoots()
         {
             var roots = new List<long>();
+            roots.AddRange(TaskPool.GetObjectRoots());
 
             foreach (var value in _valueStack)
             {

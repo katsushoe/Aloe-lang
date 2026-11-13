@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="edit-version" content="63" />
-  <meta name="edit-date" content="2026-11-10T16:02:50+09:00" />
+  <meta name="edit-version" content="64" />
+  <meta name="edit-date" content="2026-11-13T23:22:10+09:00" />
   <title>AloeVM 仕様書（ドラフト）</title>
   <style>
     * { box-sizing: border-box; }
@@ -1588,5 +1588,6 @@ tick() return
 <div class="note" id="set-runtime">基本Set runtime（2026-10-14）：記述子はset:&lt;element-array-descriptor&gt;です。ArrayCreateは要素を検証し、値の等価性で重複を除き、最初の挿入順を保持します。Syscall38 SetAdd／39 SetRemoveは値、live Set handleの順にpopし、記述子に対する要素型検証後、同じobjectをresizeします。既存値のAddと未存在値のRemoveはno-opです。Syscall40 SetContainsは値、handleをpopしてBoolをpushし、property query中はCommitted fields、それ以外はcurrent fieldsを読みます。Syscall48 SetClearはlive Set handleをpopし、全要素を削除してSet ObjectIdを維持します。空SetのClearはno-opです。Syscall49～51 SetUnionWith／SetIntersectWith／SetExceptWithはsource、destination handleの順にpopし、Set descriptorの完全一致を要求してdestinationを変更します。ObjectIdと挿入順を保ち、和集合はsourceにある新しい要素だけ追加します。同一Setを両引数に指定しても安全です。ArrayLengthはSet Countを返し、ArrayGetはforeach反復に使えます。ArraySetはSet handleを拒否します。変更はObjectId、別名、heap edge、Volatile／Committed Tick snapshotを維持し、Committed property query中は禁止です。sourceはprimitive scalar、string、enum、静的に名前を指定したclass referenceに対応し、class referenceはObjectId identityで比較します。struct、generic object reference、その他の参照は未対応です。opcode／AloeBC形式は変更せず、旧VMはSyscall38～40と48～51を認識しません。直接WASMは未対応です。<a href="../decisions/0015-basic-set-subset.md">基本Setの設計判断（英語）</a>を参照してください。</div>
 <div class="note" id="map-runtime">基本Map runtime（2026-10-14）：map:&lt;key-array-descriptor&gt;|&lt;value-array-descriptor&gt;はkey/valueペアを交互のheap fieldに格納します。class key／value descriptorには内部区切り|が含まれるため、keyとvalue descriptorの候補検証によりMap delimiterを決定します。keyはprimitive scalar／enum／class配列descriptor、valueは加えてobject[]、class配列、名前付きbox配列に対応します。Syscall41 MapCreateはペア数・descriptor・逆順のkey/valueペアをpopし、記述子と各値を検査して有効なMap handleをpushします。重複キーは最初の位置と最後の値を保ちます。Syscall42 MapGetはkeyとhandleをpopして値をpushし、存在しないkeyはVmExceptionです。Syscall43 MapSetはvalue・key・handleをpopして追加または上書きします。Syscall44 MapRemoveはkey・handleをpopし、存在しないkeyは何もしません。Syscall45 MapContainsKeyはkey・handleをpopしてBoolをpushします。Syscall46 MapCountはhandleをpopしてペア数をpushします。Syscall47 MapKeyAtはint index・handleをpopして挿入順のkeyをpushし、有効handle・ペア構成・index範囲を検査します。property query中はCommitted field、それ以外は現在fieldを読みます。Mapの参照keyとvalueは既存の強参照edgeとVolatile／Committed snapshotを使います。変更はObjectId／別名を維持し、Committed property query中は失敗します。Map descriptor完全一致のcastに対応します。検索は線形でhash／性能保証はありません。旧VMはSyscall41～47を認識せず、opcode／AloeBC形式は変わりません。直接WASMは未対応です。<a href="../decisions/0016-basic-map-subset.md">基本Mapの設計判断（英語）</a>を参照してください。</div>
 <div class="note" id="catch-exception-info-bindings">Syscall52 CaughtExceptionInfoは入力なしで、現在のframeの最も内側の捕捉済みExceptionDispatchInfoからMessageとTypeNameのstring fieldを持つExceptionInfoを積みます。同じframeに捕捉中の例外がなければVmExceptionとなり、呼出元のhandlerは引き継ぎません。コピーの編集は再送出対象を変更しません。host callback・stack trace・opcode番号やAloeBC形式の変更は追加しません。既存バイトコードの動作は維持し、新しいsyscallを使うバイトコードには更新版VMが必要です。決定0049を参照してください。</div>
+<div class="note" id="task-pool-foundation">内部Task Poolとrootの統合：Taskは通常heap Objectではなく型別チャンクと単調増加識別子で管理します。fieldにscalar種別/値域と生存Object参照を検査し、classの名目的な型結合はcompiler連携へ残します。非実行Taskの削除はfieldを消して型別LIFOへslotを戻し、実行entryが残る場合は全entry終了まで解放を保留します。削除済み識別子は再利用slotを操作できません。削除済み実行entryのfieldを含む通常Object rootは重複数を維持してcleanupまで保持します。既存Object/Reference Group/Volatileと物理GCの規則は維持します。ソースTaskの実行、通知dispatch、constructor callback、Scheduler、新しいwire値やsyscallは追加しません。</div>
 </body>
 </html>
