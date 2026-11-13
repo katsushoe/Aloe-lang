@@ -249,7 +249,7 @@ function main(args: string[]): int {
             "function main(args: string[]): int { try { print(1); } catch (e) { } return 0; }"));
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
             "function main(args: string[]): int { try { print(1); } catch (UnknownException) { } return 0; }"));
-        Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
+        Assert.DoesNotThrow(() => new AloeCompiler().Compile(
             "function main(args: string[]): int { try { print(1); } catch (e: Exception) { } return 0; }"));
         Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile(
             "function main(args: string[]): int { try { print(1); } catch { } catch (Exception) { } return 0; }"));

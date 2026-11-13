@@ -24,6 +24,11 @@ public sealed partial class AloeCompiler
         private void CollectStructSignatures()
         {
             _structs.Clear();
+            _structs.Add("ExceptionInfo", new StructSignature("ExceptionInfo", new()
+            {
+                new FieldSignature("Message", 0, ExprType.String),
+                new FieldSignature("TypeName", 1, ExprType.String)
+            }));
             _structEndPositions.Clear();
             var starts = new List<(int Start, int Body, string Name)>();
             var position = 0;
@@ -443,6 +448,7 @@ public sealed partial class AloeCompiler
 
         private ExprType ParseNewStruct()
         {
+            if (_forWasm) throw Error(Current, "Direct WASM does not support struct values.");
             Advance();
             var name = Expect(TokenKind.Identifier);
             var signature = _structs[name.Lexeme];
@@ -567,6 +573,7 @@ public sealed partial class AloeCompiler
         private ExprType ParseStructLiteral()
         {
             var token = Advance();
+            if (_forWasm) throw Error(token, "Direct WASM does not support struct values.");
             var signature = _structs[token.Lexeme];
             Expect(TokenKind.LBrace);
             var slots = new Dictionary<string, int>(StringComparer.Ordinal);

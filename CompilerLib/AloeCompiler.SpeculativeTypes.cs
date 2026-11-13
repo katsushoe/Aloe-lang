@@ -67,6 +67,7 @@ public sealed partial class AloeCompiler
             for (var cursor = start; cursor < end; cursor++)
             {
                 var token = TokenAt(cursor);
+                AddCatchFlowBindings(cursor, bindings);
                 if (token.Kind == TokenKind.Keyword && token.Lexeme == "foreach")
                     AddForeachFlowBindings(cursor, bindings);
                 if (token.Kind == TokenKind.LBrace)

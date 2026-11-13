@@ -25,6 +25,8 @@ public sealed partial class AloeCompiler
                 if (TokenAt(candidate).Kind == TokenKind.LParen)
                 {
                     var parameterEnd = FindInterfaceFlowGroupEnd(candidate, TokenKind.LParen, TokenKind.RParen);
+                    // Bound handlers deliberately remain unknown to speculative proofs until
+                    // handler-local value facts are modeled; never borrow an outer binding.
                     if (parameterEnd != candidate + 3 ||
                         !AloeExceptionTypes.TryResolve(TokenAt(candidate + 1).Lexeme, out exceptionType)) return false;
                     candidate = parameterEnd;
@@ -1333,10 +1335,11 @@ public sealed partial class AloeCompiler
                 // Keeping expired declarations masked is conservative; this scan does not infer their types.
                 if (TokenAt(cursor).Lexeme is "let" or "var" or "const" && TokenAt(cursor + 1).Kind == TokenKind.Identifier)
                     shadowTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Unknown;
-                if (TokenAt(cursor).Lexeme == "foreach")
+                if (TokenAt(cursor).Lexeme is "foreach" or "catch")
                 {
                     var bindings = new Dictionary<int, HashSet<string>>();
-                    AddForeachFlowBindings(cursor, bindings);
+                    if (TokenAt(cursor).Lexeme == "foreach") AddForeachFlowBindings(cursor, bindings);
+                    else AddCatchFlowBindings(cursor, bindings);
                     foreach (var name in bindings.Values.SelectMany(names => names)) shadowTypes[name] = ExprType.Unknown;
                 }
                 if (TokenAt(cursor).Lexeme == "try" && TokenAt(cursor + 1).Kind == TokenKind.LBrace)
@@ -1451,6 +1454,7 @@ public sealed partial class AloeCompiler
                         }
                     }
                 }
+                AddCatchFlowBindings(cursor, foreachBindings);
                 if (token.Lexeme is "while" or "foreach" && TokenAt(cursor + 1).Kind == TokenKind.LParen)
                 {
                     if (token.Lexeme == "foreach") AddForeachFlowBindings(cursor, foreachBindings);
@@ -1818,6 +1822,7 @@ public sealed partial class AloeCompiler
                         continue;
                     }
                 }
+                AddCatchFlowBindings(position, foreachBindings);
                 if (token.Kind is TokenKind.Keyword or TokenKind.Identifier && token.Lexeme == "foreach")
                     AddForeachFlowBindings(position, foreachBindings);
                 if (token.Kind == TokenKind.LBrace)

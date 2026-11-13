@@ -221,7 +221,7 @@ namespace Aloe.CompilerLib
             public Module CompileProgram()
             {
                 CollectFunctionSignatures();
-                if (_forWasm && (_classes.Count != 0 || _structs.Count != 0 || _interfaces.Count != 0))
+                if (_forWasm && (_classes.Count != 0 || _structs.Count != 1 || _interfaces.Count != 0))
                     throw new AloeCompileException("Direct WASM source compilation does not support classes, structs or interfaces.");
 
 
@@ -577,8 +577,8 @@ namespace Aloe.CompilerLib
                     var nameToken = TokenAt(position++);
                     if (nameToken.Kind != TokenKind.Identifier)
                         throw Error(nameToken, "Expected enum name.");
-                    if (TryGetNamedBoxType(nameToken.Lexeme, out _))
-                        throw Error(nameToken, "Named box type names are reserved.");
+                    if (TryGetNamedBoxType(nameToken.Lexeme, out _) || nameToken.Lexeme == "ExceptionInfo")
+                        throw Error(nameToken, "Built-in type names are reserved.");
                     if (_enumMembers.ContainsKey(nameToken.Lexeme))
                         throw Error(nameToken, $"Enum '{nameToken.Lexeme}' is already declared.");
 
@@ -1358,6 +1358,7 @@ namespace Aloe.CompilerLib
                     default:
                         if (_structs.ContainsKey(token.Lexeme))
                         {
+                            if (_forWasm) throw Error(token, "Direct WASM does not support struct values.");
                             className = token.Lexeme;
                             return ExprType.Struct;
                         }
@@ -2131,16 +2132,22 @@ namespace Aloe.CompilerLib
                     if (catchAllSeen)
                         throw Error(catchToken, "A catch-all clause must be the final catch clause.");
 
+                    AloeToken? catchBinding = null;
                     var exceptionTypeOperand = 0;
                     var exceptionType = typeof(Exception);
                     if (Check(TokenKind.LParen))
                     {
                         Advance();
                         var typeToken = Expect(TokenKind.Identifier);
+                        if (Check(TokenKind.Colon))
+                        {
+                            catchBinding = typeToken;
+                            if (typeToken.Lexeme == "this") throw Error(typeToken, "Catch binding cannot be named this.");
+                            Advance();
+                            typeToken = Expect(TokenKind.Identifier);
+                        }
                         if (!AloeExceptionTypes.TryResolve(typeToken.Lexeme, out exceptionType))
                             throw Error(typeToken, $"Unknown or unsupported exception type '{typeToken.Lexeme}'.");
-                        if (Check(TokenKind.Colon))
-                            throw Error(Current, "Catch variables and exception value bindings are not supported in this subset.");
                         if (Check(TokenKind.RParen)) Advance();
                         else throw Error(Current, "Expected ')' after exception type.");
                         exceptionTypeOperand = AddConstant(AloeValue.FromString(typeToken.Lexeme)) + 1;
@@ -2177,7 +2184,13 @@ namespace Aloe.CompilerLib
                     bool catchCanFallThrough;
                     try
                     {
-                        catchCanFallThrough = ParseBlock();
+                        catchCanFallThrough = ParseBlock(() =>
+                        {
+                            if (catchBinding is not { } binding) return;
+                            var local = DeclareLocal(binding, ExprType.Struct, "ExceptionInfo");
+                            Emit(EnumOpcode.Syscall, (int)EnumSyscall.CaughtExceptionInfo);
+                            Emit(EnumOpcode.StoreLocal, local.Slot);
+                        });
                     }
                     finally
                     {
@@ -2717,10 +2730,11 @@ namespace Aloe.CompilerLib
             }
 
 
-            private bool ParseBlock()
+            private bool ParseBlock(Action? initializeScope = null)
             {
                 Expect(TokenKind.LBrace);
                 EnterScope();
+                initializeScope?.Invoke();
                 var canFallThrough = ParseStatementBlockContents("block");
                 ExitScope();
                 Expect(TokenKind.RBrace);
@@ -4240,6 +4254,7 @@ namespace Aloe.CompilerLib
                     default:
                         if (_structs.ContainsKey(token.Lexeme))
                         {
+                            if (_forWasm) throw Error(token, "Direct WASM does not support struct values.");
                             className = token.Lexeme;
                             return ExprType.Struct;
                         }

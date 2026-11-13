@@ -423,6 +423,7 @@ public sealed partial class AloeCompiler
                     }
                     if (unreachableOperands.Any(range => cursor >= range.Start && cursor < range.End)) continue;
                     var token = TokenAt(cursor);
+                    AddCatchFlowBindings(cursor, foreachBindings);
                     if (token.Lexeme == "if" && TokenAt(cursor + 1).Kind == TokenKind.LParen)
                     {
                         var conditionEnd = FindInterfaceFlowGroupEnd(cursor + 1, TokenKind.LParen, TokenKind.RParen);

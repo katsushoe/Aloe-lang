@@ -993,6 +993,19 @@ namespace Aloe.RuntimeLib
         {
             switch (syscallId)
             {
+                case EnumSyscall.CaughtExceptionInfo:
+                {
+                    var frame = CurrentFrame;
+                    if (frame == null || frame.CaughtExceptions.Count == 0)
+                        throw new VmException("Caught exception information requires an active catch in the current frame.");
+                    var exception = frame.CaughtExceptions.Peek().SourceException;
+                    Push(AloeValue.FromStruct(new AloeStructValue("ExceptionInfo", new[]
+                    {
+                        AloeValue.FromString(exception.Message),
+                        AloeValue.FromString(exception.GetType().Name)
+                    })));
+                    break;
+                }
                 case EnumSyscall.ArrayCreate:
                 case EnumSyscall.ArrayGet:
                 case EnumSyscall.ArraySet:

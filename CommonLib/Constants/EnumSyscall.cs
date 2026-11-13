@@ -136,6 +136,9 @@ namespace Aloe.CommonLib.Constants
         /// <summary>Pop int index and Map handle; push the key at that insertion-order position.</summary>
         MapKeyAt = 47,
 
+        /// <summary>Push a struct snapshot of the current frame's caught exception message and simple type name.</summary>
+        CaughtExceptionInfo = 52,
+
         // 将来拡張:
         // WriteStderr = 2,
         // GetTime     = 3,
