@@ -44,6 +44,15 @@ namespace Aloe.CommonLib
         public static AloeValue FromObject(long objectId)
             => new AloeValue(EnumValueKind.Object, objectId);
 
+        /// <summary>Create a VM-local Task identity; liveness is checked by its owning VM.</summary>
+        public static AloeValue FromTask(long taskId)
+            => taskId > 0 ? new AloeValue(EnumValueKind.Task, taskId)
+                : throw new ArgumentOutOfRangeException(nameof(taskId));
+
+        /// <summary>Read the Task identity without treating it as an Object or numeric value.</summary>
+        public long AsTaskId => IsTask ? (long)_value!
+            : throw new VmException($"AloeValue is not Task (actual: {Kind}).");
+
         /// <summary>Create a struct value backed by immutable fields.</summary>
         public static AloeValue FromStruct(AloeStructValue value)
             => new(EnumValueKind.Struct, value ?? throw new ArgumentNullException(nameof(value)));
@@ -69,6 +78,7 @@ namespace Aloe.CommonLib
         public bool IsBool => Kind == EnumValueKind.Bool;
         public bool IsString => Kind == EnumValueKind.String;
         public bool IsObject => Kind == EnumValueKind.Object;
+        public bool IsTask => Kind == EnumValueKind.Task;
 
         // ★ decimal 判定
         public bool IsDecimal => Kind == EnumValueKind.Decimal;
@@ -357,6 +367,7 @@ namespace Aloe.CommonLib
                 EnumValueKind.String => AsString,
                 EnumValueKind.Decimal => AsDecimal.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 EnumValueKind.Object => $"object#{AsObjectId}",
+                EnumValueKind.Task => "task#" + AsTaskId.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 _ => $"<{Kind}>"
             };
         }

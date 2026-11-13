@@ -139,6 +139,21 @@ namespace Aloe.CommonLib.Constants
         /// <summary>Push a struct snapshot of the current frame's caught exception message and simple type name.</summary>
         CaughtExceptionInfo = 52,
 
+        /// <summary>Pop registered Task type name; allocate an unconstructed Stopped instance.</summary>
+        TaskAllocate = 53,
+        /// <summary>Pop field index and Task identity; push the pooled field value.</summary>
+        TaskFieldGet = 54,
+        /// <summary>Pop value, field index and Task identity; update the pooled field.</summary>
+        TaskFieldSet = 55,
+        /// <summary>Pop Task identity; request Running eligibility for the next Tick.</summary>
+        TaskStart = 56,
+        /// <summary>Pop Task identity; request Stopped eligibility for the next Tick.</summary>
+        TaskStop = 57,
+        /// <summary>Pop Task identity or invalid marker; invalidate all aliases and release/defer its slot.</summary>
+        TaskDelete = 58,
+        /// <summary>Pop a live Task identity and push it unchanged; reject invalid/deleted references.</summary>
+        TaskRequireLive = 59,
+
         // 将来拡張:
         // WriteStderr = 2,
         // GetTime     = 3,

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Language Spec (Draft, English)</title>
-  <meta name="edit-version" content="227">
-  <meta name="edit-date" content="2026-11-14T04:30:00+09:00">
+  <meta name="edit-version" content="228">
+  <meta name="edit-date" content="2026-11-14T06:28:24+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- Left menu -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - English + validity model (edit-version 227)</div>
+    <div class="subtitle">Draft - English + validity model (edit-version 228)</div>
 
 
 
@@ -148,8 +148,8 @@
   <main class="content">
     <h1 id="top">Aloe Language Spec (Draft, English)</h1>
     <p class="note">
-      edit-version: 227<br>
-      edit-date: 2026-11-14T04:30:00+09:00</p>
+      edit-version: 228<br>
+      edit-date: 2026-11-14T06:28:24+09:00</p>
     <p class="note">
       This document is an English draft based on the upstream specification.<br>
       In addition, it introduces a reference validity model using <strong>valid / invalid</strong> and
@@ -2144,5 +2144,6 @@ return to main()
 <div class="note" id="task-declaration-front-end">Task declaration front end (2026-11-13), under decisions0050/0051: task is a reserved keyword. The compiler reads top-level Task declarations, scalar/declared-class/object field and parameter signatures, constructor and void method headers, and balanced body ranges. It rejects duplicate/reserved names, Task-valued signatures, collections, unsupported members/modifiers and invalid run headers. One argument-free void run is required. This stage does not bind member bodies, resolve Task calls or emit executable Task bytecode. Compile and CompileForWasm explicitly reject recognized Task programs with an execution-lowering-not-implemented diagnostic; Tasks cannot yet run. Existing Object execution, VM/syscall layout and bytecode format are unchanged. Initial handle-transfer/effect checks, lifecycle, pools, scheduler and exception integration remain to be implemented. Identifiers named task now require renaming; task text inside strings/comments is unaffected.</div>
 <div class="note" id="task-pool-foundation">Pool-foundation milestone (superseded for scheduling by the next note): Task pool foundation (2026-11-13), under decision0051: the reference VM now has internal per-type chunk storage with a default128 slots and configurable per-type capacities, flattened field storage, stable non-reused positive int64 identities, LIFO inactive-slot reuse and deletion guards. Active deleted entries retain storage/ordinary Object roots until the last entry exits. Running-target snapshots contain identities in type-registration/slot order; they do not themselves execute run. Ordinary Object fields held by Tasks participate in VM temporary roots, preserving shared Objects and reference groups. Full runtime reset clears Task instances without restarting identities; preserved submissions retain them. This is internal infrastructure only: source Task lowering, constructor execution, nominal class-field binding, notification queues, Scheduler and self-delete/finally unwinding are not implemented. Source Task programs still receive the explicit lowering-not-implemented compile error. No Task VM value kind, syscall/opcode ID or AloeBC format is added by this step. Managed scalar/string payload boxing is unchanged; no zero-allocation or speedup claim is made.</div>
 <div class="note" id="task-scheduler-foundation">The internal Task scheduler now snapshots all live Task identities, Running eligibility and pending notifications at Tick entry. In type/slot order it invokes captured FIFO notifications even for Stopped Tasks, then at most one captured run. New notifications/Tasks wait until the next Tick; start/stop preserve the current snapshot and delete immediately skips later work. Active entries defer slot reuse through cleanup. This phase has internal C# entry bindings only: source Task bodies, construction, self-call identity/effect analysis and self-delete bytecode unwinding are not yet implemented. Valid task source still fails with an explicit execution-lowering-not-implemented error.</div>
+<div class="note" id="task-value-bridge">Task values now have VM-local kind11, separate from numeric values and ordinary Object handles. Low-level bytecode operations53..59 allocate an unconstructed Stopped slot of an internally registered type, read/write fields, start/stop, delete and require a live Task. Locals may retain/copy the identity, but deletion/reset invalidates all aliases without reviving them after LIFO reuse. These are runtime building blocks, not source new/constructor execution: Task body binding/lowering, registration from source, invocation/effect checks and self-delete unwind remain pending. Valid Task source still reports execution lowering not implemented. No new source syntax or direct-WASM Task support is enabled.</div>
 </body>
 </html>

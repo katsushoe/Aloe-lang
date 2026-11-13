@@ -36,6 +36,10 @@ namespace Aloe.RuntimeLib
 
             VerifyFunctionTable(module);
 
+            foreach (var constant in module.Constants)
+                if (constant.IsTask)
+                    throw Error(-1, "VM-local Task identities cannot be embedded as bytecode constants.");
+
             for (var functionIndex = 0; functionIndex < module.Functions.Count; functionIndex++)
                 VerifyFunction(module, functionIndex);
         }

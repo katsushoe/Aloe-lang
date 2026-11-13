@@ -40,8 +40,10 @@ namespace Aloe.CommonLib.Constants
         /// <summary>Immutable struct value; contains no heap object references.</summary>
         Struct = 10,
 
+        /// <summary>VM-local Task identity, separate from ordinary Object handles.</summary>
+        Task = 11,
+
         // 以降は将来拡張用（Task / Pipe / Result など）
-        // Task   = 11,
         // Pipe   = 12,
         // Result = 13,
     }

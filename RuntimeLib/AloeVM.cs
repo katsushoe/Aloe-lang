@@ -1001,6 +1001,16 @@ namespace Aloe.RuntimeLib
         {
             switch (syscallId)
             {
+                case EnumSyscall.TaskAllocate:
+                case EnumSyscall.TaskFieldGet:
+                case EnumSyscall.TaskFieldSet:
+                case EnumSyscall.TaskStart:
+                case EnumSyscall.TaskStop:
+                case EnumSyscall.TaskDelete:
+                case EnumSyscall.TaskRequireLive:
+                    lock (_callBufferGate)
+                        InvokeTaskSyscall(syscallId);
+                    break;
                 case EnumSyscall.CaughtExceptionInfo:
                 {
                     var frame = CurrentFrame;
