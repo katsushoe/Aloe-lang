@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="229">
-  <meta name="edit-date" content="2026-11-14T10:36:04+09:00">
+  <meta name="edit-version" content="230">
+  <meta name="edit-date" content="2026-11-14T11:52:32+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 229)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 230)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 229<br>
-      edit-date: 2026-11-14T10:36:04+09:00</p>
+      edit-version: 230<br>
+      edit-date: 2026-11-14T11:52:32+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -2544,6 +2544,7 @@ main() へ return
 <div class="note" id="task-pool-foundation">Pool基盤時点の記録（Schedulerの現状は次の注記を参照）：Task Pool基盤（2026-11-13、決定0051）：参照VMに型別チャンク（既定128slot、型別容量設定）、平坦なfield格納、再利用しないpositive int64識別子、非実行slotのLIFO再利用と削除検査を内部実装しました。削除済みでも実行entryが残る間は格納領域と通常Objectの参照を保持し、最後のentry終了後に解放します。実行対象snapshotは型登録順/slot順の識別子であり、それ自体はrunを実行しません。Taskが保持するObjectをVMの一時rootへ反映し、共有Objectと参照グループの規則を維持します。通常の実行リセットは識別子を再利用せずTask instanceを消し、状態維持モードでは保持します。これは内部基盤で、ソースの実行コード生成・constructor実行・class fieldの名目的な型結合・通知キュー・Scheduler・自己削除時のfinally/unwindは未実装です。Taskソースの明示的な実行未対応エラーは維持します。この段階ではTask用VM値種別・syscall/opcode番号・AloeBC形式を追加しません。既存scalar/stringの管理payloadやboxingは変えず、割付ゼロや高速化は主張しません。</div>
 <div class="note" id="task-scheduler-foundation">内部Task SchedulerはTick開始時の全生存Task識別子、Running対象、通知キューを確定します。型・slot順に、Stoppedを含め通知をFIFO実行し、その後に対象runを最大1回実行します。途中の新規Task・通知は次Tick、start/stopは現在の対象を変えず、deleteは後続処理を即時除外します。実行中slotはcleanupまで再利用しません。この段階の実行先は内部C#の結合だけです。Taskソース本体・constructor・自己呼出し判定/effect検査・自己削除のbytecode巻き戻しは未実装で、taskソースの明示的な実行コード生成未対応エラーを維持します。</div>
 <div class="note" id="task-value-bridge">Task専用値種別11を追加し、数値や通常Object参照と区別します。低水準bytecode操作53〜59で、内部登録済み型の未構築Stopped slot確保、field読み書き、start/stop、delete、生存検査を実行できます。localに識別子を保持・コピーでき、削除/リセット後は全aliasが無効でLIFO再利用しても復活しません。これはruntimeの部品で、ソースのnew/constructor実行ではありません。ソースの型登録・本体の意味解析/実行コード生成・呼出し/effect検査・自己削除の巻き戻しは未実装です。Taskソースの明示的な実行コード生成未対応エラーを維持し、新構文の実行や直接WASMのTask対応は有効化しません。</div>
-<div class="note" id="task-bytecode-entries">Taskの型順・field配置・constructor/method対応をbytecodeへ保存し、VMへ自動登録できるようになりました。TaskConstruct60は検査済み引数からStopped instanceを生成してconstructorを同期実行し、失敗時はslot/rootを解放します。共有Objectへの作用や登録済みObject呼出しは巻き戻しません。TaskInvoke61は外部呼出しを通知として登録し、local aliasを含む同じ識別子への自己呼出しを同期実行します。entryは既存catch/rethrow/finally bytecodeを実行し、同期例外を戻す前に呼出し元の実行・例外状態を復元し、親frameのObject rootを保持し、ホストの協調的停止要求に従います。ソースTaskの本体結合・コード生成・直接非同期effect検査は未実装で、明示的なコンパイル未対応エラーを維持します。自己削除の巻き戻しは未実装のため無効化前に明示的に拒否します。Task言語機能全体の完了ではありません。</div>
+<div class="note" id="task-bytecode-entries">先行するbytecode段階の記録：Taskの型順・field配置・constructor/method対応をbytecodeへ保存し、VMへ自動登録できるようになりました。TaskConstruct60は検査済み引数からStopped instanceを生成してconstructorを同期実行し、失敗時はslot/rootを解放します。共有Objectへの作用や登録済みObject呼出しは巻き戻しません。TaskInvoke61は外部呼出しを通知として登録し、local aliasを含む同じ識別子への自己呼出しを同期実行します。entryは既存catch/rethrow/finally bytecodeを実行し、同期例外を戻す前に呼出し元の実行・例外状態を復元し、親frameのObject rootを保持し、ホストの協調的停止要求に従います。ソースTaskの本体結合・コード生成・直接非同期effect検査は未実装で、明示的なコンパイル未対応エラーを維持します。自己削除の巻き戻しは未実装のため無効化前に明示的に拒否します。Task言語機能全体の完了ではありません。</div>
+<div class="note" id="task-source-subset">初回Taskソースのコード生成を有効化しました。task宣言から型順・配置・constructor/method対応をModuleへ出力し、new、scalar/通常Object field、同期constructor、local参照コピー、start/stop、通知、Scheduler専用runをTask VM操作へ接続します。TaskはObjectと区別し、宣言済み引数/戻り値/field/collectionへの移動やObject boxingを禁止し、異なるTask型同士の代入も拒否します。thisへの自己呼出しと同じ識別子のlocal aliasは同期実行します。Taskのtry/catch/finally内の直接外部Task/Object非同期呼出しは禁止し、自己参照と証明できないaliasの呼出しは保守的に拒否します（thisを使用）。推移的effect検査は行いません。自己削除の制御巻き戻し、Task Module置換、直接WASMは未対応です。delete thisはコンパイルエラー、実行時の自己aliasは無効化前に拒否します。初回のソース部分対応で、Task仕様全体の完了ではありません。</div>
 </body>
 </html>

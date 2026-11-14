@@ -180,8 +180,8 @@ public sealed class TaskEntryTests
     }
 
     [Test]
-    public void SourceTaskExecutionStillHasExplicitNotImplementedBoundary()
-        => Assert.Throws<AloeCompileException>(() => new AloeCompiler().Compile("task Worker { method run(): void { } } function main(args: string[]): int { return 0; }"));
+    public void SourceTaskExecutionEmitsRegisteredTaskMetadata()
+        => Assert.That(new AloeCompiler().Compile("task Worker { method run(): void { } } function main(args: string[]): int { return 0; }").TaskTypes.Single().Name, Is.EqualTo("Worker"));
 
     [Test]
     public void TaskEntryHonorsCooperativeHostHaltWithoutExecutingRemainingBody()

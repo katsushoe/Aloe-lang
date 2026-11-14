@@ -70,6 +70,7 @@ namespace Aloe.CompilerLib
             Bool,
             Object,
             Struct,
+            Task,
             Void,
             Unknown, // Speculative shadow only; never emitted as a runtime type.
         }
@@ -147,6 +148,7 @@ namespace Aloe.CompilerLib
             public string Name { get; }
             public string? BaseClassName { get; }
             public bool IsSealed { get; }
+            public bool IsTask { get; init; }
             public List<FieldSignature> Fields { get; } = new();
             public List<PropertySignature> Properties { get; } = new();
             public List<MethodSignature> Methods { get; } = new();
@@ -222,10 +224,11 @@ namespace Aloe.CompilerLib
             {
                 if (_tokens.Any(token => token.Kind == TokenKind.Keyword && token.Lexeme == "task"))
                 {
-                    _ = TaskDeclarationReader.Read(_tokens);
-                    throw new AloeCompileException("Task declarations are recognized, but Task execution lowering is not implemented yet.");
+                    _taskDeclarations = TaskDeclarationReader.Read(_tokens);
+                    if (_forWasm) throw new AloeCompileException("Direct WASM source compilation does not support Tasks.");
                 }
                 CollectFunctionSignatures();
+                CollectTaskFunctions();
                 if (_forWasm && (_classes.Count != 0 || _structs.Count != 1 || _interfaces.Count != 0))
                     throw new AloeCompileException("Direct WASM source compilation does not support classes, structs or interfaces.");
 
@@ -262,7 +265,7 @@ namespace Aloe.CompilerLib
 
                     EnterScope();
                     if (function.DeclaringClass != null && !function.IsStaticMethod)
-                        DeclareImplicitLocal("this", ExprType.Object, function.DeclaringClass);
+                        DeclareImplicitLocal("this", _classes[function.DeclaringClass].IsTask ? ExprType.Task : ExprType.Object, function.DeclaringClass);
                     else if (function.DeclaringStruct != null)
                         DeclareImplicitLocal("this", ExprType.Struct, function.DeclaringStruct);
                     foreach (var parameter in function.Parameters)
@@ -353,7 +356,7 @@ namespace Aloe.CompilerLib
                     _constants,
                     _code,
                     functionInfos,
-                    entryPointIndex: main.Index);
+                    entryPointIndex: main.Index, taskTypes: EmitTaskTypes());
             }
 
 
@@ -418,6 +421,19 @@ namespace Aloe.CompilerLib
                 while (TokenAt(position).Kind != TokenKind.EndOfFile)
                 {
                     var topLevelToken = TokenAt(position);
+                    if (topLevelToken.Lexeme == "task")
+                    {
+                        position += 2;
+                        ExpectAt(ref position, TokenKind.LBrace);
+                        var taskDepth = 1;
+                        while (taskDepth > 0)
+                        {
+                            var taskToken = TokenAt(position++);
+                            if (taskToken.Kind == TokenKind.LBrace) taskDepth++;
+                            else if (taskToken.Kind == TokenKind.RBrace) taskDepth--;
+                        }
+                        continue;
+                    }
 
                     if (_structEndPositions.TryGetValue(position, out var structEnd))
                     {
@@ -1410,6 +1426,7 @@ namespace Aloe.CompilerLib
 
             private bool ParseStatement()
             {
+                if (TryParseTaskStatement()) return true;
                 if (Current.Lexeme == "swap")
                 {
                     ParseSwap();
@@ -1913,7 +1930,7 @@ namespace Aloe.CompilerLib
                 var actualClassName = _lastExpressionClassName;
                 RequireAssignable(fieldToken, field.Type, actualType, field.ClassName, actualClassName);
                 Expect(TokenKind.Semicolon);
-                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ObjectFieldSet);
+                Emit(EnumOpcode.Syscall, (int)(_classes[function.DeclaringClass].IsTask ? EnumSyscall.TaskFieldSet : EnumSyscall.ObjectFieldSet));
             }
 
 
@@ -3263,6 +3280,7 @@ namespace Aloe.CompilerLib
             {
                 var targetToken = Expect(TokenKind.Identifier);
                 var target = ResolveLocal(targetToken);
+                if (target.Type == ExprType.Task) { ParseTaskCall(target, targetToken, throughThis: false); return; }
                 if (target.Type != ExprType.Object || target.ClassName == null)
                     throw Error(targetToken, $"Async member call requires a statically known class instance; '{targetToken.Lexeme}' is {FormatType(target.Type)}.");
 
@@ -3284,6 +3302,7 @@ namespace Aloe.CompilerLib
 
             private void ParseInstanceAsyncMethodCallStatement(LocalInfo target, string declaredTypeName, MethodSignature? method, AloeToken member)
             {
+                if (InTask && _taskProtectedDepth > 0) throw Error(member, "Task try/catch/finally permits synchronous calls only.");
                 if (method?.Function.IsPublicAsync != true)
                     method = null;
                 if (method == null)
@@ -3382,6 +3401,7 @@ namespace Aloe.CompilerLib
 
             private void ParseStaticAsyncMethodCallStatement(ClassSignature classInfo, AloeToken member)
             {
+                if (InTask && _taskProtectedDepth > 0) throw Error(member, "Task try/catch/finally permits synchronous calls only.");
                 var method = classInfo.StaticAsyncMethods.FirstOrDefault(x => x.Name == member.Lexeme);
                 if (method == null)
                     throw Error(member, $"'{classInfo.Name}.{member.Lexeme}' is not a public static async method.");
@@ -3520,6 +3540,8 @@ namespace Aloe.CompilerLib
             private ExprType ParseResolvedFunctionCall(AloeToken name, FunctionSignature function,
                 bool requireValue, bool isInstanceSelfCall)
             {
+                if (function.DeclaringClass is string taskOwner && _classes[taskOwner].IsTask && function.Name.EndsWith(".run", StringComparison.Ordinal))
+                    throw Error(name, "Task run can only be called by the scheduler.");
                 if (requireValue && function.ReturnType == ExprType.Void)
                     throw Error(name, $"Void function '{name.Lexeme}' cannot be used as a value.");
 
@@ -3600,6 +3622,7 @@ namespace Aloe.CompilerLib
 
             private ExprType ParsePrimary()
             {
+                if (InTask && Current.Lexeme == "this") return ParseTaskThisRead();
                 var type = ParsePrimaryValue();
                 if (type == ExprType.Object && IsMapType(_lastExpressionClassName) && Current.Kind is TokenKind.LBracket or TokenKind.Dot)
                     return ParseMapResultRead();
@@ -4036,6 +4059,7 @@ namespace Aloe.CompilerLib
                     return ParseNamedBoxConstructor(className, boxPrimitive);
                 if (!_classes.TryGetValue(className.Lexeme, out var classInfo))
                     throw Error(className, $"Unknown class '{className.Lexeme}'.");
+                if (classInfo.IsTask) return ParseNewTask(classInfo, className);
 
                 Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(classInfo.Name)));
                 EmitIntConstant(GetFieldCount(classInfo.Name));
@@ -4210,6 +4234,8 @@ namespace Aloe.CompilerLib
             {
                 var token = Advance();
                 className = null;
+                if (_classes.TryGetValue(token.Lexeme, out var taskType) && taskType.IsTask)
+                { className = taskType.Name; return ExprType.Task; }
                 switch (token.Lexeme)
                 {
                     case "int": return ExprType.Int;
@@ -4446,7 +4472,7 @@ namespace Aloe.CompilerLib
                 if (expected != actual)
                     throw Error(token, $"Type mismatch: expected {expected}, found {actual}.");
 
-                if (expected is ExprType.Enum or ExprType.Struct &&
+                if (expected is ExprType.Enum or ExprType.Struct or ExprType.Task &&
                     !string.Equals(expectedClassName, actualClassName, StringComparison.Ordinal))
                     throw Error(token, $"Value type mismatch: expected {expectedClassName}, found {actualClassName ?? "unknown type"}.");
 

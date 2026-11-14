@@ -51,7 +51,7 @@ public sealed partial class AloeCompiler
             return (open, end, hasCatch);
         }
 
-        private bool ParseTryCatch()
+        private bool ParseTryCatchWithFinally()
         {
             var clause = FindFinallyClause(_position);
             if (clause == null) return ParseTryCatchCore();

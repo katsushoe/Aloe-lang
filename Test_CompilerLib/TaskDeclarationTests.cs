@@ -126,15 +126,12 @@ class State { }
 
     [TestCase(false)]
     [TestCase(true)]
-    public void ValidTaskDeclarationsHaveExplicitLoweringBoundary(bool wasm)
+    public void ValidTaskDeclarationsCompileForVmAndRejectDirectWasm(bool wasm)
     {
         var compiler=new AloeCompiler();
-        var error=Assert.Throws<AloeCompileException>(()=>
-        {
-            if(wasm) compiler.CompileForWasm("task Worker { method run(): void { } } function main(args: string[]): int { return 0; }");
-            else compiler.Compile("task Worker { method run(): void { } } function main(args: string[]): int { return 0; }");
-        });
-        Assert.That(error!.Message,Does.Contain("execution lowering is not implemented"));
+        const string source="task Worker { method run(): void { } } function main(args: string[]): int { return 0; }";
+        if(wasm) Assert.Throws<AloeCompileException>(()=>compiler.CompileForWasm(source));
+        else Assert.That(compiler.Compile(source).TaskTypes.Count,Is.EqualTo(1));
     }
 
     [Test]
