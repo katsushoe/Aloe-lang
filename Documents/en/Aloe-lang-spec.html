@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Language Spec (Draft, English)</title>
-  <meta name="edit-version" content="231">
-  <meta name="edit-date" content="2026-11-14T22:56:12+09:00">
+  <meta name="edit-version" content="232">
+  <meta name="edit-date" content="2026-11-15T00:05:29+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- Left menu -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - English + validity model (edit-version 231)</div>
+    <div class="subtitle">Draft - English + validity model (edit-version 232)</div>
 
 
 
@@ -148,8 +148,8 @@
   <main class="content">
     <h1 id="top">Aloe Language Spec (Draft, English)</h1>
     <p class="note">
-      edit-version: 231<br>
-      edit-date: 2026-11-14T22:56:12+09:00</p>
+      edit-version: 232<br>
+      edit-date: 2026-11-15T00:05:29+09:00</p>
     <p class="note">
       This document is an English draft based on the upstream specification.<br>
       In addition, it introduces a reference validity model using <strong>valid / invalid</strong> and
@@ -2148,5 +2148,6 @@ return to main()
 <div class="note" id="task-bytecode-entries">Earlier bytecode milestone: Task bytecode can now carry ordered layouts and constructor/method bindings, with automatic VM registration. TaskConstruct60 evaluates validated explicit arguments, creates a Stopped instance and runs its constructor synchronously; failures release its slot/roots without rolling back shared Object effects or queued Object work. TaskInvoke61 queues external notifications and executes runtime-identical self receivers synchronously, including local aliases. Task entries use existing catch/rethrow/finally bytecode, restore caller execution/exception state before propagating synchronous failures, retain parent-frame Object roots and honor cooperative host halt. Source task body binding/code generation and direct async-effect checking remain pending: Task source still explicitly fails compilation. Self-delete unwinding is not implemented and is explicitly rejected before invalidation; do not treat this internal bytecode stage as complete Task language support.</div>
 <div class="note" id="task-source-subset">Initial Task source lowering is enabled: task declarations emit ordered module layouts and constructor/method bindings; new, scalar/ordinary Object fields, synchronous construction, local handle copies, start/stop, notifications and scheduler-only run use Task VM operations. Task handles remain distinct from Objects and cannot be passed to declared parameters/returns/fields/collections or boxed as Object; different Task types are not assignable. Direct this self calls and runtime-identical local aliases execute synchronously. Direct external Task/Object async calls in Task try/catch/finally are rejected; protected alias receivers without a proof of self identity are conservatively rejected (use this). Transitive effects are not checked. Self-delete control unwinding, Task module replacement and direct-WASM Tasks remain unsupported; explicit delete this is a compile error and runtime self aliases are rejected before invalidation. This is an initial source subset, not complete Task-language acceptance.</div>
 <div class="note" id="task-stable-self-alias">Task protected blocks now permit local aliases proven to retain self identity: an initializer must load this or another proven alias, and the binding must have no later assignment in the function. Typed locals, parentheses and alias chains are supported. Unproven or reassigned receivers remain rejected. This conservative lexical proof may reject safe code with later writes or same-name shadowing; runtime identity dispatch and Task lifetime rules are unchanged. Transitive effect checks and self-delete unwind remain deferred.</div>
+<div class="note" id="task-cleanup-descriptor">Task modules distinguish generated finally cleanup from source catches using a sole TRY_CATCH entry with Operand1=-1. This requires Task metadata and an updated supporting runtime; other negative descriptors and mixed cleanup/catch tables are rejected. Source catch-all remains0, typed catches remain positive constant-index-plus-one. Modules without Tasks retain the existing finally encoding. Ordinary exception dispatch, return and nested finally behavior are preserved. This is preparation for self-delete unwinding; self-delete is still unsupported. No opcode IDs or section layout are changed.</div>
 </body>
 </html>

@@ -892,6 +892,11 @@ namespace Aloe.RuntimeLib
                     var descriptor = code[index];
                     if (descriptor.Opcode != EnumOpcode.TryCatch) break;
 
+                    if (descriptor.Operand1 == AloeCatchDescriptor.Cleanup)
+                    {
+                        catchIp = descriptor.Operand0;
+                        return true;
+                    }
                     Type? exceptionType = null;
                     if (descriptor.Operand1 != 0)
                     {

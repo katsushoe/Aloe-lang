@@ -91,7 +91,8 @@ public sealed partial class AloeCompiler
             Emit(EnumOpcode.Rethrow);
             Emit(EnumOpcode.CatchEnd);
             var table = _code.Count;
-            _code.Add(new Instruction(EnumOpcode.TryCatch, faultTarget, 0));
+            _code.Add(new Instruction(EnumOpcode.TryCatch, faultTarget,
+                _taskDeclarations.Count == 0 ? 0 : AloeCatchDescriptor.Cleanup));
             _code[handler] = new Instruction(EnumOpcode.TryBegin, table, 0);
             Emit(EnumOpcode.End);
             _controlDepth--;

@@ -129,6 +129,14 @@ namespace Aloe.RuntimeLib
                         throw Error(descriptorIp, "TRY_CATCH target must be after its matching TRY_END and before the catch table.");
                     if (!catchTargets.Add(descriptor.Operand0))
                         throw Error(descriptorIp, $"Catch target {descriptor.Operand0} is shared by multiple clauses.");
+                    if (descriptor.Operand1 == AloeCatchDescriptor.Cleanup)
+                    {
+                        if (module.TaskTypes.Count == 0 || descriptorCount != 1 ||
+                            descriptorIp + 1 < end && module.Code[descriptorIp + 1].Opcode == EnumOpcode.TryCatch)
+                            throw Error(descriptorIp, "A cleanup descriptor requires Task metadata and a single-entry catch table.");
+                        catchAllSeen = true;
+                        continue;
+                    }
                     if (descriptor.Operand1 == 0)
                     {
                         if (catchAllSeen)

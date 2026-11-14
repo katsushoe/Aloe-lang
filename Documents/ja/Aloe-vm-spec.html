@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="edit-version" content="69" />
-  <meta name="edit-date" content="2026-11-14T22:56:12+09:00" />
+  <meta name="edit-version" content="70" />
+  <meta name="edit-date" content="2026-11-15T00:05:29+09:00" />
   <title>AloeVM 仕様書（ドラフト）</title>
   <style>
     * { box-sizing: border-box; }
@@ -1594,5 +1594,6 @@ tick() return
 <div class="note" id="task-bytecode-entries">先行するbytecode段階の記録：任意core section0x05にTask型順、型名、field種別、constructor index（省略時-1）/引数種別、method名/function index/引数種別を保持します。Task定義がないModuleはこのsectionを出力せず従来の直列化を維持します。読込検証で型/method重複、引数なしrun、予約名、scalar/Object signature、関数範囲/名前/引数数、型付きthisのTask種別とvoid戻り値を検査します。既存番号を変更せずTaskConstruct60（引数・型名・件数→Task）、TaskInvoke61（Task・引数・method名・件数→void）を追加します。結合はModuleに属し、旧/新どちらかにTask metadataがあるModule置換は明示的に未対応とします。constructor/自己呼出しは独立したVM frame状態で実行し、親rootを保持し状態復元後も元の例外を維持します。通知/runのTick失敗方針は維持します。直接WASMはTask metadataを拒否します。ソース生成や自己削除の制御巻き戻しは有効化しません。</div>
 <div class="note" id="task-source-subset">初回Taskソースのコード生成を有効化しました。task宣言から型順・配置・constructor/method対応をModuleへ出力し、new、scalar/通常Object field、同期constructor、local参照コピー、start/stop、通知、Scheduler専用runをTask VM操作へ接続します。TaskはObjectと区別し、宣言済み引数/戻り値/field/collectionへの移動やObject boxingを禁止し、異なるTask型同士の代入も拒否します。thisへの自己呼出しと同じ識別子のlocal aliasは同期実行します。Taskのtry/catch/finally内の直接外部Task/Object非同期呼出しは禁止し、自己参照と証明できないaliasの呼出しは保守的に拒否します（thisを使用）。推移的effect検査は行いません。自己削除の制御巻き戻し、Task Module置換、直接WASMは未対応です。delete thisはコンパイルエラー、実行時の自己aliasは無効化前に拒否します。初回のソース部分対応で、Task仕様全体の完了ではありません。</div>
 <div class="note" id="task-stable-self-alias">Taskのtry/catch/finally内で、自己参照を維持すると証明できるlocal aliasの呼出しを許可しました。初期化式はthisまたは証明済みaliasの読み込みに限り、その変数への関数内の後続代入がないことを確認します。型指定、括弧、alias連鎖に対応します。未証明または再代入される変数は引き続き拒否します。保守的な字句検査のため、後続代入や同名の変数がある安全なコードも拒否する場合があります。実行時の識別子による同期判定と寿命規則は変更せず、推移的effect検査と自己削除unwindは後続です。</div>
+<div class="note" id="task-cleanup-descriptor">Taskを含むModuleでは、生成したfinallyの後始末を通常のcatchと区別し、単独のTRY_CATCHでOperand1=-1と表します。Task metadataと更新済みの対応VMが必要です。他の負の識別値や、後始末と通常catchの混在表は拒否します。通常catch-allは0、型付きcatchは従来どおり定数index+1です。Taskを含まないModuleのfinally表現は維持します。通常例外の伝播、return、入れ子finallyの動作を維持します。自己削除時の制御巻き戻しの準備であり、自己削除はまだ未対応です。opcodeの番号とsection構造は変更していません。</div>
 </body>
 </html>

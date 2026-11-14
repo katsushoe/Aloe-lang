@@ -1,6 +1,6 @@
 # 0051: Initial Task execution contract
 
-Status: Accepted by the user on 2026-11-13; declaration parser, internal pool/root and Tick scheduler foundations implemented; source Task execution not implemented. Supplements accepted ADR0050.
+Status: Accepted by the user on 2026-11-13. Initial source execution and stable local self-alias proof implemented; self-delete unwind remains pending. Supplements accepted ADR0050. Earlier stage notes below are historical milestones.
 
 ## Initial language subset (TASK-01, TASK-04)
 Use `task Name { construct(...) { ... } field name: Type; method name(...): void { ... } }` with one `method run(): void`. Ordinary methods are externally callable asynchronous notifications and self calls are synchronous. All Task methods initially return void, including self calls; synchronous free functions and Object queries retain their current return types. `start`, `stop` and `run` are reserved instance method names; start/stop are built-ins, and run cannot be called by source code. No inheritance, interfaces/traits, static members or properties in the initial Task subset.
@@ -55,3 +55,6 @@ Source Task declarations now lower directly to dedicated Task values and Module.
 
 ## Stable local self aliases in protected blocks
 Task try/catch/finally accepts local aliases initialized directly from this or another proven stable alias when no later lexical assignment to that binding name occurs in the function. Typed locals, parentheses and chains are supported. Unknown, externally initialized or reassigned receivers are rejected. The proof deliberately remains conservative around same-name shadowing and later writes. Runtime identity dispatch and bytecode remain unchanged. Transitive effects and self-delete unwinding remain deferred. Evidence: TaskSelfAliasTests and `.local/task-alias-20261114/acceptance.json`.
+
+## Distinct Task-module cleanup descriptor
+In source modules containing Task definitions, compiler-generated finally tables use a sole TRY_CATCH entry with Operand1=-1 (AloeCatchDescriptor.Cleanup). Existing Task metadata gates this supporting-runtime extension. Unknown negative descriptors, missing Task metadata and mixed tables are rejected; source catch-all0 and positive typed catch descriptors remain unchanged. Ordinary modules retain their legacy finally encoding. The VM currently dispatches ordinary exceptions through these cleanup entries with unchanged behavior. This supplies a prerequisite distinction for later deletion control transfer; it does not enable self-delete, skip user catches, or resolve cleanup-error propagation. Tests: TaskCleanupDescriptorTests; evidence `.local/task-cleanup-20261115/acceptance.json`.
