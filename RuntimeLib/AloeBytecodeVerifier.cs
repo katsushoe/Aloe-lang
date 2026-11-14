@@ -11,7 +11,7 @@ namespace Aloe.RuntimeLib
     /// Type-stack validation is intentionally deferred until FunctionInfo carries
     /// parameter/return/local type metadata.
     /// </summary>
-    public static class AloeBytecodeVerifier
+    public static partial class AloeBytecodeVerifier
     {
         private sealed class ControlState
         {
@@ -35,6 +35,7 @@ namespace Aloe.RuntimeLib
                 throw Error(-1, $"EntryPointIndex is out of range: {module.EntryPointIndex}.");
 
             VerifyFunctionTable(module);
+            VerifyTaskTypes(module);
 
             foreach (var constant in module.Constants)
                 if (constant.IsTask)

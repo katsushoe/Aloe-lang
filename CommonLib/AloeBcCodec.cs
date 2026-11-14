@@ -8,7 +8,7 @@ using System.Text;
 
 namespace Aloe.CommonLib
 {
-    public static class AloeBcCodec
+    public static partial class AloeBcCodec
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("ALOEBC");
         public const byte MajorVersion = 0;
@@ -34,6 +34,7 @@ namespace Aloe.CommonLib
             WriteSection(writer, ConstantSection, w => WriteConstantSection(w, module));
             WriteSection(writer, FunctionSection, w => WriteFunctionSection(w, module));
             WriteSection(writer, CodeSection, w => WriteCodeSection(w, module));
+            if (module.TaskTypes.Count != 0) WriteSection(writer, 0x05, w => WriteTaskSection(w, module.TaskTypes));
             writer.Flush();
             return stream.ToArray();
         }
@@ -49,6 +50,7 @@ namespace Aloe.CommonLib
             byte[]? constantPayload = null;
             byte[]? functionPayload = null;
             byte[]? codePayload = null;
+            byte[]? taskPayload = null;
 
             while (stream.Position < stream.Length)
             {
@@ -77,6 +79,10 @@ namespace Aloe.CommonLib
                     case CodeSection:
                         if (codePayload != null) throw DuplicateSection(sectionId);
                         codePayload = payload;
+                        break;
+                    case 0x05:
+                        if (taskPayload != null) throw DuplicateSection(sectionId);
+                        taskPayload = payload;
                         break;
                     default:
                         if (sectionId < 0x80)
@@ -108,7 +114,8 @@ namespace Aloe.CommonLib
                     : new FunctionInfo(f.Name, f.EntryIp, t.LegacyParameterCount, t.LegacyLocalCount);
             }
 
-            return new Module(constants, code, functions, functionData.EntryPointIndex);
+            return new Module(constants, code, functions, functionData.EntryPointIndex,
+                taskPayload == null ? Array.Empty<AloeTaskTypeInfo>() : ReadTaskSection(taskPayload));
         }
 
         private static void ReadAndValidateHeader(BinaryReader reader)

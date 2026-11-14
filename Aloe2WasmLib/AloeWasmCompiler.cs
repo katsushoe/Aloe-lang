@@ -14,6 +14,7 @@ public sealed class AloeWasmCompiler
     public byte[] Compile(Module module)
     {
         ArgumentNullException.ThrowIfNull(module);
+        if (module.TaskTypes.Count != 0) throw new NotSupportedException("Direct WASM does not support Task entry metadata.");
         ValidateModule(module);
 
         // Reuse stack-type validation to discover only the typed output imports used by this module.

@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="edit-version" content="66" />
-  <meta name="edit-date" content="2026-11-14T06:28:24+09:00" />
+  <meta name="edit-version" content="67" />
+  <meta name="edit-date" content="2026-11-14T10:36:04+09:00" />
   <title>AloeVM 仕様書（ドラフト）</title>
   <style>
     * { box-sizing: border-box; }
@@ -1591,5 +1591,6 @@ tick() return
 <div class="note" id="task-pool-foundation">Pool基盤時点の記録（Schedulerの現状は次の注記を参照）：内部Task Poolとrootの統合：Taskは通常heap Objectではなく型別チャンクと単調増加識別子で管理します。fieldにscalar種別/値域と生存Object参照を検査し、classの名目的な型結合はcompiler連携へ残します。非実行Taskの削除はfieldを消して型別LIFOへslotを戻し、実行entryが残る場合は全entry終了まで解放を保留します。削除済み識別子は再利用slotを操作できません。削除済み実行entryのfieldを含む通常Object rootは重複数を維持してcleanupまで保持します。既存Object/Reference Group/Volatileと物理GCの規則は維持します。ソースTaskの実行、通知dispatch、constructor callback、Scheduler、新しいwire値やsyscallは追加しません。</div>
 <div class="note" id="task-scheduler-foundation">内部Task phaseはTick呼出し元で逐次実行し、その後に既存Object CallBufferを空になるまで処理しVolatileをコミット・参照更新します。通知の待機中・snapshot内・実行中Object引数は強いrootです。削除は待機引数を解放し実行引数はcleanupまで保持します。Task entryの未捕捉例外は新規dispatchを中止しTask/Objectキューを破棄、コミットを省略してTick境界で元の例外を報告し、リセットまで失敗状態を維持します。LastTaskFailureはTaskId/TaskType/MethodName/ExceptionType/Messageを公開し、例外Objectやstack traceは公開しません。状態維持submissionはキューを保持し、リセットはキュー・失敗・instanceを消して結合と単調増加識別子を保持します。既存Objectのworker順序/所有権、bytecode番号、物理GCの規則は維持します。Task別OS thread、自動ロールバック、Object Pool化、CallBufferバッチ化は追加しません。</div>
 <div class="note" id="task-value-bridge">EnumValueKind.Task=11とsyscall TaskAllocate53/TaskFieldGet54/TaskFieldSet55/TaskStart56/TaskStop57/TaskDelete58/TaskRequireLive59を末尾追加し、既存番号/opcodeを維持します。Allocateは登録済み型名stringをpopしTask識別子を返しますがconstructorは実行しません。Getはindex/Taskをpopし値を返し、Setはvalue/index/Taskをpopします。生存/開始/停止はTaskをpop、生存検査は同じ値をpushします。Deleteはnullの無効marker/削除済み識別子なら何もせず、ソース自己削除の巻き戻しは行いません。種別/値域・index・識別子生存を検査し、worker操作を既存CallBuffer gateで直列化します。VM固有Task識別子のModule定数化/定数payloadの直列化は禁止します。local型metadata11と新syscallは既存section配置を用いますが旧VMでの動作は保証しません。Object root・Scheduler・GC・CallBuffer/Volatile・物理回収時点の契約は維持します。</div>
+<div class="note" id="task-bytecode-entries">任意core section0x05にTask型順、型名、field種別、constructor index（省略時-1）/引数種別、method名/function index/引数種別を保持します。Task定義がないModuleはこのsectionを出力せず従来の直列化を維持します。読込検証で型/method重複、引数なしrun、予約名、scalar/Object signature、関数範囲/名前/引数数、型付きthisのTask種別とvoid戻り値を検査します。既存番号を変更せずTaskConstruct60（引数・型名・件数→Task）、TaskInvoke61（Task・引数・method名・件数→void）を追加します。結合はModuleに属し、旧/新どちらかにTask metadataがあるModule置換は明示的に未対応とします。constructor/自己呼出しは独立したVM frame状態で実行し、親rootを保持し状態復元後も元の例外を維持します。通知/runのTick失敗方針は維持します。直接WASMはTask metadataを拒否します。ソース生成や自己削除の制御巻き戻しは有効化しません。</div>
 </body>
 </html>

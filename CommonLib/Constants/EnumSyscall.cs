@@ -153,6 +153,10 @@ namespace Aloe.CommonLib.Constants
         TaskDelete = 58,
         /// <summary>Pop a live Task identity and push it unchanged; reject invalid/deleted references.</summary>
         TaskRequireLive = 59,
+        /// <summary>Pop argument count, registered type name and arguments; construct synchronously and push Task.</summary>
+        TaskConstruct = 60,
+        /// <summary>Pop argument count, method name, arguments and Task; execute self synchronously or enqueue notification.</summary>
+        TaskInvoke = 61,
 
         // 将来拡張:
         // WriteStderr = 2,

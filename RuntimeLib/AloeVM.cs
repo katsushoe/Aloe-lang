@@ -46,6 +46,7 @@ namespace Aloe.RuntimeLib
             public bool SuspendCurrentInstruction { get; set; }
             public int SynchronousCallDepth { get; set; }
             public int CommittedQueryDepth { get; set; }
+            public long? TaskIdentity { get; set; }
         }
 
         private readonly VmThreadState _mainThreadState = new();
@@ -314,6 +315,7 @@ namespace Aloe.RuntimeLib
             Heap = new AloeHeap();
             TaskPool = new AloeTaskPool(Heap.ContainsObject);
             TaskScheduler = new AloeTaskScheduler(TaskPool);
+            RegisterModuleTaskTypes();
             GarbageCollector = new AloeGarbageCollector(Heap);
             Logger = new AloeLogger(settings.Logging, settings.ConfigDirectory);
             TraceEnabled = settings.Debug;
@@ -547,6 +549,8 @@ namespace Aloe.RuntimeLib
         public void ReplaceModule(Module module)
         {
             ArgumentNullException.ThrowIfNull(module);
+            if (_module.TaskTypes.Count != 0 || module.TaskTypes.Count != 0)
+                throw new InvalidOperationException("Module replacement with Task bytecode bindings is not implemented yet.");
             if (!_callStack.IsEmpty || _valueStack.Count != 0 || _tickCoordinatorActive || _tickInFlight != 0)
                 throw new InvalidOperationException("A running VM cannot replace its module.");
             AloeBytecodeVerifier.Verify(module);
@@ -1008,6 +1012,8 @@ namespace Aloe.RuntimeLib
                 case EnumSyscall.TaskStop:
                 case EnumSyscall.TaskDelete:
                 case EnumSyscall.TaskRequireLive:
+                case EnumSyscall.TaskConstruct:
+                case EnumSyscall.TaskInvoke:
                     lock (_callBufferGate)
                         InvokeTaskSyscall(syscallId);
                     break;
@@ -3096,6 +3102,7 @@ namespace Aloe.RuntimeLib
             var roots = new List<long>();
             roots.AddRange(TaskPool.GetObjectRoots());
             roots.AddRange(TaskScheduler.GetObjectRoots());
+            AddTaskParentRoots(roots);
 
             foreach (var value in _valueStack)
             {
