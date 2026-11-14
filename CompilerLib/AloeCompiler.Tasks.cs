@@ -10,6 +10,7 @@ public sealed partial class AloeCompiler
     {
         private IReadOnlyList<TaskDeclaration> _taskDeclarations = Array.Empty<TaskDeclaration>();
         private int _taskProtectedDepth;
+        private readonly HashSet<int> _taskStableSelfAliases = new();
         private bool InTask => _currentFunction?.DeclaringClass is string name && _classes.TryGetValue(name, out var type) && type.IsTask;
 
         private void CollectTaskFunctions()
@@ -115,7 +116,7 @@ public sealed partial class AloeCompiler
             }
             else
             {
-                if (InTask && _taskProtectedDepth > 0 && !throughThis)
+                if (InTask && _taskProtectedDepth > 0 && !throughThis && !_taskStableSelfAliases.Contains(target.Slot))
                     throw Error(receiver, "Task protected regions require proven synchronous self calls; use this for a self receiver.");
                 var method = FindMethod(target.ClassName!, member.Lexeme)
                     ?? throw Error(member, "Unknown Task method.");
@@ -154,6 +155,18 @@ public sealed partial class AloeCompiler
             if (InTask) _taskProtectedDepth++;
             try { return ParseTryCatchWithFinally(); }
             finally { if (InTask) _taskProtectedDepth--; }
+        }
+
+        private void RecordStableTaskSelfAlias(AloeToken name, LocalInfo local, int expressionStart)
+        {
+            if (!InTask || local.Type != ExprType.Task || _code.Count != expressionStart + 2) return;
+            var source = _code[expressionStart];
+            if (source.Opcode != EnumOpcode.LoadLocal || source.Operand0 != 0 && !_taskStableSelfAliases.Contains(source.Operand0)) return;
+            // A single initialized binding is stable only if no later lexical write exists.
+            // Counting shadowed declarations/fields too is conservative; it never proves a retargeted alias.
+            for (var cursor = _position; cursor < _currentFunction!.BodyEnd; cursor++)
+                if (TokenAt(cursor).Lexeme == name.Lexeme && TokenAt(cursor + 1).Kind == TokenKind.Assign) return;
+            _taskStableSelfAliases.Add(local.Slot);
         }
     }
 }

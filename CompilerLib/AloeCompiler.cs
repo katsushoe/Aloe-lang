@@ -247,6 +247,7 @@ namespace Aloe.CompilerLib
                     _position = function.BodyStart;
                     _nextLocalSlot = 0;
                     _localTypes.Clear();
+                    _taskStableSelfAliases.Clear();
                     _declaredLocals.Clear();
                     _immutableLocalSlots.Clear();
                     _finallyGuards.Clear();
@@ -1858,6 +1859,7 @@ namespace Aloe.CompilerLib
                     return;
                 }
                 Expect(TokenKind.Assign);
+                var taskExpressionStart = _code.Count;
                 var type = ParseExpression();
                 var className = _lastExpressionClassName;
                 Expect(TokenKind.Semicolon);
@@ -1865,6 +1867,7 @@ namespace Aloe.CompilerLib
 
                 var local = DeclareLocal(name, type, className);
                 Emit(EnumOpcode.StoreLocal, local.Slot);
+                RecordStableTaskSelfAlias(name, local, taskExpressionStart);
             }
 
 
@@ -1889,6 +1892,7 @@ namespace Aloe.CompilerLib
                 var local = DeclareLocal(name, declaredType, declaredClassName);
                 if (immutable) _immutableLocalSlots.Add(local.Slot);
                 Emit(EnumOpcode.StoreLocal, local.Slot);
+                RecordStableTaskSelfAlias(name, local, expressionStart);
             }
 
 
