@@ -99,7 +99,8 @@ namespace Aloe.CompilerLib
             bool IsStaticMethod = false,
             bool IsPropertyGetter = false,
             bool IsVirtual = false,
-            string? DeclaringStruct = null);
+            string? DeclaringStruct = null,
+            string? DeclaringTrait = null);
 
 
         private sealed record FieldSignature(string Name, int Index, ExprType Type, string? ClassName = null,
@@ -156,6 +157,7 @@ namespace Aloe.CompilerLib
             public List<MethodSignature> StaticAsyncMethods { get; } = new();
             public List<MethodSignature> SynchronousStaticMethods { get; } = new();
             public List<string> Interfaces { get; } = new();
+            public List<string> Traits { get; } = new();
             public FunctionSignature? Constructor { get; set; }
         }
 
@@ -371,6 +373,7 @@ namespace Aloe.CompilerLib
                 _classes.Clear();
                 _interfaceNames.Clear();
                 _interfaces.Clear();
+                _traits.Clear();
                 _enumMembers.Clear();
                 _bitfieldEnums.Clear();
                 _enumEndPositions.Clear();
@@ -468,6 +471,12 @@ namespace Aloe.CompilerLib
                     if (string.Equals(topLevelToken.Lexeme, "interface", StringComparison.Ordinal))
                     {
                         CollectInterfaceSignature(ref position);
+                        continue;
+                    }
+
+                    if (string.Equals(topLevelToken.Lexeme, "trait", StringComparison.Ordinal))
+                    {
+                        CollectTraitSignature(ref position);
                         continue;
                     }
 
@@ -984,6 +993,8 @@ namespace Aloe.CompilerLib
                     while (true)
                     {
                         var interfaceName = TokenAt(position++);
+                        if (_traits.ContainsKey(interfaceName.Lexeme))
+                            throw Error(interfaceName, $"Trait '{interfaceName.Lexeme}' is applied with 'with', not 'implements'.");
                         if (interfaceName.Kind != TokenKind.Identifier || !_interfaces.ContainsKey(interfaceName.Lexeme))
                             throw Error(interfaceName, "Implemented interfaces must be declared before the class.");
                         if (classInfo.Interfaces.Contains(interfaceName.Lexeme, StringComparer.Ordinal))
@@ -994,6 +1005,7 @@ namespace Aloe.CompilerLib
                         position++;
                     }
                 }
+                CollectClassTraits(classInfo, ref position);
                 _classes.Add(classInfo.Name, classInfo);
                 ExpectAt(ref position, TokenKind.LBrace);
 
@@ -1284,6 +1296,7 @@ namespace Aloe.CompilerLib
                 }
 
                 position++; // class }
+                ApplyTraits(classInfo, classNameToken);
                 ValidateInterfaceImplementations(classInfo, classNameToken);
             }
 
@@ -1956,6 +1969,8 @@ namespace Aloe.CompilerLib
 
             private FieldSignature ResolveField(string className, AloeToken fieldToken)
             {
+                if (_currentFunction?.DeclaringTrait is string trait)
+                    throw Error(fieldToken, $"Trait '{trait}' methods cannot access class fields; call a required method instead.");
                 if (!_classes.TryGetValue(className, out var classInfo))
                     throw Error(fieldToken, $"Unknown class '{className}'.");
                 var field = classInfo.Fields.FirstOrDefault(x => x.Name == fieldToken.Lexeme)

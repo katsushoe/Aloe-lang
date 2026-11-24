@@ -1487,7 +1487,7 @@ class ConsoleLogger implements ILogger {
     }
 }
 </code></pre>
-<div class="note" id="interface-property-contracts">interfaceのプロパティの取り決め（決定0063、2026-11-24）: interfaceはasyncメソッドの取り決めに加えて、<code>property 名前: 型 { get; }</code> または <code>property 名前: 型 { get; set; }</code> を宣言できます。<code>get;</code> だけの取り決めは、型が完全に一致する公開インスタンスプロパティで満たされます。継承したプロパティや、setterも持つプロパティでもかまいません。<code>get; set;</code> の取り決めには決定0047のsetterが必要なため、型は int/bool/byte/char/float/decimal/string に限られます。interfaceの継承では、プロパティの取り決めもメソッドと同じく平坦化します。同一の取り決めは1つにまとめ、型や読み書きが異なる場合と、同じ名前のメソッドとプロパティがある場合はコンパイルエラーです。interface型のローカル変数・引数・配列やリストの要素・関数の戻り値から取り決めを読むと、実体のクラスのgetterを同期実行し、他のプロパティ問い合わせと同じく確定済み（Committed）の状態を読みます。<code>get; set;</code> の取り決めへ代入すると、実体のクラスのsetterを通常のsetterと同じ規則で同期実行します。どちらもTickには積みません。getterやsetterで発生した例外は、クラスのプロパティを直接使う場合と同じく、呼び出し元の対応するcatchへ伝わります。コンパイラはinterfaceへ代入可能な既知のクラスの対応表を作り、末尾に追加したsyscall 64（InterfacePropertyDispatch）が受け取ったオブジェクトの実体のクラスから呼び先を選びます。opcode、既存のsyscall番号、AloeBCコンテナ形式は変更しません。interfaceには同期メソッドも、アクセサやメソッドの本体も書けません。trait（決定0062）による実装の共有、値を返すasyncメソッド（L40、決定0064）、クラスのプロパティのoverride、interfaceのstaticメンバーはこの範囲に含みません。直接WASMはinterfaceに対応していません。</div>
+<div class="note" id="interface-property-contracts">interfaceのプロパティの取り決め（決定0063、2026-11-24）: interfaceはasyncメソッドの取り決めに加えて、<code>property 名前: 型 { get; }</code> または <code>property 名前: 型 { get; set; }</code> を宣言できます。<code>get;</code> だけの取り決めは、型が完全に一致する公開インスタンスプロパティで満たされます。継承したプロパティや、setterも持つプロパティでもかまいません。<code>get; set;</code> の取り決めには決定0047のsetterが必要なため、型は int/bool/byte/char/float/decimal/string に限られます。interfaceの継承では、プロパティの取り決めもメソッドと同じく平坦化します。同一の取り決めは1つにまとめ、型や読み書きが異なる場合と、同じ名前のメソッドとプロパティがある場合はコンパイルエラーです。interface型のローカル変数・引数・配列やリストの要素・関数の戻り値から取り決めを読むと、実体のクラスのgetterを同期実行し、他のプロパティ問い合わせと同じく確定済み（Committed）の状態を読みます。<code>get; set;</code> の取り決めへ代入すると、実体のクラスのsetterを通常のsetterと同じ規則で同期実行します。どちらもTickには積みません。getterやsetterで発生した例外は、クラスのプロパティを直接使う場合と同じく、呼び出し元の対応するcatchへ伝わります。コンパイラはinterfaceへ代入可能な既知のクラスの対応表を作り、末尾に追加したsyscall 64（InterfacePropertyDispatch）が受け取ったオブジェクトの実体のクラスから呼び先を選びます。opcode、既存のsyscall番号、AloeBCコンテナ形式は変更しません。interfaceには同期メソッドも、アクセサやメソッドの本体も書けません。traitのメソッドでメソッドの取り決めを満たせます（7.5参照）。値を返すasyncメソッド（L40、決定0064）、クラスのプロパティのoverride、interfaceのstaticメンバーはこの範囲に含みません。直接WASMはinterfaceに対応していません。</div>
 <pre><code>interface Scored {
     property Score: int { get; }
     property Name: string { get; set; }
@@ -1514,11 +1514,26 @@ function main(args: string[]): int {
 
 
     <h3>7.5 trait</h3>
-<div class="note" id="trait-status">設計案です。現在のコンパイラーはtrait宣言、<code>with</code>によるtrait合成、traitの実行時型検査をサポートしません。以下の例は実行できません。</div>
-<pre><code>trait Trait_A {
-    method hello(): void {
-        print("Hello from Trait_A");
-    }
+<div class="note" id="trait-status">trait（決定0062、2026-11-24）: traitは、状態を持たないメソッドの集まりで、コンパイラが適用先のクラスへ複製します。<code>trait 名前 [with A, B] { ... }</code> には、クラスのメソッドと同じ規則に従う本体付きの同期メソッド（private/protected、または修飾子なし）と <code>public async</code> メソッド、および <code>require method 名前(引数): 型;</code> の取り決めを書けます。フィールド、コンストラクター、プロパティ、static・virtual・overrideのメンバーはコンパイルエラーです。クラスは、省略可能な <code>extends</code> と <code>implements</code> の後にtraitを適用します: <code>class 名前 [extends 基底] [implements I] with T1, T2 { ... }</code>。traitを適用できるのはクラスだけで、structやenumには適用できません。traitは、先に宣言したtraitを <code>with</code> で含められます。自分自身は含められず、traitは使う前に宣言する必要があるため、合成が循環することはありません。コンパイル時に、クラスが適用したtraitと、それらが含むtraitのメソッドが、すべてクラスのメソッドになります。VM・AloeBC・syscallは変わりません。クラス自身が定義したメソッドが優先されます。異なるtraitの同名メソッド同士、およびtraitのメソッドと継承したメソッドが同名の場合は、クラスがそのメソッドを定義しない限りコンパイルエラーです。複数の経路で含まれた同じtraitのメソッドは1回だけ取り込みます。各 <code>require</code> は、クラス・基底クラス・適用した別のtraitにある、名前・引数の型・戻り値の型が一致するstaticでないメソッドで満たす必要があります。traitのメソッド本体から <code>this.</code> で呼べるのは、そのtraitと含むtraitのメソッド、および <code>require</code> したメソッドだけで、クラスのフィールドにはアクセスできません。本体は適用先のクラスごとにコンパイルされるため、どのクラスにも適用されないtraitはコンパイルされません。asyncメソッドの呼び出しの循環検査は、展開後のクラスに対して行います。trait名はinterfaceと同じく型として使えます。traitを適用したクラスとその派生クラスの値はtrait型へ代入でき、ローカル変数・引数・戻り値・配列の要素・<code>is</code>・<code>as</code> に使えます。trait型の値から呼べるのはtraitのpublic asyncメソッドだけで、実体のクラスによって呼び先が決まります。traitのメソッドで、クラスが実装するinterfaceの取り決めを満たせます（決定0063）。traitのメソッド内の <code>__TRAIT__</code> は本体を宣言したtraitの名前、<code>__CLASS__</code> は適用先のクラスの名前です。interfaceは実装を持たない取り決め、traitは実装を持ち込める部品で型としても使える、という役割分担です。traitの状態、structへの適用、別名・除外による衝突の解決、traitのstaticメンバーはこの範囲に含みません。直接WASMはクラスとtraitに対応していません。</div>
+<pre><code>trait Named {
+    require method name(): string;
+    method label(): string { return this.name(); }
+}
+
+trait Greeter with Named {
+    public async method greet(): void { print(this.label()); }
+}
+
+class Player with Greeter {
+    private method name(): string { return "player"; }
+}
+
+function hello(value: Greeter): void { value.greet(); }
+
+function main(args: string[]): int {
+    hello(new Player());
+    tick();
+    return 0;
 }
 </code></pre>
 

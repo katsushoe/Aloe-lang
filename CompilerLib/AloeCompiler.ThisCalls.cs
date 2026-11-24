@@ -17,6 +17,8 @@ public sealed partial class AloeCompiler
             var method = FindMethod(className, member.Lexeme);
             if (method == null || method.Function.IsStaticMethod)
                 throw Error(member, $"Unknown instance method '{className}.{member.Lexeme}'.");
+            if (function.DeclaringTrait is string trait && !IsTraitMemberVisible(trait, member.Lexeme))
+                throw Error(member, $"Trait '{trait}' methods may call only its own, included or required methods; '{member.Lexeme}' is not one of them.");
             return (member, method, className);
         }
 

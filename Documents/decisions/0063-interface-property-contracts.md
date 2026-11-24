@@ -3,7 +3,7 @@
 Status: Accepted (option A)
 Date: 2026-11-22 JST
 Adopted: 2026-11-22 JST, user response「A」
-Implementation status: Partially implemented (2026-11-24). Items 1, 2, 3 and 5 are implemented: syscall 64 `InterfacePropertyDispatch`, `Test_CompilerLib/InterfacePropertyContractTests.cs`, and the English/Japanese language specification 7.4. Item 4 (satisfying contracts through traits) waits for decision 0062, which is not implemented. Product acceptance requires `.local/interface-properties-<date>/acceptance.json` after item 4.
+Implementation status: Implemented (2026-11-24). Items 1, 2, 3 and 5: syscall 64 `InterfacePropertyDispatch`, `Test_CompilerLib/InterfacePropertyContractTests.cs` and the English/Japanese language specification 7.4. Item 4 (trait methods satisfying interface contracts) arrived with decision 0062: `Test_CompilerLib/TraitTests.cs`. Product acceptance: `.local/traits-20261124/acceptance.json` (shared with decision 0062).
 Rubric: L34 (Interface default/synchronous/value-returning member contracts). Related: 0018 (interface async dispatch), 0047 (property setters), 0062 (traits), L40 (value-returning async).
 
 ## 問題

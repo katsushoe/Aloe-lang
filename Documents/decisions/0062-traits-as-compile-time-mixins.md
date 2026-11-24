@@ -3,7 +3,7 @@
 Status: Accepted (option A)
 Date: 2026-11-22 JST
 Adopted: 2026-11-22 JST, user response「A」
-Implementation status: Not implemented. Product acceptance requires `.local/traits-<date>/acceptance.json`.
+Implementation status: Implemented (2026-11-24). Classes apply traits after the existing `extends` / `implements` clauses (`class Name [extends Base] [implements I] with T1, T2`); the `:` base syntax in the example below is not part of the language. Tests: `Test_CompilerLib/TraitTests.cs`. Product acceptance: `.local/traits-20261124/acceptance.json`.
 Rubric: L33 (Trait declarations, composition and type checks). Related: L34 (interface default members), decision 0060 (`__TRAIT__`).
 
 ## 問題

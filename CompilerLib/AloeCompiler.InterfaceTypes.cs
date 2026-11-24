@@ -19,6 +19,8 @@ public sealed partial class AloeCompiler
             while (true)
             {
                 var parentToken = TokenAt(position++);
+                if (_traits.ContainsKey(parentToken.Lexeme))
+                    throw Error(parentToken, $"Interfaces cannot extend trait '{parentToken.Lexeme}'.");
                 if (parentToken.Kind != TokenKind.Identifier || parentToken.Lexeme == target.Name ||
                     !_interfaces.TryGetValue(parentToken.Lexeme, out var parent))
                     throw Error(parentToken, "Interface parents must be previously declared interfaces other than itself.");

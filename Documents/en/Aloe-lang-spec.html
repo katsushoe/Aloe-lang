@@ -1226,7 +1226,7 @@ class ConsoleLogger implements ILogger {
     }
 }
 </code></pre>
-<div class="note" id="interface-property-contracts">Interface property contracts (decision 0063, 2026-11-24): an interface may declare <code>property Name: Type { get; }</code> or <code>property Name: Type { get; set; }</code> alongside its async method contracts. A get-only contract is satisfied by a public instance property of exactly the same type, including an inherited property or one that also has a setter. A get/set contract requires a decision 0047 scalar setter, so its type is limited to int/bool/byte/char/float/decimal/string. Interface inheritance flattens property contracts like method contracts: identical contracts merge, while differing types or accessors, or a method and a property with the same name, are compile errors. Reading a contract through an interface-typed local, parameter, array/list element or call result runs the runtime class's getter synchronously and reads Committed state like other property queries. Assigning through a get/set contract runs the runtime class's setter synchronously under the ordinary setter rules. Neither access is queued for a Tick. An exception raised by the getter or setter propagates to the caller's matching catch, as for direct class property access. The compiler builds a table of the known classes assignable to the interface, and the appended syscall 64 (InterfacePropertyDispatch) selects the accessor from the receiver's runtime class; opcodes, existing syscall numbers and the AloeBC container format are unchanged. Interfaces declare no synchronous methods and no accessor or method bodies. Sharing implementations through traits (decision 0062), value-returning async methods (L40, decision 0064), class property overrides and static interface members are outside this subset. Direct WASM does not support interfaces.</div>
+<div class="note" id="interface-property-contracts">Interface property contracts (decision 0063, 2026-11-24): an interface may declare <code>property Name: Type { get; }</code> or <code>property Name: Type { get; set; }</code> alongside its async method contracts. A get-only contract is satisfied by a public instance property of exactly the same type, including an inherited property or one that also has a setter. A get/set contract requires a decision 0047 scalar setter, so its type is limited to int/bool/byte/char/float/decimal/string. Interface inheritance flattens property contracts like method contracts: identical contracts merge, while differing types or accessors, or a method and a property with the same name, are compile errors. Reading a contract through an interface-typed local, parameter, array/list element or call result runs the runtime class's getter synchronously and reads Committed state like other property queries. Assigning through a get/set contract runs the runtime class's setter synchronously under the ordinary setter rules. Neither access is queued for a Tick. An exception raised by the getter or setter propagates to the caller's matching catch, as for direct class property access. The compiler builds a table of the known classes assignable to the interface, and the appended syscall 64 (InterfacePropertyDispatch) selects the accessor from the receiver's runtime class; opcodes, existing syscall numbers and the AloeBC container format are unchanged. Interfaces declare no synchronous methods and no accessor or method bodies. Trait methods (decision 0062) can satisfy method contracts (see 7.5). Value-returning async methods (L40, decision 0064), class property overrides and static interface members are outside this subset. Direct WASM does not support interfaces.</div>
 <pre><code>interface Scored {
     property Score: int { get; }
     property Name: string { get; set; }
@@ -1253,11 +1253,26 @@ function main(args: string[]): int {
 
 
     <h3>7.5 trait</h3>
-<div class="note" id="trait-status">Design draft only: the current compiler does not support trait declarations, trait composition with <code>with</code>, or trait runtime type checks. The example below is not executable.</div>
-<pre><code>trait Trait_A {
-    method hello(): void {
-        print("Hello from Trait_A");
-    }
+<div class="note" id="trait-status">Traits (decision 0062, 2026-11-24): a trait is a stateless set of methods that the compiler copies into classes. <code>trait Name [with A, B] { ... }</code> may contain synchronous methods (private/protected, or unmodified) and <code>public async</code> methods with bodies, following the class method rules, plus <code>require method name(parameters): Type;</code> contracts. Fields, constructors, properties, static, virtual and override members are compile errors. A class applies traits after its optional <code>extends</code> and <code>implements</code> clauses: <code>class Name [extends Base] [implements I] with T1, T2 { ... }</code>. Only classes apply traits; structs and enums cannot. A trait may include previously declared traits with <code>with</code>; a trait cannot include itself, and because traits must be declared before use, composition cannot form a cycle. At compile time every trait method of the class's trait closure becomes a method of the class; the VM, AloeBC and syscalls are unchanged. A method defined by the class itself wins. Two different trait methods with the same name, or a trait method with the same name as an inherited method, are compile errors unless the class defines that method. A trait included through several paths contributes its methods once. Each requirement must be met by a non-static method of the class, its base classes or another applied trait, with the same name, parameter types and return type. Trait method bodies may call, through <code>this.</code>, only methods of the trait closure and its requirements, and cannot access class fields. Bodies are compiled once per applying class, so a trait that no class applies is not compiled. Async call-graph cycle checks run on the expanded classes. A trait name is a type, like an interface: classes applying the trait (and their subclasses) are assignable to it, and it can be used for locals, parameters, results, array elements, <code>is</code> and <code>as</code>. Through a trait-typed value only the trait's public async methods can be called; they are dispatched by runtime class. Trait methods can satisfy interface contracts of the class (decision 0063). Inside a trait method, <code>__TRAIT__</code> is the name of the trait that declared the body, and <code>__CLASS__</code> is the applying class. Interfaces describe contracts without implementations; traits bring implementations and are also types. Trait state, structs applying traits, aliasing or excluding methods to resolve conflicts, and static trait members are outside this subset. Direct WASM does not support classes or traits.</div>
+<pre><code>trait Named {
+    require method name(): string;
+    method label(): string { return this.name(); }
+}
+
+trait Greeter with Named {
+    public async method greet(): void { print(this.label()); }
+}
+
+class Player with Greeter {
+    private method name(): string { return "player"; }
+}
+
+function hello(value: Greeter): void { value.greet(); }
+
+function main(args: string[]): int {
+    hello(new Player());
+    tick();
+    return 0;
 }
 </code></pre>
 

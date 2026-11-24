@@ -98,7 +98,13 @@ public sealed partial class AloeCompiler
                     break;
                 }
                 case "__TRAIT__":
-                    throw Error(token, "__TRAIT__ is not available until traits are implemented (decision 0062).");
+                {
+                    var trait = _currentFunction?.DeclaringTrait
+                        ?? throw Error(token, "__TRAIT__ is valid only inside a trait method.");
+                    value = AloeValue.FromString(trait);
+                    type = ExprType.String;
+                    break;
+                }
                 default:
                     throw Error(token, $"Unknown standard constant '{name}'. Names starting with ALOE_ and __name__ are reserved.");
             }
