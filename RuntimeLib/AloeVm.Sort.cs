@@ -11,7 +11,7 @@ public sealed partial class AloeVm
         var outputId = context.Binding!.OutputPipeId;
         var output = _pipes[outputId];
         var schema = context.Binding.SortSchema;
-        if (schema != null || context.Binding.FunctionIndex == -36)
+        if (schema != null || context.Binding.FunctionIndex is -36 or -43)
         {
             RunItemSortFilterQuantum(context, input, outputId, output, schema);
             return;
@@ -91,9 +91,12 @@ public sealed partial class AloeVm
             if (input.Values.Count > 0)
             {
                 var value = input.Values.Peek();
+                var option = context.Binding!.OptionSortSchema;
                 if (schema == null)
                 {
-                    if (!value.IsString) throw new VmException("The string sort standard filter expects string values.");
+                    var element = option?.Element ?? "string";
+                    if (!IsSortableScalar(value, element))
+                        throw new VmException($"The {element} sort standard filter expects {element} values.");
                 }
                 else
                 {
@@ -101,23 +104,10 @@ public sealed partial class AloeVm
                         schema.FieldIndex >= value.AsStruct.FieldCount)
                         throw new VmException($"The sort filter expects struct '{schema.TypeName}' with field '{schema.FieldName}'.");
                     var key = value.AsStruct.GetField(schema.FieldIndex);
-                    if (schema.IsStringKey)
-                    {
-                        if (!key.IsString)
-                            throw new VmException($"The sort key '{schema.FieldName}' must be a string field.");
-                    }
-                    else if (schema.IsByteKey)
-                    {
-                        if (!key.IsByte)
-                            throw new VmException($"The sort key '{schema.FieldName}' must be a byte field.");
-                    }
-                    else if (schema.IsBoolKey)
-                    {
-                        if (!key.IsBool)
-                            throw new VmException($"The sort key '{schema.FieldName}' must be a bool field.");
-                    }
-                    else if (!key.IsInt || key.AsInt < int.MinValue || key.AsInt > int.MaxValue)
-                        throw new VmException($"The sort key '{schema.FieldName}' must be a signed int32 field.");
+                    if (!IsSortableScalar(key, schema.KeyType))
+                        throw new VmException(schema.KeyType == "int"
+                            ? $"The sort key '{schema.FieldName}' must be a signed int32 field."
+                            : $"The sort key '{schema.FieldName}' must be a {schema.KeyType} field.");
                 }
                 values.Add(value);
                 input.Values.Dequeue();
@@ -130,15 +120,17 @@ public sealed partial class AloeVm
                 _contextSuspendRequested = true;
                 return;
             }
-            values = schema == null
-                ? values.OrderBy(value => value.AsString, StringComparer.Ordinal).ToList()
-                : schema.IsStringKey
-                    ? values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsString, StringComparer.Ordinal).ToList()
-                    : schema.IsByteKey
-                        ? values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsByte).ToList()
-                        : schema.IsBoolKey
-                            ? values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsBool).ToList()
-                            : values.OrderBy(value => value.AsStruct.GetField(schema.FieldIndex).AsInt).ToList();
+            {
+                var option = context.Binding!.OptionSortSchema;
+                var keyType = schema?.KeyType ?? option?.Element ?? "string";
+                var descending = schema?.Descending ?? option?.Descending ?? false;
+                Func<AloeValue, AloeValue> key = schema == null ? v => v : v => v.AsStruct.GetField(schema.FieldIndex);
+                var comparer = Comparer<AloeValue>.Create((x, y) => CompareSortScalars(x, y, keyType));
+                // LINQ ordering is stable: ties keep input order in both directions.
+                values = descending
+                    ? values.OrderByDescending(key, comparer).ToList()
+                    : values.OrderBy(key, comparer).ToList();
+            }
             context.SortItemValues = values;
             context.SortReady = true;
         }
@@ -165,4 +157,30 @@ public sealed partial class AloeVm
         SchedulePipeFilters(outputId, output);
         context.IsCompleted = true;
     }
+
+    private static bool IsSortableScalar(AloeValue value, string kind) => kind switch
+    {
+        "int" => value.IsInt && value.AsInt is >= int.MinValue and <= int.MaxValue,
+        "string" => value.IsString,
+        "byte" => value.IsByte,
+        "bool" => value.IsBool,
+        "char" => value.IsChar,
+        "float" => value.IsFloat && double.IsFinite(value.AsFloat),
+        "decimal" => value.IsDecimal,
+        _ => false
+    };
+
+    // Natural ascending order per kind (decision 0054). Equal values (for example 1.0/1.00 or
+    // -0.0/0.0) compare equal so stable ordering preserves their input order and representation.
+    private static int CompareSortScalars(AloeValue x, AloeValue y, string kind) => kind switch
+    {
+        "int" => x.AsInt.CompareTo(y.AsInt),
+        "string" => string.CompareOrdinal(x.AsString, y.AsString),
+        "byte" => x.AsByte.CompareTo(y.AsByte),
+        "bool" => x.AsBool.CompareTo(y.AsBool),
+        "char" => x.AsChar.CompareTo(y.AsChar),
+        "float" => x.AsFloat == y.AsFloat ? 0 : x.AsFloat < y.AsFloat ? -1 : 1,
+        "decimal" => x.AsDecimal.CompareTo(y.AsDecimal),
+        _ => throw new VmException($"Unsupported sort kind '{kind}'.")
+    };
 }

@@ -47,6 +47,7 @@ namespace Aloe.RuntimeLib
             public int SynchronousCallDepth { get; set; }
             public int CommittedQueryDepth { get; set; }
             public long? TaskIdentity { get; set; }
+            public TaskDeletionState? TaskDeletion { get; set; }
         }
 
         private readonly VmThreadState _mainThreadState = new();
@@ -90,7 +91,9 @@ namespace Aloe.RuntimeLib
             public string? StringArgument { get; }
             public JsonFilterSchema? JsonSchema { get; }
             public SortFilterSchema? SortSchema { get; }
-            public bool IsBuiltinFilter => FunctionIndex is >= -41 and <= -1;
+            public OptionSortSchema? OptionSortSchema { get; init; }
+            public ConditionalStageSchema? ConditionalSchema { get; init; }
+            public bool IsBuiltinFilter => FunctionIndex is >= -48 and <= -1;
             public long OutputPipeId { get; }
             public VmExecutionContext? Task { get; set; }
         }
@@ -133,6 +136,8 @@ namespace Aloe.RuntimeLib
             public byte[] HashInputBuffer { get; } = new byte[StreamingHashInputBufferSize];
             public int HashInputCount { get; set; }
             public Md4HashState? Md4Hash { get; set; }
+            public uint? Crc32State { get; set; }
+            public MemoryStream? ArchiveInput { get; set; }
             public List<long>? SortValues { get; set; }
             public List<AloeValue>? SortItemValues { get; set; }
             public bool SortReady { get; set; }
@@ -807,7 +812,7 @@ namespace Aloe.RuntimeLib
         {
             if (frame.CaughtExceptions.Count == 0)
                 throw new VmException("CATCH_END is outside a catch block.");
-            frame.CaughtExceptions.Pop();
+            PopCaughtContext(frame);
         }
 
         public void Rethrow(CallFrame frame)
@@ -817,6 +822,11 @@ namespace Aloe.RuntimeLib
             // An inner try can handle this rethrow and resume inside the same catch.
             // Dispatch removes only contexts exited on the way to its selected handler.
             var exception = frame.CaughtExceptions.Peek();
+            if (exception.SourceException is TaskDeletionSignal)
+            {
+                DispatchException(exception.SourceException);
+                return;
+            }
             exception.Throw();
         }
 
@@ -836,13 +846,20 @@ namespace Aloe.RuntimeLib
             CallFrame? targetFrame = null;
             ExceptionHandlerFrame? targetHandler = null;
             var selectedCatchIp = -1;
+            var deletion = CurrentThreadState.TaskDeletion;
+            var barrierIndex = deletion?.CleanupFrame is CallFrame barrier ? Array.IndexOf(frames, barrier) : -1;
+            var targetInsideCleanup = false;
 
-            foreach (var candidate in frames)
+            for (var frameIndex = 0; frameIndex < frames.Length; frameIndex++)
             {
+                var candidate = frames[frameIndex];
                 ExpireExceptionHandlers(candidate, candidate.Ip);
                 while (candidate.ExceptionHandlers.TryPeek(out var handler))
                 {
-                    if (!TryFindMatchingCatchTarget(candidate, handler, exception, out var catchIp))
+                    var insideCleanup = deletion != null && barrierIndex >= 0 &&
+                        (frameIndex < barrierIndex || frameIndex == barrierIndex && handler.CaughtExceptionDepth >= deletion.CleanupDepth);
+                    var cleanupOnly = exception is TaskDeletionSignal || deletion != null && !insideCleanup;
+                    if (!TryFindMatchingCatchTarget(candidate, handler, exception, out var catchIp, cleanupOnly))
                     {
                         candidate.ExceptionHandlers.Pop();
                         continue;
@@ -850,6 +867,7 @@ namespace Aloe.RuntimeLib
                     targetFrame = candidate;
                     targetHandler = handler;
                     selectedCatchIp = catchIp;
+                    targetInsideCleanup = insideCleanup;
                     break;
                 }
                 if (targetHandler != null) break;
@@ -857,7 +875,17 @@ namespace Aloe.RuntimeLib
             }
 
             if (targetFrame == null || targetHandler == null)
+            {
+                if (deletion != null)
+                {
+                    if (exception is not TaskDeletionSignal) deletion.Failure = ExceptionDispatchInfo.Capture(exception);
+                    _callStack.Clear();
+                    _valueStack.Clear();
+                    deletion.CleanupFrame = null;
+                    return true;
+                }
                 return false;
+            }
 
             while (framesToUnwind-- > 0)
                 _callStack.Pop();
@@ -870,8 +898,16 @@ namespace Aloe.RuntimeLib
                 _valueStack.Push(targetHandler.ValueStackTopFirst[i]);
 
             while (targetFrame.CaughtExceptions.Count > targetHandler.CaughtExceptionDepth)
-                targetFrame.CaughtExceptions.Pop();
-            targetFrame.CaughtExceptions.Push(ExceptionDispatchInfo.Capture(exception));
+                PopCaughtContext(targetFrame);
+            var isCleanup = targetFrame.Module.Code[targetHandler.CatchIp].Opcode == EnumOpcode.TryCatch &&
+                targetFrame.Module.Code[targetHandler.CatchIp].Operand1 == AloeCatchDescriptor.Cleanup;
+            PushCaughtContext(targetFrame, exception, isCleanup);
+            if (deletion != null && !targetInsideCleanup)
+            {
+                if (exception is not TaskDeletionSignal) deletion.Failure = ExceptionDispatchInfo.Capture(exception);
+                deletion.CleanupFrame = targetFrame;
+                deletion.CleanupDepth = targetFrame.CaughtExceptions.Count;
+            }
             targetFrame.Ip = selectedCatchIp;
             return true;
         }
@@ -880,7 +916,7 @@ namespace Aloe.RuntimeLib
             CallFrame frame,
             ExceptionHandlerFrame handler,
             Exception exception,
-            out int catchIp)
+            out int catchIp, bool cleanupOnly = false)
         {
             catchIp = -1;
             var code = frame.Module.Code;
@@ -897,6 +933,7 @@ namespace Aloe.RuntimeLib
                         catchIp = descriptor.Operand0;
                         return true;
                     }
+                    if (cleanupOnly) continue;
                     Type? exceptionType = null;
                     if (descriptor.Operand1 != 0)
                     {
@@ -917,7 +954,7 @@ namespace Aloe.RuntimeLib
                 return false;
             }
 
-            if (handler.ExceptionType != null && !handler.ExceptionType.IsInstanceOfType(exception))
+            if (cleanupOnly || handler.ExceptionType != null && !handler.ExceptionType.IsInstanceOfType(exception))
                 return false;
             catchIp = handler.CatchIp;
             return true;
@@ -1019,6 +1056,7 @@ namespace Aloe.RuntimeLib
                 case EnumSyscall.TaskRequireLive:
                 case EnumSyscall.TaskConstruct:
                 case EnumSyscall.TaskInvoke:
+                case EnumSyscall.TaskDeleteAndUnwind:
                     lock (_callBufferGate)
                         InvokeTaskSyscall(syscallId);
                     break;
@@ -1125,6 +1163,18 @@ namespace Aloe.RuntimeLib
                         if (!value.IsBool)
                             throw new VmException($"GC.debug expects bool; found {value.Kind}.");
                         SetGcDebug(value.AsBool);
+                        break;
+                    }
+
+                case EnumSyscall.InterfacePropertyDispatch:
+                    InvokeInterfacePropertyDispatch();
+                    break;
+                case EnumSyscall.RuntimeConstant:
+                    {
+                        var nameValue = Pop();
+                        if (!nameValue.IsString)
+                            throw new VmException("RuntimeConstant expects a constant name string.");
+                        Push(GetRuntimeConstant(nameValue.AsString));
                         break;
                     }
 
@@ -1434,10 +1484,10 @@ namespace Aloe.RuntimeLib
                 case EnumSyscall.PipeBindFilter:
                     {
                         var functionIndexValue = Pop();
-                        if (!functionIndexValue.IsInt || functionIndexValue.AsInt < -41 || functionIndexValue.AsInt >= _module.Functions.Count)
+                        if (!functionIndexValue.IsInt || functionIndexValue.AsInt < -48 || functionIndexValue.AsInt >= _module.Functions.Count)
                             throw new VmException("PipeBindFilter expects a valid filter function index.");
                         string? stringArgument = null;
-                        if (functionIndexValue.AsInt is -7 or -8 or -9 or -10 or -30 or -34 or -35)
+                        if (functionIndexValue.AsInt is -7 or -8 or -9 or -10 or -30 or -34 or -35 or -43 or -44)
                         {
                             var argumentValue = Pop();
                             if (!argumentValue.IsString)
@@ -1450,6 +1500,8 @@ namespace Aloe.RuntimeLib
                         var output = GetPipe(outputValue);
                         JsonFilterSchema? jsonSchema = null;
                         SortFilterSchema? sortSchema = null;
+                        OptionSortSchema? optionSortSchema = null;
+                        ConditionalStageSchema? conditionalSchema = null;
                         if (functionIndexValue.AsInt is -15 or -16)
                         {
                             if (input.TypeName != "pipe<byte>" || output.TypeName != "pipe<string>")
@@ -1509,6 +1561,21 @@ namespace Aloe.RuntimeLib
                             if (input.TypeName != expectedPipe || output.TypeName != expectedPipe)
                                 throw new VmException("The keyed sort standard filter requires matching struct pipes.");
                         }
+                        else if (functionIndexValue.AsInt == -44)
+                        {
+                            if (stringArgument == null || input.TypeName != output.TypeName)
+                                throw new VmException("The conditional stage requires a schema and matching input/output pipes.");
+                            conditionalSchema = ParseConditionalStageSchema(stringArgument);
+                        }
+                        else if (functionIndexValue.AsInt == -43)
+                        {
+                            if (stringArgument == null)
+                                throw new VmException("The option sort standard filter requires an element/order schema.");
+                            optionSortSchema = ParseOptionSortSchema(stringArgument);
+                            var expectedPipe = $"pipe<{optionSortSchema.Element}>";
+                            if (input.TypeName != expectedPipe || output.TypeName != expectedPipe)
+                                throw new VmException($"The {optionSortSchema.Element} sort standard filter requires {expectedPipe} input and output.");
+                        }
                         else if (functionIndexValue.AsInt == -36)
                         {
                             if (stringArgument != null || input.TypeName != "pipe<string>" || output.TypeName != "pipe<string>")
@@ -1557,10 +1624,20 @@ namespace Aloe.RuntimeLib
                             if (input.TypeName != "pipe<byte>" || output.TypeName != "pipe<byte>")
                                 throw new VmException("The md4 standard filter requires pipe<byte> input and output.");
                         }
+                        else if (IsArchiveFilter((int)functionIndexValue.AsInt))
+                        {
+                            if (input.TypeName != "pipe<byte>" || output.TypeName != "pipe<byte>")
+                                throw new VmException($"The {ArchiveFilterName((int)functionIndexValue.AsInt)} standard filter requires pipe<byte> input and output.");
+                        }
+                        else if (functionIndexValue.AsInt == -42)
+                        {
+                            if (input.TypeName != "pipe<byte>" || output.TypeName != "pipe<byte>")
+                                throw new VmException("The crc32 standard filter requires pipe<byte> input and output.");
+                        }
                         else if ((functionIndexValue.AsInt is >= -20 and <= -1 or -22 or -23 or -25 or -26) &&
                             (input.TypeName != "pipe<string>" || output.TypeName != "pipe<string>"))
                             throw new VmException("Standard string filters require pipe<string> input and output.");
-                        input.Filters.Add(new FilterBinding((int)functionIndexValue.AsInt, outputValue.AsObjectId, stringArgument, jsonSchema, sortSchema));
+                        input.Filters.Add(new FilterBinding((int)functionIndexValue.AsInt, outputValue.AsObjectId, stringArgument, jsonSchema, sortSchema) { OptionSortSchema = optionSortSchema, ConditionalSchema = conditionalSchema });
                         if (input.IsClosed || input.Values.Count > 0)
                             SchedulePipeFilters(inputValue.AsObjectId, input);
                         break;
@@ -1738,7 +1815,7 @@ namespace Aloe.RuntimeLib
                 RunShuffleFilterQuantum(context);
                 return;
             }
-            if (context.Binding!.FunctionIndex is -32 or -35 or -36 or -38 or -40)
+            if (context.Binding!.FunctionIndex is -32 or -35 or -36 or -38 or -40 or -43)
             {
                 RunSortFilterQuantum(context);
                 return;
@@ -1803,6 +1880,21 @@ namespace Aloe.RuntimeLib
                 RunMd4FilterQuantum(context);
                 return;
             }
+            if (IsArchiveFilter(context.Binding!.FunctionIndex))
+            {
+                RunArchiveFilterQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -44)
+            {
+                RunConditionalStageQuantum(context);
+                return;
+            }
+            if (context.Binding!.FunctionIndex == -42)
+            {
+                RunCrc32FilterQuantum(context);
+                return;
+            }
 
             var input = _pipes[context.InputPipeId];
             var outputId = context.Binding!.OutputPipeId;
@@ -1860,28 +1952,31 @@ namespace Aloe.RuntimeLib
                 SchedulePipeFilters(outputId, output);
                 return;
             }
-            var converted = context.Binding!.FunctionIndex switch
-            {
-                -1 => value.AsString.ToLowerInvariant(),
-                -2 => value.AsString.ToUpperInvariant(),
-                -3 => value.AsString.TrimStart(),
-                -4 => value.AsString.TrimEnd(),
-                -5 => value.AsString.Trim(),
-                -11 or -12 or -13 => ConvertCaseStyle(value.AsString, context.Binding!.FunctionIndex),
-                -14 => Regex.Escape(value.AsString),
-                -19 => UrlEncodeComponent(value.AsString),
-                -20 => UrlDecodeComponent(value.AsString),
-                -22 => HtmlEscapeText(value.AsString),
-                -23 => HtmlUnescapeCanonicalText(value.AsString),
-                -25 => WebUtility.HtmlDecode(value.AsString),
-                -26 => StripHtmlTags(value.AsString),
-                _ => throw new VmException("Unknown standard string filter.")
-            };
+            var converted = ApplyStringFilter(context.Binding!.FunctionIndex, value.AsString);
             output.Values.Enqueue(AloeValue.FromString(converted));
             WakeOnePipeWriter(context.InputPipeId, input);
             WakeOnePipeReader(outputId, output);
             SchedulePipeFilters(outputId, output);
         }
+
+        private static string ApplyStringFilter(int functionIndex, string value)
+            => functionIndex switch
+            {
+                -1 => value.ToLowerInvariant(),
+                -2 => value.ToUpperInvariant(),
+                -3 => value.TrimStart(),
+                -4 => value.TrimEnd(),
+                -5 => value.Trim(),
+                -11 or -12 or -13 => ConvertCaseStyle(value, functionIndex),
+                -14 => Regex.Escape(value),
+                -19 => UrlEncodeComponent(value),
+                -20 => UrlDecodeComponent(value),
+                -22 => HtmlEscapeText(value),
+                -23 => HtmlUnescapeCanonicalText(value),
+                -25 => WebUtility.HtmlDecode(value),
+                -26 => StripHtmlTags(value),
+                _ => throw new VmException("Unknown standard string filter.")
+            };
 
         private void RunCsvEncodeFilterQuantum(VmExecutionContext context)
         {
@@ -2670,7 +2765,7 @@ namespace Aloe.RuntimeLib
         }
 
         private static bool IsSupportedPipeTypeName(string typeName)
-            => typeName is "pipe<int>" or "pipe<decimal>" or "pipe<byte>" or "pipe<string>" or "pipe<bool>" or "pipe<string[]>" or "pipe<map<string/string>>" ||
+            => typeName is "pipe<int>" or "pipe<decimal>" or "pipe<char>" or "pipe<float>" or "pipe<byte>" or "pipe<string>" or "pipe<bool>" or "pipe<string[]>" or "pipe<map<string/string>>" ||
                 typeName.StartsWith("pipe<", StringComparison.Ordinal) && typeName.EndsWith('>') && typeName.Length > 6;
 
         private bool MatchesPipeElement(string typeName, AloeValue value)
@@ -2678,6 +2773,8 @@ namespace Aloe.RuntimeLib
             {
                 "pipe<int>" => value.IsInt,
                 "pipe<decimal>" => value.IsDecimal,
+                "pipe<char>" => value.IsChar,
+                "pipe<float>" => value.IsFloat && double.IsFinite(value.AsFloat),
                 "pipe<byte>" => value.IsByte,
                 "pipe<string>" => value.IsString,
                 "pipe<bool>" => value.IsBool,
@@ -3091,7 +3188,11 @@ namespace Aloe.RuntimeLib
                 var instruction = new Instruction(EnumOpcode.Call, functionIndex);
                 new CallCommand().Execute(this, caller, in instruction);
                 RunUntilCallDepth(depthBeforeCall);
-                caller.Ip = callerIp;
+                // Restore only after a normal return. When an accessor exception was dispatched
+                // to a catch in the caller (or a lower frame), that frame's IP already points at
+                // the handler and must not be overwritten.
+                if (_callStack.Count == depthBeforeCall && ReferenceEquals(CurrentFrame, caller) && caller.Ip == callerIp + 1)
+                    caller.Ip = callerIp;
             }
             finally
             {

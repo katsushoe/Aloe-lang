@@ -44,7 +44,7 @@ namespace Aloe.CompilerLib
         public Module Compile(string source)
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
-            return new Parser(AloeLexer.Parse(source)).CompileProgram();
+            return new Parser(AloeLexer.Parse(source)) { SourcePathValue = SourcePath, DebugBuildValue = DebugBuild }.CompileProgram();
         }
 
         /// <summary>
@@ -54,7 +54,7 @@ namespace Aloe.CompilerLib
         public Module CompileForWasm(string source)
         {
             ArgumentNullException.ThrowIfNull(source);
-            return new Parser(AloeLexer.Parse(source), forWasm: true).CompileProgram();
+            return new Parser(AloeLexer.Parse(source), forWasm: true) { SourcePathValue = SourcePath, DebugBuildValue = DebugBuild }.CompileProgram();
         }
 
 
@@ -125,6 +125,7 @@ namespace Aloe.CompilerLib
             public string Name { get; }
             public List<string> Parents { get; } = new();
             public List<MethodSignature> Methods { get; } = new();
+            public List<InterfacePropertySignature> Properties { get; } = new();
         }
 
 
@@ -349,6 +350,7 @@ namespace Aloe.CompilerLib
 
                 _currentFunction = null;
                 ValidateAsyncCallGraph();
+                ValidateTaskNotificationEffects();
                 if (_forWasm && _code.Any(i => i.Opcode == EnumOpcode.Call && i.Operand0 == main.Index))
                     throw new AloeCompileException("Direct WASM source compilation does not support calls to main.");
 
@@ -373,6 +375,7 @@ namespace Aloe.CompilerLib
                 _bitfieldEnums.Clear();
                 _enumEndPositions.Clear();
                 _asyncCallEdges.Clear();
+                ResetTaskNotificationEffects();
                 _filterByName.Clear();
 
                 // Standard filters use negative syscall payloads understood by the VM.
@@ -410,6 +413,11 @@ namespace Aloe.CompilerLib
                 _filterByName.Add("sort", new FilterSignature("sort", "pipe<int>", "pipe<int>", null, -32));
                 _filterByName.Add("shuffle", new FilterSignature("shuffle", "pipe<int>", "pipe<int>", null, -33));
                 _filterByName.Add("json", new FilterSignature("json", "pipe<string>", "", null, -34));
+                _filterByName.Add("crc32", new FilterSignature("crc32", "pipe<byte>", "pipe<byte>", null, -42));
+                _filterByName.Add("zip", new FilterSignature("zip", "pipe<byte>", "pipe<byte>", null, -45));
+                _filterByName.Add("unzip", new FilterSignature("unzip", "pipe<byte>", "pipe<byte>", null, -46));
+                _filterByName.Add("tar", new FilterSignature("tar", "pipe<byte>", "pipe<byte>", null, -47));
+                _filterByName.Add("untar", new FilterSignature("untar", "pipe<byte>", "pipe<byte>", null, -48));
 
                 CollectEnumSignatures();
                 CollectStructSignatures();
@@ -883,14 +891,19 @@ namespace Aloe.CompilerLib
                     var methodToken = TokenAt(position++);
                     if (methodToken.Kind == TokenKind.EndOfFile)
                         throw Error(methodToken, $"Unexpected end of file in interface '{interfaceInfo.Name}'.");
+                    if (methodToken.Lexeme == "property")
+                    {
+                        CollectInterfacePropertyContract(interfaceInfo, ref position);
+                        continue;
+                    }
                     if (methodToken.Lexeme != "method")
-                        throw Error(methodToken, "Interfaces in this subset may declare only async method contracts.");
+                        throw Error(methodToken, "Interfaces may declare only async method and property contracts.");
 
                     var name = TokenAt(position++);
                     if (name.Kind != TokenKind.Identifier)
                         throw Error(name, "Expected interface method name.");
-                    if (interfaceInfo.Methods.Any(x => x.Name == name.Lexeme))
-                        throw Error(name, $"Interface method '{name.Lexeme}' is already declared or inherited in '{interfaceInfo.Name}'.");
+                    if (HasInterfaceMember(interfaceInfo, name.Lexeme))
+                        throw Error(name, $"Interface member '{name.Lexeme}' is already declared or inherited in '{interfaceInfo.Name}'.");
 
                     ExpectAt(ref position, TokenKind.LParen);
                     var parameters = new List<ParameterSignature>();
@@ -1287,6 +1300,7 @@ namespace Aloe.CompilerLib
                             throw Error(classToken,
                                 $"Class '{classInfo.Name}' must provide public async method '{required.Name}' matching interface '{interfaceName}'.");
                     }
+                    ValidateInterfacePropertyImplementations(classInfo, classToken, interfaceName);
                 }
             }
 
@@ -1359,11 +1373,13 @@ namespace Aloe.CompilerLib
                         {
                             "int" => ExprType.Int,
                             "decimal" => ExprType.Decimal,
+                            "char" => ExprType.Char,
+                            "float" => ExprType.Float,
                             "byte" => ExprType.Byte,
                             "string" => ExprType.String,
                             "bool" or "boolean" => ExprType.Bool,
                             _ when _structs.ContainsKey(elementToken.Lexeme) => ExprType.Struct,
-                            _ => throw Error(elementToken, "pipe<T> currently supports int, decimal, byte, string, string[], bool, and declared struct elements.")
+                            _ => throw Error(elementToken, "pipe<T> currently supports int, decimal, char, float, byte, string, string[], bool, and declared struct elements.")
                         };
                         var elementName = elementType == ExprType.Bool ? "bool" : elementType == ExprType.Struct ? elementToken.Lexeme : FormatType(elementType);
                         if (elementType == ExprType.String && TokenAt(position).Kind == TokenKind.LBracket &&
@@ -2407,6 +2423,18 @@ namespace Aloe.CompilerLib
                     if (Check(TokenKind.Colon))
                     {
                         Advance(); // pipeline-only shorthand marker
+                        if (Current.Lexeme == "switch" && Peek(1).Kind == TokenKind.LParen)
+                        {
+                            // Decision 0056: switch stage.
+                            filters.Add(ParseSwitchStage(filters.Count == 0 ? source.ClassName! : filters[^1].OutputPipeType));
+                            continue;
+                        }
+                        if (Check(TokenKind.LParen))
+                        {
+                            // Decision 0055: conditional stage.
+                            filters.Add(ParseConditionalStage(filters.Count == 0 ? source.ClassName! : filters[^1].OutputPipeType));
+                            continue;
+                        }
                         var filterName = Expect(TokenKind.Identifier);
                         if (!_filterByName.TryGetValue(filterName.Lexeme, out var shorthandFilter))
                             throw Error(filterName, $"Unknown user-defined filter '{filterName.Lexeme}'.");
@@ -2445,6 +2473,13 @@ namespace Aloe.CompilerLib
                                 var argument = Expect(TokenKind.StringLiteral);
                                 shorthandFilter = shorthandFilter with { StringArgument = ParseString(argument) };
                             }
+                            else if (shorthandFilter.FunctionIndex == -32 && Check(TokenKind.Identifier) &&
+                                string.Equals(Current.Lexeme, "desc", StringComparison.Ordinal))
+                            {
+                                // Decision 0054: "sort: desc" sorts scalar elements in descending order.
+                                Advance();
+                                shorthandFilter = shorthandFilter with { StringArgument = "desc" };
+                            }
                             else if (shorthandFilter.FunctionIndex == -32)
                             {
                                 var pipelineType = filters.Count == 0 ? source.ClassName : filters[^1].OutputPipeType;
@@ -2457,10 +2492,17 @@ namespace Aloe.CompilerLib
                                 if (fieldIndex < 0)
                                     throw Error(keyToken, $"Struct '{elementName}' has no field '{keyToken.Lexeme}'.");
                                 var keyField = structSignature.Fields[fieldIndex];
-                                if (keyField.Type is not (ExprType.Int or ExprType.Byte or ExprType.Bool or ExprType.String))
-                                    throw Error(keyToken, $"Sort key '{elementName}.{keyToken.Lexeme}' must have type int, byte, bool or string.");
+                                if (keyField.Type is not (ExprType.Int or ExprType.Byte or ExprType.Bool or ExprType.String or
+                                    ExprType.Char or ExprType.Float or ExprType.Decimal))
+                                    throw Error(keyToken, $"Sort key '{elementName}.{keyToken.Lexeme}' must have type int, byte, bool, string, char, float or decimal.");
                                 if (Check(TokenKind.Dot))
                                     throw Error(Current, "Keyed sort accepts only one direct field name.");
+                                var keyDescending = false;
+                                if (Check(TokenKind.Identifier) && string.Equals(Current.Lexeme, "desc", StringComparison.Ordinal))
+                                {
+                                    Advance();
+                                    keyDescending = true;
+                                }
                                 var keySchema = new Dictionary<string, object>
                                 {
                                     ["typeName"] = elementName,
@@ -2470,6 +2512,10 @@ namespace Aloe.CompilerLib
                                 if (keyField.Type == ExprType.String) keySchema["fieldType"] = "string";
                                 if (keyField.Type == ExprType.Byte) keySchema["fieldType"] = "byte";
                                 if (keyField.Type == ExprType.Bool) keySchema["fieldType"] = "bool";
+                                if (keyField.Type == ExprType.Char) keySchema["fieldType"] = "char";
+                                if (keyField.Type == ExprType.Float) keySchema["fieldType"] = "float";
+                                if (keyField.Type == ExprType.Decimal) keySchema["fieldType"] = "decimal";
+                                if (keyDescending) keySchema["descending"] = true;
                                 shorthandFilter = shorthandFilter with
                                 {
                                     FunctionIndex = -35,
@@ -2513,6 +2559,27 @@ namespace Aloe.CompilerLib
                     for (var i = 0; i < filters.Count; i++)
                     {
                         var filter = filters[i];
+                        if (filter.FunctionIndex == -32 && TryGetPipeElementType(currentType, out var sortElementType) &&
+                            (filter.StringArgument == "desc" || sortElementType is ExprType.Decimal or ExprType.Char or ExprType.Float))
+                        {
+                            // Decision 0054: decimal/char/float element sorts and every descending scalar sort
+                            // use the argument-carrying index -43; existing ascending int/string/byte/bool
+                            // sorts keep their original indices and bytecode.
+                            var sortElement = currentType[5..^1];
+                            if (sortElement is not ("int" or "string" or "byte" or "bool" or "decimal" or "char" or "float"))
+                                throw Error(sourceToken, $"Filter 'sort' does not support {currentType}.");
+                            filter = filter with
+                            {
+                                FunctionIndex = -43,
+                                InputPipeType = currentType,
+                                OutputPipeType = currentType,
+                                StringArgument = System.Text.Json.JsonSerializer.Serialize(new
+                                {
+                                    element = sortElement,
+                                    descending = filter.StringArgument == "desc"
+                                })
+                            };
+                        }
                         if (filter.FunctionIndex == -32 && currentType == "pipe<string>")
                             filter = filter with
                             {
@@ -2576,7 +2643,7 @@ namespace Aloe.CompilerLib
 
                         Emit(EnumOpcode.LoadLocal, currentSlot);
                         Emit(EnumOpcode.LoadLocal, outputSlot);
-                        if (filter.FunctionIndex is -7 or -8 or -9 or -10 or -30 or -34 or -35)
+                        if (filter.FunctionIndex is -7 or -8 or -9 or -10 or -30 or -34 or -35 or -43 or -44)
                             Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(filter.StringArgument!)));
                         EmitIntConstant(filter.FunctionIndex);
                         Emit(EnumOpcode.Syscall, (int)EnumSyscall.PipeBindFilter);
@@ -3314,6 +3381,7 @@ namespace Aloe.CompilerLib
 
                 var function = method.Function;
                 Emit(EnumOpcode.LoadLocal, target.Slot);
+                RecordTaskNotification(TaskNotificationEffect.MayNotify, "notification " + function.Name);
                 Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
                 Expect(TokenKind.LParen);
 
@@ -3412,6 +3480,7 @@ namespace Aloe.CompilerLib
 
                 var function = method.Function;
                 Expect(TokenKind.LParen);
+                RecordTaskNotification(TaskNotificationEffect.MayNotify, "notification " + function.Name);
                 var argumentIndex = 0;
                 if (!Check(TokenKind.RParen))
                 {
@@ -3636,7 +3705,7 @@ namespace Aloe.CompilerLib
                     Current.Kind is TokenKind.LBracket or TokenKind.Dot)
                     return ParseArrayResultRead(elementType);
                 if (type == ExprType.Object && _lastExpressionClassName != null &&
-                    _classes.ContainsKey(_lastExpressionClassName) && Check(TokenKind.Dot))
+                    IsClassOrInterface(_lastExpressionClassName) && Check(TokenKind.Dot))
                     return ParseReferenceGetters(_lastExpressionClassName);
                 return type;
             }
@@ -3840,6 +3909,9 @@ namespace Aloe.CompilerLib
                 }
 
 
+                if (Check(TokenKind.Identifier) && TryParseStandardConstant(out var standardConstantType))
+                    return standardConstantType;
+
                 if (Check(TokenKind.Identifier))
                 {
                     var name = Advance();
@@ -3891,11 +3963,13 @@ namespace Aloe.CompilerLib
                     {
                         "int" => ExprType.Int,
                         "decimal" => ExprType.Decimal,
+                        "char" => ExprType.Char,
+                        "float" => ExprType.Float,
                         "byte" => ExprType.Byte,
                         "string" => ExprType.String,
                         "bool" or "boolean" => ExprType.Bool,
                         _ when _structs.ContainsKey(elementToken.Lexeme) => ExprType.Struct,
-                        _ => throw Error(elementToken, "pipe<T> currently supports int, decimal, byte, string, string[], bool, and map<string/string> elements.")
+                        _ => throw Error(elementToken, "pipe<T> currently supports int, decimal, char, float, byte, string, string[], bool, and map<string/string> elements.")
                     };
                     elementName = elementType == ExprType.Bool ? "bool" : elementType == ExprType.Struct ? elementToken.Lexeme : FormatType(elementType);
                     if (elementType == ExprType.String && Check(TokenKind.LBracket) && Peek(1).Kind == TokenKind.RBracket)
@@ -3997,6 +4071,14 @@ namespace Aloe.CompilerLib
                 if (target.Type != ExprType.Object || target.ClassName == null)
                     throw Error(targetToken, $"Member access requires a statically known class instance; '{targetToken.Lexeme}' is {FormatType(target.Type)}.");
 
+                if (_interfaces.ContainsKey(target.ClassName))
+                {
+                    Emit(EnumOpcode.LoadLocal, target.Slot);
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
+                    Expect(TokenKind.Dot);
+                    return ParseInterfacePropertyRead(target.ClassName, Expect(TokenKind.Identifier));
+                }
+
                 if (!_classes.TryGetValue(target.ClassName, out var classInfo))
                     throw Error(targetToken, $"Unknown class '{target.ClassName}'.");
 
@@ -4009,8 +4091,7 @@ namespace Aloe.CompilerLib
                     throw Error(member, $"'{classInfo.Name}.{member.Lexeme}' is not a public instance property in the current compiler subset.");
 
                 Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
-                EmitIntConstant(property.Getter.Index);
-                Emit(EnumOpcode.Syscall, (int)EnumSyscall.InstancePropertyGet);
+                EmitResolvedPropertyGetter(property.Getter, member);
                 _lastExpressionClassName = property.ClassName;
                 return property.Type;
             }
@@ -4042,8 +4123,7 @@ namespace Aloe.CompilerLib
                 if (property != null)
                 {
                     Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
-                EmitIntConstant(property.Getter.Index);
-                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.InstancePropertyGet);
+                    EmitResolvedPropertyGetter(property.Getter, member);
                     _lastExpressionClassName = property.ClassName;
                     return property.Type;
                 }
@@ -4269,11 +4349,13 @@ namespace Aloe.CompilerLib
                         {
                             "int" => ExprType.Int,
                             "decimal" => ExprType.Decimal,
+                            "char" => ExprType.Char,
+                            "float" => ExprType.Float,
                             "byte" => ExprType.Byte,
                             "string" => ExprType.String,
                             "bool" or "boolean" => ExprType.Bool,
                             _ when _structs.ContainsKey(elementToken.Lexeme) => ExprType.Struct,
-                            _ => throw Error(elementToken, "pipe<T> currently supports int, decimal, byte, string, string[], bool, and declared struct elements.")
+                            _ => throw Error(elementToken, "pipe<T> currently supports int, decimal, char, float, byte, string, string[], bool, and declared struct elements.")
                         };
                         var elementName = elementType == ExprType.Bool ? "bool" : elementType == ExprType.Struct ? elementToken.Lexeme : FormatType(elementType);
                         if (elementType == ExprType.String && Check(TokenKind.LBracket) && Peek(1).Kind == TokenKind.RBracket)
@@ -4343,6 +4425,8 @@ namespace Aloe.CompilerLib
 
             private LocalInfo DeclareLocal(AloeToken name, ExprType type, string? className = null)
             {
+                if (IsReservedStandardName(name.Lexeme))
+                    throw Error(name, $"'{name.Lexeme}' is reserved for standard constants (decision 0060).");
                 var scope = _scopes.Peek();
 
 
@@ -4387,6 +4471,8 @@ namespace Aloe.CompilerLib
                 {
                     "int" => ExprType.Int,
                     "decimal" => ExprType.Decimal,
+                    "char" => ExprType.Char,
+                    "float" => ExprType.Float,
                     "byte" => ExprType.Byte,
                     "string" => ExprType.String,
                     "string[]" => ExprType.Object,
@@ -4402,7 +4488,7 @@ namespace Aloe.CompilerLib
             {
                 if (!IsPipeTypeName(className)) return null;
                 var elementName = className![5..^1];
-                return elementName is "string[]" or "map<string/string>" or "int" or "decimal" or "byte" or "string" or "bool"
+                return elementName is "string[]" or "map<string/string>" or "int" or "decimal" or "char" or "float" or "byte" or "string" or "bool"
                     ? elementName is "string[]" or "map<string/string>" ? elementName : null
                     : elementName;
             }
@@ -4718,7 +4804,10 @@ namespace Aloe.CompilerLib
 
 
             private void Emit(EnumOpcode opcode, int operand0)
-                => _code.Add(new Instruction(opcode, operand0));
+            {
+                RecordTaskCallEmission(opcode, operand0);
+                _code.Add(new Instruction(opcode, operand0));
+            }
 
 
             private int EmitPlaceholder(EnumOpcode opcode)

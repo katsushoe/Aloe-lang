@@ -64,11 +64,14 @@ namespace Aloe.CompilerLib.Tests
 
 
         [Test]
-        public void Standalone_Underscore_IsRejected()
+        public void Standalone_Underscore_IsNotAnIdentifier()
         {
+            // Decision 0056: standalone _ is the switch-stage default alias, never an identifier.
+            var tokens = Lex("_");
+            Assert.That(tokens[0].Kind, Is.EqualTo(TokenKind.Underscore));
             Assert.That(
-                () => Lex("_"),
-                Throws.TypeOf<AloeLexerException>());
+                () => new AloeCompiler().Compile("function main(args: string[]): int { var _ = 1; return 0; }"),
+                Throws.TypeOf<AloeCompileException>());
         }
 
 

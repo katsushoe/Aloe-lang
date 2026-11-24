@@ -219,7 +219,7 @@
           <strong>NOTE:</strong> ここでのコード例はすべて Aloe の擬似コードであり、
           将来の言語仕様の変更に合わせて更新される可能性がある。
         </div>        <div class="note">
-          <strong>実装状況：</strong>本書のフィルター一覧はドラフトです。現行コンパイラーはユーザー定義filterを <code>source | filter(name) | destination;</code>、pipeline専用短縮構文を <code>source |: name | destination;</code> で呼び出せます。引数付き標準フィルターは <code>source |: name: "argument" | destination;</code> を使います。 型付きJSONデコーダーには <code>source |: json: User | users;</code> を使います。標準フィルターでは <code>pipe&lt;string&gt;</code> 用の <code>tolower</code> と <code>toupper</code> を実装し、カルチャーに依存しない不変カルチャーの大小文字変換を行います。さらに <code>ltrim</code>、<code>rtrim</code>、<code>trim</code> は各文字列の先頭、末尾または両端にあるUnicode空白を除去し、<code>lineSplit</code> は文字列チャンクをLFで分割してチャンク間の未完了行を保持します。<code>camelcase</code>、<code>pascalcase</code>、<code>snakecase</code> はUnicode空白で区切った単語を不変カルチャーで大小文字正規化し、適切な形式で連結します。<code>startswith</code> と <code>contains</code> は序数比較で一致する文字列を通し、<code>strstr</code> は引数を含む文字列だけを通して最初の一致位置以降を出力します。<code>join</code> は入力文字列を指定区切りで連結し、1つの文字列を出力します。空入力の場合も空文字列を1つ出力します。<code>quote_meta</code> は正規表現メタ文字をリテラルパターン用にエスケープします。<code>utf8</code>はbyte列全体をチャンク境界を維持して厳密にUTF-8復号し、文字列を1つ出力します（空入力は空文字列、不正byte列はVM例外）。VMは<code>md4</code>、<code>sha1</code>、<code>sha256</code>をbyte列全体に対するハッシュfilterとして実装し、ハッシュ値の16、20、32byteを順番に出力します。MD4とSHA-1は旧式互換用途だけで使用し、セキュリティ用途には使用しないでください。VMは <code>pipe&lt;byte&gt;</code> に対応し、<code>bin2hex</code> は全byteを消費して大文字の16進文字列を1つ出力します。空入力では空文字列を出力します。 さらに<code>base64encode</code>はbyte列全体を標準Base64形式（改行なし）へ変換します。空入力では空文字列を出力します。<code>base64decode</code>は入力文字列全体を連結して標準Base64を復号し、順番にbyteを出力します。空入力はbyteを出力せず、不正データはVM例外になります。 URL componentフィルターは以下のUTF-8 percent encode/decode規則を使用し、不正escapeまたは復号後の不正UTF-8はVM例外になります。<code>htmlspecialchars</code>と<code>htmlspecialchars_decode</code>は以下の固定entity表記を実装しています。<code>html_entity_decode</code>は認識できる名前付き・数値HTML文字参照を復号して未知の参照を保持し、生成文字列を再帰的に復号せず1回だけ処理します。markupのsanitizeは行いません。<code>strip_tags</code>は文字列ごとに完結したcommentとmarkup風の区間を除去し、通常のless-than文字と未完了候補は保持します。VMは<code>pipe&lt;string[]&gt;</code>用の<code>csvenode</code>を実装し、3.2.1のCSVレコード規則に従います。<code>csvdecode</code>も各入力文字列を独立したレコードとして解析し、不正レコードではVM例外になります。<code>parse_str</code>は各項目をフォーム形式でデコードして<code>map&lt;string, string&gt;</code>に変換し、<code>number_format(spec)</code>は<code>pipe&lt;decimal&gt;</code>を不変カルチャーの.NET decimal書式で整形します。このほか、限定サブセットとして <code>sort</code>、<code>shuffle</code>、<code>json</code> を実装しています。sortは<code>pipe&lt;int&gt;</code>および序数昇順の<code>pipe&lt;string&gt;</code>の引数なし形式と、宣言済みstructの直下のint keyを指定する<code>sort: .Field</code>をサポートします。条件・switch、他のsort key/要素型、archive、CRC32、対称暗号は未実装です。strip_tagsはHTML sanitizerではありません。また、<code>uint32</code>、<code>BlowfishContext</code>、<code>AESContext</code>を参照していますが、公開型としての契約は定義されていません。以下の例は概念例であり、現行コンパイラーでは実行できないものを含みます。
+          <strong>実装状況：</strong>本書のフィルター一覧はドラフトです。現行コンパイラーはユーザー定義filterを <code>source | filter(name) | destination;</code>、pipeline専用短縮構文を <code>source |: name | destination;</code> で呼び出せます。引数付き標準フィルターは <code>source |: name: "argument" | destination;</code> を使います。 型付きJSONデコーダーには <code>source |: json: User | users;</code> を使います。標準フィルターでは <code>pipe&lt;string&gt;</code> 用の <code>tolower</code> と <code>toupper</code> を実装し、カルチャーに依存しない不変カルチャーの大小文字変換を行います。さらに <code>ltrim</code>、<code>rtrim</code>、<code>trim</code> は各文字列の先頭、末尾または両端にあるUnicode空白を除去し、<code>lineSplit</code> は文字列チャンクをLFで分割してチャンク間の未完了行を保持します。<code>camelcase</code>、<code>pascalcase</code>、<code>snakecase</code> はUnicode空白で区切った単語を不変カルチャーで大小文字正規化し、適切な形式で連結します。<code>startswith</code> と <code>contains</code> は序数比較で一致する文字列を通し、<code>strstr</code> は引数を含む文字列だけを通して最初の一致位置以降を出力します。<code>join</code> は入力文字列を指定区切りで連結し、1つの文字列を出力します。空入力の場合も空文字列を1つ出力します。<code>quote_meta</code> は正規表現メタ文字をリテラルパターン用にエスケープします。<code>utf8</code>はbyte列全体をチャンク境界を維持して厳密にUTF-8復号し、文字列を1つ出力します（空入力は空文字列、不正byte列はVM例外）。VMは<code>md4</code>、<code>sha1</code>、<code>sha256</code>をbyte列全体に対するハッシュfilterとして実装し、ハッシュ値の16、20、32byteを順番に出力します。MD4とSHA-1は旧式互換用途だけで使用し、セキュリティ用途には使用しないでください。<code>crc32</code>もbyte列全体に対するfilterとして実装し、CRC-32/ISO-HDLC値をbig-endianの4byteで出力します。CRC32は誤り検出用のチェックサムで、暗号学的ハッシュではありません。VMは <code>pipe&lt;byte&gt;</code> に対応し、<code>bin2hex</code> は全byteを消費して大文字の16進文字列を1つ出力します。空入力では空文字列を出力します。 さらに<code>base64encode</code>はbyte列全体を標準Base64形式（改行なし）へ変換します。空入力では空文字列を出力します。<code>base64decode</code>は入力文字列全体を連結して標準Base64を復号し、順番にbyteを出力します。空入力はbyteを出力せず、不正データはVM例外になります。 URL componentフィルターは以下のUTF-8 percent encode/decode規則を使用し、不正escapeまたは復号後の不正UTF-8はVM例外になります。<code>htmlspecialchars</code>と<code>htmlspecialchars_decode</code>は以下の固定entity表記を実装しています。<code>html_entity_decode</code>は認識できる名前付き・数値HTML文字参照を復号して未知の参照を保持し、生成文字列を再帰的に復号せず1回だけ処理します。markupのsanitizeは行いません。<code>strip_tags</code>は文字列ごとに完結したcommentとmarkup風の区間を除去し、通常のless-than文字と未完了候補は保持します。VMは<code>pipe&lt;string[]&gt;</code>用の<code>csvenode</code>を実装し、3.2.1のCSVレコード規則に従います。<code>csvdecode</code>も各入力文字列を独立したレコードとして解析し、不正レコードではVM例外になります。<code>parse_str</code>は各項目をフォーム形式でデコードして<code>map&lt;string, string&gt;</code>に変換し、<code>number_format(spec)</code>は<code>pipe&lt;decimal&gt;</code>を不変カルチャーの.NET decimal書式で整形します。このほか、限定サブセットとして <code>sort</code>、<code>shuffle</code>、<code>json</code> を実装しています。sortは<code>pipe&lt;int&gt;</code>および序数昇順の<code>pipe&lt;string&gt;</code>の引数なし形式と、宣言済みstructの直下のint keyを指定する<code>sort: .Field</code>をサポートします。条件・switch、他のsort key/要素型、archive、CRC32、対称暗号は未実装です。strip_tagsはHTML sanitizerではありません。また、<code>uint32</code>、<code>BlowfishContext</code>、<code>AESContext</code>を参照していますが、公開型としての契約は定義されていません。以下の例は概念例であり、現行コンパイラーでは実行できないものを含みます。
         </div>
       </section>
 
@@ -408,6 +408,7 @@ stdin
         <h2>4. 条件分岐 / 並び替え</h2>
 
         <h3>4.1 <code>if</code> / <code>elseif</code> / <code>else</code></h3>
+        <p>決定0055により、旧来の <code>if</code> / <code>elseif</code> / <code>else</code> フィルター名は、条件付きのパイプライン段に置き換えられました。<code>source |: (条件) =&gt; 動作 elseif (条件) =&gt; 動作 else =&gt; 動作 | result;</code> は各要素について上から条件を評価し、最初に一致した1つの動作だけを適用します。<code>else</code> がない場合、条件に合わない要素は加工せずにそのまま流れます。<code>source |: (条件) | result;</code> は条件に合う要素だけを残します。動作は <code>drop</code> か、<code>pipe&lt;string&gt;</code> に対する1件ずつ処理する文字列フィルター（tolower、toupper、ltrim、rtrim、trim、camelcase、pascalcase、snakecase、quote_meta、urlencode、urldecode、htmlspecialchars、htmlspecialchars_decode、html_entity_decode、strip_tags）で、出力は入力順を保ちます。条件には要素自身 <code>.</code>、構造体の直接のフィールド <code>.Field</code>、int・float・decimal・char・string・boolのリテラル、enumメンバー、<code>== != &lt; &lt;= &gt; &gt;=</code>、<code>and</code> / <code>or</code> / <code>not</code>、括弧を使え、関数呼び出しや副作用はありません。比較の両辺は同じ型とし、boolとenumは等値比較だけです。型の不一致、存在しないフィールド、未対応の動作、位置の誤った <code>else</code> はコンパイルエラーです。比較規則は決定0054に従います。</p>
         <p>
           これらは「条件に応じて要素を通過させる」フィルタ群であり、1 つの複合フィルタとして解釈される。
         </p>
@@ -433,6 +434,7 @@ stdin
         </ul>
 
         <h3>4.2 <code>switch</code></h3>
+        <p>決定0056により、switchの段を定義します。<code>source |: switch (.Kind) : Kind.Note =&gt; trim, Kind.Raw or Kind.Bin =&gt; drop, default =&gt; tolower | result;</code>。キーは要素自身 <code>.</code> または構造体の直接のフィールド <code>.Field</code> です。値はキーと同じ型のリテラルまたはenumメンバーで、1つの分岐に <code>or</code> で複数並べられます。値の重複はコンパイルエラーです。キーと等しい値を持つ最初の分岐を適用します（等しさは決定0054に従います）。<code>default =&gt; 動作</code>（短縮形 <code>_ =&gt; 動作</code>）は末尾に置き、省略した場合は一致しない要素をそのまま流します。動作は決定0055と同じ（<code>drop</code> または1件ずつ処理する文字列フィルター）で、出力は入力順を保ちます。この段は決定0055の評価の仕組みで実行されます。単独の <code>_</code> は識別子にはなりません。</p>
         <p class="sig">
           Namespace: <code>aloe.filter</code><br>
           filter switch : pipe&lt;T&gt; -&gt; pipe&lt;T&gt;（詳細仕様は今後追加予定）
@@ -447,6 +449,7 @@ stdin
         <p>決定0033により、引数なしの <code>sort : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;</code> に対応します。入力終了まで保持した後、元のbyte値を符号なし数値の昇順に出力し、件数と重複を保持します。空入力では値を出さず出力を閉じ、出力の容量制限とバックプレッシャーに従います。この範囲では引数と他の入出力型は受け付けません。</p>
         <p>採用済み決定0026により、引数なしの<code>sort : pipe&lt;string&gt; -&gt; pipe&lt;string&gt;</code>も実装します。入力終了後、カルチャーに依存しないUTF-16コード単位の序数昇順で安定ソートします。元文字列・重複・正規化形式を保持し、空文字列は先頭に並びます。空入力は値を出力せず、出力は容量制限とバックプレッシャーに従います。key指定・大小文字の同一視・正規化は行いません。</p>
         <p>VMは引数なしの<code>sort : pipe&lt;int&gt; -&gt; pipe&lt;int&gt;</code>を実装し、符号付きint32範囲外の値を拒否します。決定0025、0030、0035、0039により、<code>sort: .Field</code>には宣言済みstruct直下のint、byte、boolまたはstringフィールドを指定できます。名前は大文字小文字を区別して完全一致します。入力終了まで全要素を保持し、intキーは符号付きint32、byteキーは符号なし0〜255、boolキーはfalseからtrue、stringキーはUTF-16コード単位の序数で安定昇順に並べます。元レコード・重複・同じキー内の入力順・文字列と正規化形式を保持し、大小文字の同一視や文化依存の比較は行いません。空入力は値を出さず出力を閉じます。出力は容量制限とバックプレッシャーに従い、バッファーメモリーは入力件数に比例します。他のキー型、入れ子のpath、式指定は拒否します。</p>
+        <p>決定0054により、sortは <code>pipe&lt;decimal&gt;</code>・<code>pipe&lt;char&gt;</code>・<code>pipe&lt;float&gt;</code> の要素と、構造体のchar・float・decimalキーにも対応します。降順は <code>source |: sort: desc | result;</code> と <code>source |: sort: .Field desc | result;</code> で、対応するすべての要素型とキー型に指定できます。比較規則は型ごとに固定です。intは符号付きint32、byteは0〜255、boolはfalseが先、stringはUTF-16の序数比較、charはUTF-16コード単位、floatは数値順（-0.0と0.0は等しい）、decimalは数値順（1.0と1.00は等しい）です。等しい要素は昇順・降順とも入力順を保ち、値の表現は変更しません。大文字小文字を無視する比較、カルチャー依存の比較、ユーザー定義の比較関数、複数キー、入れ子のキーパスは標準sortの契約に含めません。既存の昇順int・string・byte・boolは従来のバイトコードを維持し、新しい要素型と降順は引数付きの組み込みバインディングを使います。</p>
         <p>キー指定のAloeBCスキーマは、intキー用の従来の3プロパティtypeName・fieldName・fieldIndexとの互換性を維持します。任意のfieldTypeはint、byte、boolまたはstringだけを受け付け、コンパイラーはbyte、boolまたはstringキーにそれぞれfieldType:byte、fieldType:boolまたはfieldType:stringを追加します。不正なスキーマとレコード・キーの型不一致は拒否します。</p>
         <p class="filter-header">名前空間 / シグネチャ</p>
         <p class="sig">
@@ -511,9 +514,9 @@ stdin
         <h4>5.2.2 <code>crc32</code></h4>
         <p class="sig">
           Namespace: <code>aloe.crypto.hash</code><br>
-          filter crc32 : pipe&lt;byte&gt; -&gt; pipe&lt;uint32&gt;
+          filter crc32 : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
         </p>
-        <p>入力全体の CRC32 値を計算し、1 つの整数として出力する。</p>
+        <p>入力byte列全体を消費し、CRC-32/ISO-HDLC（zlib・PNG・ZIPと同じCRC32。反転多項式 <code>0xEDB88320</code>、初期値と最終XORは <code>0xFFFFFFFF</code>）を計算します。入力のclose後に32bit値をbig-endianの4byteとして出力し、出力pipeをcloseします。空入力では <code>00 00 00 00</code> を出力します。一般的な16進表記には <code>bin2hex</code> を連結します。例えば <code>source |: crc32 |: bin2hex | text;</code> は <code>123456789</code> に対して <code>CBF43926</code> を出力します。byte以外の値はVMエラー、pipe型の不一致はコンパイルエラーです（決定0053。言語に <code>uint32</code> 型はありません）。</p>
 
         <h3>5.3 Base64 / URL</h3>
         <p>実装済みのURLフィルターはRFC 3986のURI component規則を使います。UTF-8 byte列のうち非予約文字 <code>A-Z a-z 0-9 - . _ ~</code> 以外を大文字の <code>%HH</code> で符号化します。空白は <code>%20</code>、プラス記号は文字として扱い、フォーム形式の空白には変換しません。不正なescapeと不正UTF-8は拒否します。</p>
@@ -636,11 +639,13 @@ stdin
         <h2>7. アーカイブ / 圧縮 / CSV</h2>
 
         <h3>7.1 ZIP / TAR: <code>zip</code> / <code>unzip</code> / <code>tar</code></h3>
+        <p>決定0057により、1エントリのモデルで4つのフィルターを実装します。すべて <code>pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;</code> です。<code>zip</code>（Deflateの1エントリ）、<code>unzip</code>、<code>tar</code>（POSIX ustarの1エントリ）、<code>untar</code>。エントリ名は <code>data</code>、日時は1980-01-01 00:00:00、TARの権限は0644・所有者0・名前は空で、同じ実行環境では同じ入力から同じアーカイブを作ります。<code>unzip</code> / <code>untar</code> は通常ファイルのエントリがちょうど1つのアーカイブだけを受け付け、エントリ数0または2以上、ディレクトリ、リンク、暗号化や破損したアーカイブはVMエラーです。エントリ名は解釈せず、ファイルシステムへの書き出しもしません。展開後の出力は64 MiBまでです。入力はcloseまでバッファし、空入力では <code>zip</code> / <code>tar</code> は空のエントリのアーカイブを、<code>unzip</code> / <code>untar</code> はVMエラーを返します。</p>
         <p class="sig">
           Namespace: <code>aloe.archive</code><br>
           filter zip   : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
           filter unzip : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
-          filter tar   : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
+          filter tar   : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;<br>
+          filter untar : pipe&lt;byte&gt; -&gt; pipe&lt;byte&gt;
         </p>
         <p>
           ここでは「ストリーム全体を 1 つのアーカイブとして扱う」単純なモデルを想定する。

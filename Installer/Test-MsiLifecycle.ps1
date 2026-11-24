@@ -7,7 +7,8 @@ param(
     [string]$DisposableVmName,
     [switch]$AcknowledgeDisposableVm,
     [string]$ExpectedMachineOverride,
-    [switch]$PauseForUserAcceptance
+    [switch]$PauseForUserAcceptance,
+    [switch]$SkipDowngrade
 )
 
 $ErrorActionPreference = 'Stop'
@@ -101,14 +102,14 @@ function Quote-MsiLifecycleArgument([string]$Value) {
     '"' + $Value + '"'
 }
 
-function New-MsiLifecyclePlan($Initial, $Upgrade, [string]$Root, [string]$Reports) {
+function New-MsiLifecyclePlan($Initial, $Upgrade, [string]$Root, [string]$Reports, [switch]$SkipDowngrade) {
     @(
         @{ Name = 'install'; Switch = '/i'; Target = $Initial.Path; ExitCode = 0; SetRoot = $true },
         @{ Name = 'repair'; Switch = '/fa'; Target = $Initial.ProductCode; ExitCode = 0; SetRoot = $false },
         @{ Name = 'upgrade'; Switch = '/i'; Target = $Upgrade.Path; ExitCode = 0; SetRoot = $true },
         @{ Name = 'downgrade-rejected'; Switch = '/i'; Target = $Initial.Path; ExitCode = 1603; SetRoot = $true },
         @{ Name = 'uninstall'; Switch = '/x'; Target = $Upgrade.ProductCode; ExitCode = 0; SetRoot = $false }
-    ) | ForEach-Object {
+    ) | Where-Object { -not $SkipDowngrade -or $_.Name -ne 'downgrade-rejected' } | ForEach-Object {
         $log = Join-Path $Reports ($_.Name + '.log')
         $arguments = $_.Switch + ' ' + (Quote-MsiLifecycleArgument $_.Target) + ' /qn /norestart /l*v ' + (Quote-MsiLifecycleArgument $log)
         if ($_.SetRoot) { $arguments += ' INSTALLFOLDER=' + (Quote-MsiLifecycleArgument $Root) }
@@ -206,7 +207,7 @@ try {
     }
     $report['Initial'] = $initial
     $report['Upgrade'] = $upgrade
-    $plan = @(New-MsiLifecyclePlan $initial $upgrade $installRoot $reportRoot)
+    $plan = @(New-MsiLifecyclePlan $initial $upgrade $installRoot $reportRoot -SkipDowngrade:$SkipDowngrade)
     $report['Plan'] = $plan
     New-Item -ItemType Directory -Path $reportRoot | Out-Null
     if (-not $Execute) {
@@ -263,12 +264,14 @@ try {
         if ([Environment]::GetEnvironmentVariable('ALOE_INSTALL_ROOT', 'Machine') -cne $ownedRoot) { throw 'Upgrade changed the owned machine environment value.' }
         $upgraded = Get-LifecycleFileHashes $installRoot
         $report['UpgradedPayloadHashes'] = $upgraded
-        Invoke-MsiLifecycleStep $plan[3] $results
-        if (-not (Select-String -LiteralPath $plan[3].Log -SimpleMatch 'A newer version of Aloe-lang is already installed.' -Quiet)) { throw 'Downgrade failed without the expected version rejection message.' }
-        Assert-LifecycleProductState $installer $initial.ProductCode -1
-        Assert-LifecycleProductState $installer $upgrade.ProductCode 5
-        Assert-LifecycleFileHashes $installRoot $upgraded
-        Invoke-MsiLifecycleStep $plan[4] $results
+        if (-not $SkipDowngrade) {
+            Invoke-MsiLifecycleStep $plan[3] $results
+            if (-not (Select-String -LiteralPath $plan[3].Log -SimpleMatch 'A newer version of Aloe-lang is already installed.' -Quiet)) { throw 'Downgrade failed without the expected version rejection message.' }
+            Assert-LifecycleProductState $installer $initial.ProductCode -1
+            Assert-LifecycleProductState $installer $upgrade.ProductCode 5
+            Assert-LifecycleFileHashes $installRoot $upgraded
+        }
+        Invoke-MsiLifecycleStep $plan[-1] $results
         Assert-LifecycleProductState $installer $initial.ProductCode -1
         Assert-LifecycleProductState $installer $upgrade.ProductCode -1
         foreach ($relative in $upgraded.Keys) {
@@ -282,6 +285,9 @@ try {
         elseif ($afterMachine -cne $ExpectedMachineOverride) { throw 'Uninstall changed the pre-existing machine environment override.' }
         Assert-LifecycleRegistryRemoved $installer $initial $upgrade
         $report['Checks'] = @('First install and five host files', 'Full payload repair hashes', 'Major upgrade registration', 'Downgrade rejection and unchanged payload', 'Uninstall owned-file removal', 'Logs/data sentinel preservation', 'Owned machine environment create/remove')
+        if ($SkipDowngrade) {
+            $report['Checks'] = @($report['Checks'] | Where-Object { $_ -ne 'Downgrade rejection and unchanged payload' })
+        }
         $report['Checks'] += 'Product-family, ownership and uninstall registration removal (64/32-bit views)'
         if (-not [string]::IsNullOrEmpty($ExpectedMachineOverride)) {
             $report['Checks'] = @($report['Checks'] | Where-Object { $_ -ne 'Owned machine environment create/remove' }) + 'Pre-existing machine environment preserved across install/repair/upgrade/uninstall'

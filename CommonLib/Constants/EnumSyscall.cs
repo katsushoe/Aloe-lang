@@ -157,6 +157,15 @@ namespace Aloe.CommonLib.Constants
         TaskConstruct = 60,
         /// <summary>Pop argument count, method name, arguments and Task; execute self synchronously or enqueue notification.</summary>
         TaskInvoke = 61,
+        /// <summary>Delete Task; self deletion exits through tagged finally cleanup without resuming its body.</summary>
+        TaskDeleteAndUnwind = 62,
+        /// <summary>Decision 0060: pop a runtime constant name and push its value from the executing host.</summary>
+        RuntimeConstant = 63,
+        /// <summary>
+        /// Decision 0063: pop argument count (0 = getter, 1 = setter), dispatch descriptor constant index,
+        /// the setter value when present and the Object target; run the runtime type's accessor synchronously.
+        /// </summary>
+        InterfacePropertyDispatch = 64,
 
         // 将来拡張:
         // WriteStderr = 2,

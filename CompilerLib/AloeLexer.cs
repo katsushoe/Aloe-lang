@@ -19,6 +19,7 @@ namespace Aloe.CompilerLib.Lexer
         // 基本
         Identifier,
         Keyword,
+        Underscore,     // standalone _ (switch-stage default alias, decision 0056)
 
 
         // リテラル
@@ -403,10 +404,11 @@ namespace Aloe.CompilerLib.Lexer
                 string lexeme = sb.ToString();
 
 
+                // Decision 0056: a standalone '_' is only the switch-stage default alias.
+                // It is never an identifier, so any other use is a parse error.
                 if (lexeme == "_")
                 {
-                    throw new AloeLexerException(
-                        $"Standalone '_' is not a valid identifier (line {startLine}, col {startColumn}).");
+                    return MakeToken(TokenKind.Underscore, lexeme, startPos, startLine, startColumn);
                 }
 
 

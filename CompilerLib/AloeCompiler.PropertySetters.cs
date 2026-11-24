@@ -14,8 +14,7 @@ public sealed partial class AloeCompiler
             var token = TokenAt(position++);
             if (isStatic || _forWasm)
                 throw Error(token, "Scalar property setters require class instance VM execution.");
-            if (type is not (ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or
-                ExprType.Float or ExprType.Decimal or ExprType.String))
+            if (!IsScalarSetterType(type))
                 throw Error(token, "Property setters currently support the seven scalar types only.");
             ExpectAt(ref position, TokenKind.LBrace);
             var start = position;
@@ -35,6 +34,10 @@ public sealed partial class AloeCompiler
             return setter;
         }
 
+        private static bool IsScalarSetterType(ExprType type)
+            => type is ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or
+                ExprType.Float or ExprType.Decimal or ExprType.String;
+
         private bool IsScalarPropertyAssignment()
         {
             if (Peek(1).Kind != TokenKind.Dot || Peek(2).Kind != TokenKind.Identifier ||
@@ -43,7 +46,8 @@ public sealed partial class AloeCompiler
                 return _currentFunction?.DeclaringClass is string owner &&
                     FindField(owner, Peek(2).Lexeme) == null && FindProperty(owner, Peek(2).Lexeme) != null;
             return Current.Kind == TokenKind.Identifier && TryResolveLocal(Current.Lexeme, out var local) &&
-                local.Type == ExprType.Object && FindProperty(local.ClassName, Peek(2).Lexeme) != null;
+                local.Type == ExprType.Object && (FindProperty(local.ClassName, Peek(2).Lexeme) != null ||
+                    FindInterfaceProperty(local.ClassName, Peek(2).Lexeme) != null);
         }
 
         private void ParseScalarPropertyAssignment()
@@ -59,6 +63,11 @@ public sealed partial class AloeCompiler
             else local = ResolveLocal(receiver);
             Expect(TokenKind.Dot);
             var member = Expect(TokenKind.Identifier);
+            if (FindInterfaceProperty(local.ClassName, member.Lexeme) is { } contract)
+            {
+                ParseInterfacePropertyAssignment(local, contract, member);
+                return;
+            }
             var property = FindProperty(local.ClassName, member.Lexeme)!;
             var setter = property.Setter ?? throw Error(member, "Cannot assign a getter-only property.");
             Expect(TokenKind.Assign);

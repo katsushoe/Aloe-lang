@@ -280,6 +280,8 @@ function main(args: string[]): int {
 
 
     <h2 id="ch3">3. グローバル定数（<code>aloe</code> 名前空間）</h2>
+      <p>決定0060（実装済み）：コンパイル時の定数（コンパイラーの版、コンパイル設定による <code>ALOE_DEBUG</code>、int32とbinary32の範囲、<code>ALOE_EOL</code> = "
+"、位置の定数）は値として埋め込みます。<code>ALOE_OS</code>、<code>ALOE_TARGET</code>、<code>ALOE_BINDIR</code>、<code>ALOE_PLUGINDIR</code>、<code>ALOE_DIR_SEPARATOR</code>、<code>ALOE_MAX_PATHLEN</code> は実行時に実行中のVMから取得します（ブラウザーではtargetが"wasm"、パス系は空、MAX_PATHLENは0）。<code>__FILE__</code> はソースのルートからの論理パスで区切りは常に"/"です（ファイルがない場合は <code>&lt;stdin&gt;</code> または <code>&lt;repl&gt;</code>）。絶対パスは埋め込みません。<code>__FUNCTION__</code>、<code>__METHOD__</code>、<code>__CLASS__</code> は対応する宣言の外ではコンパイルエラー、<code>__TRAIT__</code> はtraitの実装まで使用できません。<code>ALOE_</code> で始まる名前と <code>__名前__</code> の形の名前は予約されています。</p>
 
 
     <p>
@@ -696,6 +698,7 @@ function main(args: string[]): int {
 
 
     <h3>7.3 Host synchronous Query</h3>
+      <p>決定0067により7.3〜7.5を解消します。ホストAPIはstatic同期メソッドで、CallBufferを使わず呼び出した場所でその場で実行されます。asyncのコードから呼べばTickの中で、mainから呼べばTickの外で実行されます。例外は通常の同期の例外で、呼び出した場所で捕捉できます。捕捉されなかった場合は、asyncのコードでは決定0065の順序に従い、mainではmainの外へ伝わります。ホストAPIの副作用はTickが失敗しても巻き戻されません（<code>print</code> と同じ）。避けたい場合は、Tickの中ではObjectの状態だけを変え、<code>tick()</code> が戻った後でmainからホストAPIを呼びます。同時に呼ばれた場合の安全性は各ホストAPIの実装の性質で、APIごとに記載し、言語仕様の対象外です。旧7.4の「ホストへの命令をpublic static asyncメソッドとして表す」記述は取り下げます。</p>
     <p>
       Keyboard.isDown / isPressed 等、Host 状態を同期的に問い合わせる static method を提供できる。
       これらは呼び出した VMThread 上でその場で値を返す。

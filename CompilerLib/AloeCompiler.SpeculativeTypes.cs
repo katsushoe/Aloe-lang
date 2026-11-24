@@ -107,12 +107,14 @@ public sealed partial class AloeCompiler
                         !(type == ExprType.Object && referenceDeclaration) &&
                         !(token.Lexeme == "let" && type == ExprType.Enum &&
                           _enumMembers.ContainsKey(TokenAt(cursor + 3).Lexeme)) &&
+                        !(token.Lexeme == "let" && type == ExprType.Struct &&
+                          _structs.ContainsKey(TokenAt(cursor + 3).Lexeme)) &&
                         TokenAt(cursor + 3).Lexeme != type?.ToString().ToLowerInvariant())
                         type = null;
                 }
                 scopes.Peek()[TokenAt(cursor + 1).Lexeme] =
                     type is ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or
-                        ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Object or ExprType.Enum ? type.Value : ExprType.Unknown;
+                        ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Object or ExprType.Enum or ExprType.Struct ? type.Value : ExprType.Unknown;
                 if (statementEnd >= cursor) cursor = statementEnd;
             }
             return scopes.Peek();

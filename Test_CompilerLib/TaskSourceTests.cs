@@ -43,7 +43,7 @@ public sealed class TaskSourceTests
     }
 
     [TestCase("this.run();")]
-    [TestCase("delete this;")]
+    [TestCase("this.start(1);")]
     [TestCase("try { var other=new Worker(); other.send(1); } catch(Exception) { }")]
     public void UnsupportedAndUnsafeTaskOperationsAreRejected(string body)
     {

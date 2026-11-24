@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe Language Spec (Draft, English)</title>
-  <meta name="edit-version" content="232">
-  <meta name="edit-date" content="2026-11-15T00:05:29+09:00">
+  <meta name="edit-version" content="237">
+  <meta name="edit-date" content="2026-11-22T17:51:19+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- Left menu -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - English + validity model (edit-version 232)</div>
+    <div class="subtitle">Draft - English + validity model (edit-version 237)</div>
 
 
 
@@ -148,8 +148,8 @@
   <main class="content">
     <h1 id="top">Aloe Language Spec (Draft, English)</h1>
     <p class="note">
-      edit-version: 232<br>
-      edit-date: 2026-11-15T00:05:29+09:00</p>
+      edit-version: 237<br>
+      edit-date: 2026-11-22T17:51:19+09:00</p>
     <p class="note">
       This document is an English draft based on the upstream specification.<br>
       In addition, it introduces a reference validity model using <strong>valid / invalid</strong> and
@@ -1226,6 +1226,28 @@ class ConsoleLogger implements ILogger {
     }
 }
 </code></pre>
+<div class="note" id="interface-property-contracts">Interface property contracts (decision 0063, 2026-11-24): an interface may declare <code>property Name: Type { get; }</code> or <code>property Name: Type { get; set; }</code> alongside its async method contracts. A get-only contract is satisfied by a public instance property of exactly the same type, including an inherited property or one that also has a setter. A get/set contract requires a decision 0047 scalar setter, so its type is limited to int/bool/byte/char/float/decimal/string. Interface inheritance flattens property contracts like method contracts: identical contracts merge, while differing types or accessors, or a method and a property with the same name, are compile errors. Reading a contract through an interface-typed local, parameter, array/list element or call result runs the runtime class's getter synchronously and reads Committed state like other property queries. Assigning through a get/set contract runs the runtime class's setter synchronously under the ordinary setter rules. Neither access is queued for a Tick. An exception raised by the getter or setter propagates to the caller's matching catch, as for direct class property access. The compiler builds a table of the known classes assignable to the interface, and the appended syscall 64 (InterfacePropertyDispatch) selects the accessor from the receiver's runtime class; opcodes, existing syscall numbers and the AloeBC container format are unchanged. Interfaces declare no synchronous methods and no accessor or method bodies. Sharing implementations through traits (decision 0062), value-returning async methods (L40, decision 0064), class property overrides and static interface members are outside this subset. Direct WASM does not support interfaces.</div>
+<pre><code>interface Scored {
+    property Score: int { get; }
+    property Name: string { get; set; }
+    method reset(): void;
+}
+
+class Player implements Scored {
+    field name: string;
+    construct() { this.name = "p1"; }
+    public property Score: int { get { return 10; } }
+    public property Name: string { get { return this.name; } set { this.name = value; } }
+    public async method reset(): void { }
+}
+
+function main(args: string[]): int {
+    let target: Scored = new Player();
+    target.Name = "renamed";
+    print(target.Name);
+    return target.Score;
+}
+</code></pre>
 
 
 
@@ -2059,7 +2081,7 @@ tick() return
 
     <h3>19.11 async return model</h3>
     <p>
-      An async call is a pure fire-and-forget Command. Aloe does not introduce Future, Promise, Task&lt;T&gt;, await, or async return values.
+      An async call is a pure fire-and-forget Command. Aloe does not introduce Future, Promise, Task&lt;T&gt;, await, or async return values. Decision 0064 confirms this as the contract: instance, static, interface and Task async methods return <code>void</code>; results flow through properties or explicit async call-backs, and value-returning async declarations or async calls used as values are compile errors.
       Values are obtained from Objects through synchronous Queries such as public properties.
     </p>
 
@@ -2146,8 +2168,13 @@ return to main()
 <div class="note" id="task-scheduler-foundation">The internal Task scheduler now snapshots all live Task identities, Running eligibility and pending notifications at Tick entry. In type/slot order it invokes captured FIFO notifications even for Stopped Tasks, then at most one captured run. New notifications/Tasks wait until the next Tick; start/stop preserve the current snapshot and delete immediately skips later work. Active entries defer slot reuse through cleanup. This phase has internal C# entry bindings only: source Task bodies, construction, self-call identity/effect analysis and self-delete bytecode unwinding are not yet implemented. Valid task source still fails with an explicit execution-lowering-not-implemented error.</div>
 <div class="note" id="task-value-bridge">Task values now have VM-local kind11, separate from numeric values and ordinary Object handles. Low-level bytecode operations53..59 allocate an unconstructed Stopped slot of an internally registered type, read/write fields, start/stop, delete and require a live Task. Locals may retain/copy the identity, but deletion/reset invalidates all aliases without reviving them after LIFO reuse. These are runtime building blocks, not source new/constructor execution: Task body binding/lowering, registration from source, invocation/effect checks and self-delete unwind remain pending. Valid Task source still reports execution lowering not implemented. No new source syntax or direct-WASM Task support is enabled.</div>
 <div class="note" id="task-bytecode-entries">Earlier bytecode milestone: Task bytecode can now carry ordered layouts and constructor/method bindings, with automatic VM registration. TaskConstruct60 evaluates validated explicit arguments, creates a Stopped instance and runs its constructor synchronously; failures release its slot/roots without rolling back shared Object effects or queued Object work. TaskInvoke61 queues external notifications and executes runtime-identical self receivers synchronously, including local aliases. Task entries use existing catch/rethrow/finally bytecode, restore caller execution/exception state before propagating synchronous failures, retain parent-frame Object roots and honor cooperative host halt. Source task body binding/code generation and direct async-effect checking remain pending: Task source still explicitly fails compilation. Self-delete unwinding is not implemented and is explicitly rejected before invalidation; do not treat this internal bytecode stage as complete Task language support.</div>
-<div class="note" id="task-source-subset">Initial Task source lowering is enabled: task declarations emit ordered module layouts and constructor/method bindings; new, scalar/ordinary Object fields, synchronous construction, local handle copies, start/stop, notifications and scheduler-only run use Task VM operations. Task handles remain distinct from Objects and cannot be passed to declared parameters/returns/fields/collections or boxed as Object; different Task types are not assignable. Direct this self calls and runtime-identical local aliases execute synchronously. Direct external Task/Object async calls in Task try/catch/finally are rejected; protected alias receivers without a proof of self identity are conservatively rejected (use this). Transitive effects are not checked. Self-delete control unwinding, Task module replacement and direct-WASM Tasks remain unsupported; explicit delete this is a compile error and runtime self aliases are rejected before invalidation. This is an initial source subset, not complete Task-language acceptance.</div>
-<div class="note" id="task-stable-self-alias">Task protected blocks now permit local aliases proven to retain self identity: an initializer must load this or another proven alias, and the binding must have no later assignment in the function. Typed locals, parentheses and alias chains are supported. Unproven or reassigned receivers remain rejected. This conservative lexical proof may reject safe code with later writes or same-name shadowing; runtime identity dispatch and Task lifetime rules are unchanged. Transitive effect checks and self-delete unwind remain deferred.</div>
-<div class="note" id="task-cleanup-descriptor">Task modules distinguish generated finally cleanup from source catches using a sole TRY_CATCH entry with Operand1=-1. This requires Task metadata and an updated supporting runtime; other negative descriptors and mixed cleanup/catch tables are rejected. Source catch-all remains0, typed catches remain positive constant-index-plus-one. Modules without Tasks retain the existing finally encoding. Ordinary exception dispatch, return and nested finally behavior are preserved. This is preparation for self-delete unwinding; self-delete is still unsupported. No opcode IDs or section layout are changed.</div>
+<div class="note" id="task-source-subset">Earlier implementation milestone: Initial Task source lowering is enabled: task declarations emit ordered module layouts and constructor/method bindings; new, scalar/ordinary Object fields, synchronous construction, local handle copies, start/stop, notifications and scheduler-only run use Task VM operations. Task handles remain distinct from Objects and cannot be passed to declared parameters/returns/fields/collections or boxed as Object; different Task types are not assignable. Direct this self calls and runtime-identical local aliases execute synchronously. Direct external Task/Object async calls in Task try/catch/finally are rejected; protected alias receivers without a proof of self identity are conservatively rejected (use this). Transitive effects are not checked. Self-delete control unwinding, Task module replacement and direct-WASM Tasks remain unsupported; explicit delete this is a compile error and runtime self aliases are rejected before invalidation. This is an initial source subset, not complete Task-language acceptance.</div>
+<div class="note" id="task-stable-self-alias">Earlier implementation milestone: Task protected blocks now permit local aliases proven to retain self identity: an initializer must load this or another proven alias, and the binding must have no later assignment in the function. Typed locals, parentheses and alias chains are supported. Unproven or reassigned receivers remain rejected. This conservative lexical proof may reject safe code with later writes or same-name shadowing; runtime identity dispatch and Task lifetime rules are unchanged. Transitive effect checks and self-delete unwind remain deferred.</div>
+<div class="note" id="task-cleanup-descriptor">Earlier implementation milestone: Task modules distinguish generated finally cleanup from source catches using a sole TRY_CATCH entry with Operand1=-1. This requires Task metadata and an updated supporting runtime; other negative descriptors and mixed cleanup/catch tables are rejected. Source catch-all remains0, typed catches remain positive constant-index-plus-one. Modules without Tasks retain the existing finally encoding. Ordinary exception dispatch, return and nested finally behavior are preserved. This is preparation for self-delete unwinding; self-delete is still unsupported. No opcode IDs or section layout are changed.</div>
+<div class="note" id="task-self-delete-unwind">Task source delete now emits TaskDeleteAndUnwind62. Self deletion invalidates the handle immediately, bypasses user catches and visits tagged finally handlers through synchronous self entries. The Task body never resumes. Ordinary nested error handling inside cleanup is allowed; an escaping cleanup error overrides earlier failures and still visits outer cleanup before the Tick fails. An already uncaught error in a finally remains a failure when that finally deletes the Task; a handled user catch does not become a failure. Copied Object locals remain usable, and the active slot is withheld until all entries finish. Constructor self deletion returns a deleted Task handle after cleanup; a cleanup error instead fails new. Legacy TaskDelete58 retains its self-delete rejection before invalidation; recompile to opt into62 and cleanup descriptors. Direct WASM and Task module replacement remain deferred.</div>
+<div class="note" id="struct-value-return-flow">Interface exception-flow analysis recognizes returns of already parsed immutable struct values and declared nested struct fields as nonthrowing loads. Whole-expression parentheses, existing aliases and supported conditional/loop/nested-try composition retain this precision. Nominal return validation remains in ordinary parsing. This does not add struct reference fields or struct-to-object conversion. Allocating struct literals, calls, properties, indexing, unparsed shadow receivers and general member/reference CFG remain conservative. This is a bounded L29 refinement, not general CFG completion; runtime and bytecode semantics are unchanged.</div>
+<div class="note" id="task-transitive-notification-effects">Adopted0052: Task try/catch/finally rejects synchronous source calls that can transitively enqueue Object/static async or external Task notifications. The compiler collects direct CALL edges (including constructors, setters and struct members), resolved committed getters, Task constructors and proven self calls, then propagates notification effects through recursive call graphs after all bodies are parsed. Pure synchronous recursion remains allowed; diagnostics include a witness path. Unproven Task self receivers and dynamic pipe/Tick callback dispatch are conservative unknown effects. Unknown callbacks are rejected in Task protected regions, including through helpers. The existing main-only Tick restriction remains. Calls outside protected regions and ordinary Object try blocks retain their rules. This is not an I/O/state/exception purity or rollback guarantee. Arbitrary host reentry and external module effect contracts remain deferred; runtime and bytecode are unchanged.</div>
+<div class="note" id="struct-binding-exception-flow">Interface exception-flow analysis recognizes inferred var copies, named let bindings and same-kind local assignments of existing immutable struct values in try regions. Nested declared struct values can be copied too. Ordinary parsing still checks nominal identity; lexical shadows and scope boundaries are preserved. Speculative struct kinds carry no nominal receiver shape, so fields through an unparsed alias, calls, allocation, properties, indexing and member writes remain conservative. Struct const is still unsupported. This bounded L29 refinement changes neither runtime nor bytecode semantics.</div>
+<div class="note" id="struct-alias-field-flow">Within try-region analysis, a proven copy of an existing struct carries its nominal type into declared field reads. The proof follows lexical scope and discards shadowed facts. Getters, calls and receivers of unknown nominal type remain conservative.</div>
 </body>
 </html>

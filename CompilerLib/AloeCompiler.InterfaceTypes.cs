@@ -25,9 +25,12 @@ public sealed partial class AloeCompiler
                 if (target.Parents.Contains(parent.Name, StringComparer.Ordinal))
                     throw Error(parentToken, $"Interface parent '{parent.Name}' is listed more than once.");
                 target.Parents.Add(parent.Name);
+                MergeInheritedPropertyContracts(target, parent, parentToken);
                 foreach (var required in parent.Methods)
                 {
                     var existing = target.Methods.FirstOrDefault(method => method.Name == required.Name);
+                    if (existing == null && target.Properties.Any(property => property.Name == required.Name))
+                        throw Error(parentToken, $"Inherited interface member '{required.Name}' is both a method and a property in '{target.Name}'.");
                     if (existing == null)
                         target.Methods.Add(required);
                     else if (!HasMatchingMethodSignature(existing.Function, required.Function.Parameters,

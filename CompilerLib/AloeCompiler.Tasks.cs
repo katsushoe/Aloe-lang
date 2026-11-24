@@ -99,6 +99,7 @@ public sealed partial class AloeCompiler
         private ExprType ParseNewTask(ClassSignature task, AloeToken token)
         {
             var count = ParseTaskArguments(task.Constructor?.Parameters ?? Array.Empty<ParameterSignature>(), token);
+            if (task.Constructor is { } constructor) RecordTaskSynchronousCall(constructor.Index, token);
             Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(task.Name))); EmitIntConstant(count);
             Emit(EnumOpcode.Syscall, (int)EnumSyscall.TaskConstruct); _lastExpressionClassName = task.Name; return ExprType.Task;
         }
@@ -121,6 +122,11 @@ public sealed partial class AloeCompiler
                 var method = FindMethod(target.ClassName!, member.Lexeme)
                     ?? throw Error(member, "Unknown Task method.");
                 var count = ParseTaskArguments(method.Function.Parameters, member);
+                if (throughThis || InTask && _taskStableSelfAliases.Contains(target.Slot))
+                    RecordTaskSynchronousCall(method.Function.Index, member);
+                else
+                    RecordTaskNotification(InTask ? TaskNotificationEffect.Unknown : TaskNotificationEffect.MayNotify,
+                        "Task notification " + method.Function.Name);
                 Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(member.Lexeme))); EmitIntConstant(count);
                 Emit(EnumOpcode.Syscall, (int)EnumSyscall.TaskInvoke);
             }
@@ -134,9 +140,10 @@ public sealed partial class AloeCompiler
                 var receiver = Advance(); ParseTaskCall(ResolveLocal(receiver), receiver, true); return true;
             }
             if (Current.Lexeme != "delete") return false;
-            if (InTask && Peek(1).Lexeme == "this") throw Error(Current, "Task self-delete unwinding is not implemented yet.");
-            if (Peek(1).Kind != TokenKind.Identifier || !TryResolveLocal(Peek(1).Lexeme, out var local) || local.Type != ExprType.Task) return false;
-            Advance(); Advance(); Expect(TokenKind.Semicolon); Emit(EnumOpcode.LoadLocal, local.Slot); Emit(EnumOpcode.Syscall, (int)EnumSyscall.TaskDelete); return true;
+            var deletionReceiver = Peek(1);
+            if (!(InTask && deletionReceiver.Lexeme == "this") && deletionReceiver.Kind != TokenKind.Identifier) return false;
+            if (!TryResolveLocal(deletionReceiver.Lexeme, out var local) || local.Type != ExprType.Task) return false;
+            Advance(); Advance(); Expect(TokenKind.Semicolon); Emit(EnumOpcode.LoadLocal, local.Slot); Emit(EnumOpcode.Syscall, (int)EnumSyscall.TaskDeleteAndUnwind); return true;
         }
 
         private ExprType ParseTaskThisRead()

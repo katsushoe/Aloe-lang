@@ -248,7 +248,7 @@ public sealed partial class AloeCompiler
                 _lastExpressionClassName = elementName;
                 if (elementType == ExprType.Object && Current.Kind is TokenKind.LBracket or TokenKind.Dot &&
                     TryGetArrayElementType(elementName, out var childType)) return ParseArrayResultRead(childType);
-                if (elementType == ExprType.Object && elementName != null && (_classes.ContainsKey(elementName) || TryGetNamedBoxType(elementName, out _)))
+                if (elementType == ExprType.Object && elementName != null && (IsClassOrInterface(elementName) || TryGetNamedBoxType(elementName, out _)))
                     return ParseReferenceGetters(elementName);
                 return elementType == ExprType.Struct ? ParseStructResultMembers(elementType, elementName) : elementType;
             }
@@ -280,25 +280,36 @@ public sealed partial class AloeCompiler
         private ExprType ParseReferenceGetters(string className)
         {
             var type = ExprType.Object;
-            while (Check(TokenKind.Dot) && type == ExprType.Object && (_classes.ContainsKey(className) || TryGetNamedBoxType(className, out _)))
+            while (Check(TokenKind.Dot) && type == ExprType.Object && (_classes.ContainsKey(className) ||
+                       _interfaces.ContainsKey(className) || TryGetNamedBoxType(className, out _)))
             {
                 if (TryGetNamedBoxType(className, out _)) return ParseNamedBoxMember(className);
                 Advance();
                 var member = Expect(TokenKind.Identifier);
-                var property = FindProperty(className, member.Lexeme)
-                    ?? throw Error(member, "Class references expose public getters; use a local or with target for async calls.");
-                Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
-                EmitIntConstant(property.Getter.Index);
-                Emit(EnumOpcode.Syscall, (int)EnumSyscall.InstancePropertyGet);
-                type = property.Type;
-                _lastExpressionClassName = property.ClassName;
-                if (type == ExprType.Struct) return ParseStructResultMembers(type, property.ClassName);
-                if (type == ExprType.Object && IsMapType(property.ClassName) && Current.Kind is TokenKind.Dot or TokenKind.LBracket)
+                string? resultClassName;
+                if (_interfaces.ContainsKey(className))
+                {
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
+                    type = ParseInterfacePropertyRead(className, member);
+                    resultClassName = _lastExpressionClassName;
+                }
+                else
+                {
+                    var property = FindProperty(className, member.Lexeme)
+                        ?? throw Error(member, "Class references expose public getters; use a local or with target for async calls.");
+                    Emit(EnumOpcode.Syscall, (int)EnumSyscall.ReferenceRequireLive);
+                    EmitResolvedPropertyGetter(property.Getter, member);
+                    type = property.Type;
+                    resultClassName = property.ClassName;
+                    _lastExpressionClassName = resultClassName;
+                }
+                if (type == ExprType.Struct) return ParseStructResultMembers(type, resultClassName);
+                if (type == ExprType.Object && IsMapType(resultClassName) && Current.Kind is TokenKind.Dot or TokenKind.LBracket)
                     return ParseMapResultRead();
-                if (type == ExprType.Object && TryGetArrayElementType(property.ClassName, out var elementType) &&
+                if (type == ExprType.Object && TryGetArrayElementType(resultClassName, out var elementType) &&
                     Current.Kind is TokenKind.Dot or TokenKind.LBracket) return ParseArrayResultRead(elementType);
-                if (property.ClassName == null) break;
-                className = property.ClassName;
+                if (resultClassName == null) break;
+                className = resultClassName;
             }
             return type;
         }

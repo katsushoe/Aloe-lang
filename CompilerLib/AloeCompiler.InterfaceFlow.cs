@@ -620,9 +620,7 @@ public sealed partial class AloeCompiler
         {
             if (start < 0 || end < start) return false;
             // Copy at each lexical boundary: declarations must not escape a branch/loop/block.
-            var localTypes = inheritedTypes == null
-                ? new Dictionary<string, ExprType>(StringComparer.Ordinal)
-                : new Dictionary<string, ExprType>(inheritedTypes, StringComparer.Ordinal);
+            var localTypes = new TryFlowTypes(inheritedTypes);
             for (var cursor = start; cursor < end; cursor++)
             {
                 var token = TokenAt(cursor);
@@ -665,8 +663,11 @@ public sealed partial class AloeCompiler
                     if (type == null && EvaluateNonthrowingBooleanCondition(cursor + 3, statementEnd, localTypes) != null)
                         type = ExprType.Bool;
                     if (type is not (ExprType.Int or ExprType.Bool or ExprType.String or ExprType.Byte or
-                        ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Object or ExprType.Enum)) return false;
-                    localTypes[TokenAt(cursor + 1).Lexeme] = type.Value;
+                        ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Object or ExprType.Enum or ExprType.Struct)) return false;
+                    var shape = type == ExprType.Struct
+                        ? GetNonthrowingStructPath(cursor + 3, statementEnd, localTypes, allowLocal: true)?.Shape
+                        : null;
+                    localTypes.Bind(TokenAt(cursor + 1).Lexeme, type.Value, shape);
                     cursor = statementEnd;
                     continue;
                 }
@@ -677,22 +678,28 @@ public sealed partial class AloeCompiler
                     var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
                     if (statementEnd < 0 || GetNonthrowingDirectReadType(referenceInitializer, statementEnd, localTypes) != ExprType.Object)
                         return false;
-                    localTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Object;
+                    localTypes.Bind(TokenAt(cursor + 1).Lexeme, ExprType.Object);
                     cursor = statementEnd;
                     continue;
                 }
-                // A named enum annotation loads the same kind without boxing or conversion.
-                // Ordinary parsing retains the exact nominal enum identity check.
+                // Existing enum/immutable struct values are same-kind slot copies.
+                // Ordinary parsing retains exact nominal identity checks. Use the
+                // declared shape only when the initializer proves that same shape.
                 if (token.Lexeme == "let" && TokenAt(cursor + 1).Kind == TokenKind.Identifier &&
                     TokenAt(cursor + 2).Kind == TokenKind.Colon &&
-                    _enumMembers.ContainsKey(TokenAt(cursor + 3).Lexeme) &&
+                    (_enumMembers.ContainsKey(TokenAt(cursor + 3).Lexeme) || _structs.ContainsKey(TokenAt(cursor + 3).Lexeme)) &&
                     TokenAt(cursor + 4).Kind == TokenKind.Assign)
                 {
                     var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
+                    var expectedKind = _structs.ContainsKey(TokenAt(cursor + 3).Lexeme) ? ExprType.Struct : ExprType.Enum;
                     if (statementEnd < 0 ||
-                        GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) != ExprType.Enum)
+                        GetNonthrowingDirectReadType(cursor + 5, statementEnd, localTypes) != expectedKind)
                         return false;
-                    localTypes[TokenAt(cursor + 1).Lexeme] = ExprType.Enum;
+                    var declaredName = TokenAt(cursor + 3).Lexeme;
+                    var shape = expectedKind == ExprType.Struct &&
+                        GetNonthrowingStructPath(cursor + 5, statementEnd, localTypes, allowLocal: true)?.Shape == declaredName
+                        ? declaredName : null;
+                    localTypes.Bind(TokenAt(cursor + 1).Lexeme, expectedKind, shape);
                     cursor = statementEnd;
                     continue;
                 }
@@ -729,7 +736,7 @@ public sealed partial class AloeCompiler
                     };
                     if (!initializerIsSafe) return false;
                     // Bind after proving the initializer, so a shadow initializer reads its outer binding.
-                    localTypes[TokenAt(cursor + 1).Lexeme] = type;
+                    localTypes.Bind(TokenAt(cursor + 1).Lexeme, type);
                     cursor = statementEnd;
                     continue;
                 }
@@ -741,7 +748,7 @@ public sealed partial class AloeCompiler
                     var targetType = GetNonthrowingDirectReadType(cursor, cursor + 1, localTypes);
                     var statementEnd = FindInterfaceFlowStatementEnd(cursor, end);
                     if (targetType is not (ExprType.Int or ExprType.Bool or ExprType.String or ExprType.Byte or
-                        ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Object or ExprType.Enum) || statementEnd < 0)
+                        ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Object or ExprType.Enum or ExprType.Struct) || statementEnd < 0)
                         return false;
                     var provenBoolExpression = targetType == ExprType.Bool &&
                         EvaluateNonthrowingBooleanCondition(cursor + 2, statementEnd, localTypes) != null;
@@ -787,9 +794,9 @@ public sealed partial class AloeCompiler
                     if (statementEnd < 0) return false;
                     var returnType = _currentFunction?.ReturnType;
                     // The lexical type map includes speculative locals and shadows. A direct
-                    // same-kind primitive load needs no allocation, conversion or unboxing.
+                    // same-kind primitive or immutable struct load needs no allocation, conversion or unboxing.
                     if (returnType is ExprType.Int or ExprType.Bool or ExprType.Byte or ExprType.Char or
-                        ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Enum &&
+                        ExprType.Float or ExprType.Decimal or ExprType.String or ExprType.Enum or ExprType.Struct &&
                         GetNonthrowingDirectReadType(cursor + 1, statementEnd, localTypes) == returnType)
                         return true;
                     if (IsNonthrowingReferenceReturn(cursor + 1, statementEnd, localTypes))
@@ -880,7 +887,14 @@ public sealed partial class AloeCompiler
                 if (TokenAt(open - 1).Kind == TokenKind.RParen &&
                     !AloeExceptionTypes.TryResolve(TokenAt(open - 2).Lexeme, out handlerType)) return false;
                 if (handlerType.IsAssignableFrom(exceptionType))
-                    return CanProveTryRangeHasNoExceptionalEdges(open + 1, close - 1, localTypes);
+                {
+                    var handlerTypes = new TryFlowTypes(localTypes);
+                    var bindings = new Dictionary<int, HashSet<string>>();
+                    AddCatchFlowBindings(open - 6, bindings);
+                    if (bindings.TryGetValue(open, out var names))
+                        foreach (var name in names) handlerTypes.Bind(name, ExprType.Unknown);
+                    return CanProveTryRangeHasNoExceptionalEdges(open + 1, close - 1, handlerTypes);
+                }
             }
             return false;
         }

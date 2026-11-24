@@ -10,7 +10,36 @@ public sealed partial class AloeVm
 {
     private sealed record JsonFilterField(string Name, string Type);
     private sealed record JsonFilterSchema(string TypeName, IReadOnlyList<JsonFilterField> Fields);
-    private sealed record SortFilterSchema(string TypeName, string FieldName, int FieldIndex, bool IsStringKey, bool IsByteKey, bool IsBoolKey);
+    private sealed record SortFilterSchema(string TypeName, string FieldName, int FieldIndex, bool IsStringKey, bool IsByteKey, bool IsBoolKey)
+    {
+        // Decision 0054: optional key kinds char/float/decimal and an optional descending flag.
+        public string KeyType { get; init; } = IsStringKey ? "string" : IsByteKey ? "byte" : IsBoolKey ? "bool" : "int";
+        public bool Descending { get; init; }
+    }
+
+    // Decision 0054: argument-carrying scalar sort (index -43) for decimal/char/float pipes and descending order.
+    private sealed record OptionSortSchema(string Element, bool Descending);
+
+    private static OptionSortSchema ParseOptionSortSchema(string schemaJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(schemaJson);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object || root.EnumerateObject().Count() != 2 ||
+                !root.TryGetProperty("element", out var element) || element.ValueKind != JsonValueKind.String ||
+                element.GetString() is not ("int" or "string" or "byte" or "bool" or "decimal" or "char" or "float") ||
+                !root.TryGetProperty("descending", out var descending) ||
+                descending.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new VmException("The option sort filter schema is invalid.");
+            return new OptionSortSchema(element.GetString()!, descending.GetBoolean());
+        }
+        catch (VmException) { throw; }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+        {
+            throw new VmException("The option sort filter schema is invalid.");
+        }
+    }
 
     private static SortFilterSchema ParseSortFilterSchema(string schemaJson)
     {
@@ -19,18 +48,26 @@ public sealed partial class AloeVm
             using var document = JsonDocument.Parse(schemaJson);
             var root = document.RootElement;
             JsonElement fieldType = default;
+            JsonElement descending = default;
             var hasFieldType = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("fieldType", out fieldType);
+            var hasDescending = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("descending", out descending);
+            if (hasDescending && descending.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new VmException("The sort filter schema is invalid.");
             if (root.ValueKind != JsonValueKind.Object ||
                 !root.TryGetProperty("typeName", out var typeName) || typeName.ValueKind != JsonValueKind.String ||
                 string.IsNullOrWhiteSpace(typeName.GetString()) ||
                 !root.TryGetProperty("fieldName", out var fieldName) || fieldName.ValueKind != JsonValueKind.String ||
                 string.IsNullOrWhiteSpace(fieldName.GetString()) ||
                 !root.TryGetProperty("fieldIndex", out var fieldIndex) || !fieldIndex.TryGetInt32(out var index) || index < 0 ||
-                hasFieldType && (fieldType.ValueKind != JsonValueKind.String || fieldType.GetString() is not ("int" or "byte" or "bool" or "string")) ||
-                root.EnumerateObject().Count() != (hasFieldType ? 4 : 3))
+                hasFieldType && (fieldType.ValueKind != JsonValueKind.String || fieldType.GetString() is not ("int" or "byte" or "bool" or "string" or "char" or "float" or "decimal")) ||
+                root.EnumerateObject().Count() != 3 + (hasFieldType ? 1 : 0) + (hasDescending ? 1 : 0))
                 throw new VmException("The sort filter schema is invalid.");
             return new SortFilterSchema(typeName.GetString()!, fieldName.GetString()!, index,
-                hasFieldType && fieldType.GetString() == "string", hasFieldType && fieldType.GetString() == "byte", hasFieldType && fieldType.GetString() == "bool");
+                hasFieldType && fieldType.GetString() == "string", hasFieldType && fieldType.GetString() == "byte", hasFieldType && fieldType.GetString() == "bool")
+            {
+                KeyType = hasFieldType ? fieldType.GetString()! : "int",
+                Descending = hasDescending && descending.GetBoolean()
+            };
         }
         catch (VmException) { throw; }
         catch (Exception exception) when (exception is JsonException or InvalidOperationException)

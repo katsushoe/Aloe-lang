@@ -86,14 +86,17 @@ public sealed partial class AloeVm
             Push(TaskPool.GetField(PopLiveTask(), field));
             return;
         }
-        if (syscall == EnumSyscall.TaskDelete)
+        if (syscall is EnumSyscall.TaskDelete or EnumSyscall.TaskDeleteAndUnwind)
         {
             var value = Pop();
             if (value.IsNull) return;
             if (!value.IsTask) throw new VmException("Task deletion expects a Task identity or invalid marker.");
-            if (CurrentThreadState.TaskIdentity == value.AsTaskId)
-                throw new VmException("Task self-deletion bytecode unwinding is not implemented yet.");
+            var self = CurrentThreadState.TaskIdentity == value.AsTaskId;
+            if (self && syscall == EnumSyscall.TaskDelete)
+                throw new VmException("Legacy TaskDelete does not support self deletion; recompile with TaskDeleteAndUnwind.");
+            var live = TaskPool.IsLive(value.AsTaskId);
             TaskPool.Delete(value.AsTaskId);
+            if (self && live) ContinueTaskDeletion();
             return;
         }
         var liveIdentity = PopLiveTask();
@@ -146,7 +149,9 @@ public sealed partial class AloeVm
         var function = _module.Functions[functionIndex];
         var parent = CurrentThreadState;
         var previous = _threadState.Value;
-        var state = new VmThreadState { TaskIdentity = identity, SynchronousCallDepth = parent.SynchronousCallDepth + 1 };
+        var state = RentTaskEntryState();
+        state.TaskIdentity = identity;
+        state.SynchronousCallDepth = parent.SynchronousCallDepth + 1;
         var locals = new AloeValue[function.LocalCount];
         locals[0] = AloeValue.FromTask(identity);
         for (var index = 0; index < arguments.Count; index++) locals[index + 1] = arguments[index];
@@ -155,6 +160,7 @@ public sealed partial class AloeVm
         _taskEntryParents.Add(parent);
         _threadState.Value = state;
         ExceptionDispatchInfo? failure = null;
+        TaskDeletionState? deletion = null;
         try
         {
             _callStack.Push(new CallFrame(_module, function, function.EntryIp, locals: locals));
@@ -168,11 +174,19 @@ public sealed partial class AloeVm
         }
         finally
         {
+            deletion = state.TaskDeletion;
             _threadState.Value = previous;
             _taskEntryParents.RemoveAt(_taskEntryParents.Count - 1);
-            TaskPool.EndExecution(identity);
+            try { TaskPool.EndExecution(identity); }
+            finally { ReturnTaskEntryState(state); }
         }
-        failure?.Throw();
+        if (deletion != null)
+        {
+            var cleanupFailure = failure ?? deletion.Failure;
+            if (parent.TaskIdentity == identity) ContinueTaskDeletion(cleanupFailure);
+            else cleanupFailure?.Throw();
+        }
+        else failure?.Throw();
     }
 
     private void AddTaskParentRoots(List<long> roots)

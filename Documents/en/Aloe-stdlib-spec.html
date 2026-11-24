@@ -279,6 +279,8 @@ function main(args: string[]): int {
 
 
     <h2 id="ch3">3. Global constants (<code>aloe</code> namespace)</h2>
+      <p>Decision 0060 (implemented): compile-time constants are inlined (compiler version, <code>ALOE_DEBUG</code> from the compilation setting, int32 and binary32 ranges, <code>ALOE_EOL</code> = "
+", and the location constants). <code>ALOE_OS</code>, <code>ALOE_TARGET</code>, <code>ALOE_BINDIR</code>, <code>ALOE_PLUGINDIR</code>, <code>ALOE_DIR_SEPARATOR</code> and <code>ALOE_MAX_PATHLEN</code> are read from the executing VM at run time (browser: target "wasm", path constants empty, MAX_PATHLEN 0). <code>__FILE__</code> is the logical path relative to the source root with "/" separators (<code>&lt;stdin&gt;</code> or <code>&lt;repl&gt;</code> when there is no file); absolute paths are never embedded. <code>__FUNCTION__</code>, <code>__METHOD__</code> and <code>__CLASS__</code> are compile errors outside their declarations; <code>__TRAIT__</code> is unavailable until traits exist. Names starting with <code>ALOE_</code> and names of the form <code>__name__</code> are reserved.</p>
 
 
     <p>
@@ -702,6 +704,7 @@ function main(args: string[]): int {
 
 
     <h3>7.3 Host synchronous Queries</h3>
+      <p>Decision 0067 resolves 7.3–7.5: Host APIs are static synchronous methods executed at the call site, not via the CallBuffer. Called from async code they run inside the Tick; called from main they run outside it. Their exceptions are ordinary synchronous exceptions catchable at the call site; uncaught ones follow decision 0065 in async code or leave main. Host side effects are not rolled back when a Tick fails (like <code>print</code>); to avoid them, change Object state inside the Tick and call the Host API from main after <code>tick()</code> returns. Thread safety under concurrent calls is a property of each Host API implementation and is documented per API, outside the language specification. The former 7.4 statement that Host commands are public static async methods is withdrawn.</p>
     <p>
       Static methods such as Keyboard.isDown / isPressed may synchronously query Host state and return a value immediately on the calling VMThread.
     </p>

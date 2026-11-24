@@ -192,12 +192,12 @@ public sealed class TaskEntryTests
     }
 
     [Test]
-    public void SelfDeleteUnwindIsExplicitlyRejectedBeforeInvalidation()
+    public void LegacySelfDeleteIsRejectedBeforeInvalidation()
     {
         var vm = new AloeVm(Bound("public async method run(): void { print(1); print(2); }")); var output = new List<string>();
         vm.OutputWriter = line => { output.Add(line); vm.Push(vm.CurrentFrame!.Locals[0]); vm.InvokeSyscall(EnumSyscall.TaskDelete); };
         var task = Construct(vm); vm.Push(task); vm.InvokeSyscall(EnumSyscall.TaskStart);
-        var error = Assert.Throws<VmException>(() => vm.Tick()); Assert.That(error!.Message, Does.Contain("not implemented"));
+        var error = Assert.Throws<VmException>(() => vm.Tick()); Assert.That(error!.Message, Does.Contain("Legacy TaskDelete"));
         Assert.That(vm.TaskPool.IsLive(task.AsTaskId), Is.True); Assert.That(output, Is.EqualTo(new[] { "1" }));
     }
 

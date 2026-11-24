@@ -16,7 +16,7 @@ The runtime baseline defaults to `10.0.13`, independently of the installed SDK's
 
 The initial version `0.1.0` uses ProductCode `{0FDC5E40-27FB-4891-997D-255CA29F47E6}` and UpgradeCode `{60A2445F-3183-4842-9170-3C9E72A75C93}`. Every later major-upgrade build must specify a higher three-field version and a new ProductCode. WiX generates a unique PackageCode for each build.
 
-`-SkipMsiValidation` is only for build hosts that cannot run Windows Installer ICE validation; it does not satisfy package validation or installation acceptance. Install, upgrade, downgrade, repair, uninstall, environment precedence, ACL, hash, and data-preservation tests must run in a disposable Windows VM.
+`-SkipMsiValidation` is only for build hosts that cannot run Windows Installer ICE validation; it does not satisfy package validation or installation acceptance. Run one install/repair/upgrade/uninstall lifecycle for the final candidate in a disposable Windows VM, retaining payload-hash and data-preservation checks within that run. Add targeted downgrade, ACL and environment-override scenarios when affected or explicitly required for release acceptance.
 
 After building, `powershell -NoProfile -ExecutionPolicy Bypass -File Installer/Test-MsiArtifact.ps1 -MsiPath .local/installer/out/Aloe-lang-0.1.0-x64.msi` decompiles the package and checks identity, architecture, host/config payloads, writable-directory ACL entries, and environment-variable authoring. This static check does not replace ICE validation or VM lifecycle acceptance.
 
@@ -25,6 +25,8 @@ The MSI installs under 64-bit Program Files by default. It preserves a pre-exist
 ## Disposable VM lifecycle runner
 
 `Test-MsiLifecycle.ps1` accepts an initial MSI and a higher-version major-upgrade MSI with a different ProductCode and PackageCode. It checks the Aloe product family, x64/per-machine metadata and package hashes using the Windows Installer database in read-only mode. Its default mode writes a five-step plan and `report.json`; it does not start `msiexec`:
+
+For the reduced final-candidate scope, add `-SkipDowngrade` in both plan-only and execute modes. This selects exactly install, repair, upgrade and uninstall, and omits the downgrade check from the result. The default five-step behavior remains available when downgrade validation is required.
 
 ```powershell
 pwsh -NoProfile -File Installer/Test-MsiLifecycle.ps1 `

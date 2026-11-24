@@ -16,7 +16,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File Installer/BuildMsi.ps1 -Prod
 
 初版`0.1.0`のProductCodeは`{0FDC5E40-27FB-4891-997D-255CA29F47E6}`、UpgradeCodeは`{60A2445F-3183-4842-9170-3C9E72A75C93}`です。以降のmajor upgradeでは、より大きい3フィールド版数と新しいProductCodeが必要です。PackageCodeはビルドごとにWiXが生成します。
 
-`-SkipMsiValidation`は、Windows Installer ICE検証を実行できないビルド環境向けです。MSIの検証やインストール受け入れを満たすものではありません。インストール、upgrade、downgrade、repair、uninstall、環境変数優先順位、ACL、ファイルハッシュ、データ保持の試験は、破棄可能なWindows VMで行ってください。
+`-SkipMsiValidation`は、Windows Installer ICE検証を実行できないビルド環境向けです。MSIの検証やインストール受け入れを満たすものではありません。最終候補では、破棄可能なWindows VMでインストール・修復・更新・削除のライフサイクルを1回実行し、その中でファイルハッシュとデータ保持を確認します。downgrade・ACL・環境変数上書きの追加シナリオは、影響がある場合またはリリース受け入れで明示的に必要な場合に実施します。
 
 ビルド後、`powershell -NoProfile -ExecutionPolicy Bypass -File Installer/Test-MsiArtifact.ps1 -MsiPath .local/installer/out/Aloe-lang-0.1.0-x64.msi`を実行すると、MSIをdecompileし、識別情報、アーキテクチャ、ホストと設定ファイル、書込み可能ディレクトリのACL、環境変数の設定を検査します。この静的検査はICE検証やVMでのライフサイクル受け入れの代わりにはなりません。
 
@@ -24,6 +24,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File Installer/BuildMsi.ps1 -Prod
 ## 使い捨てVM用ライフサイクル実行スクリプト
 
 `Test-MsiLifecycle.ps1`は初期MSIと、版・ProductCode・PackageCodeを更新したmajor upgrade用MSIを受け取ります。Aloe製品系列・x64/per-machine・hashを読み取り専用で確認し、既定では5段階の計画と`report.json`だけを出力します。
+
+縮小した最終候補の範囲では、計画のみ・実行のどちらにも`-SkipDowngrade`を指定します。インストール・修復・更新・削除の4ステップだけを選び、結果からもダウングレードの検査項目を除外します。必要時は既定の5ステップを引き続き使用できます。
 
 ```powershell
 pwsh -NoProfile -File Installer/Test-MsiLifecycle.ps1 `

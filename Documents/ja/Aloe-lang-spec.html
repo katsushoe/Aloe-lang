@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <title>Aloe 言語仕様書（ドラフト、日本語版）</title>
-  <meta name="edit-version" content="232">
-  <meta name="edit-date" content="2026-11-15T00:05:29+09:00">
+  <meta name="edit-version" content="237">
+  <meta name="edit-date" content="2026-11-22T17:51:19+09:00">
   <style>
     :root { color-scheme: light dark; }
     body {
@@ -94,7 +94,7 @@
   <!-- 左側メニュー -->
   <aside class="sidebar">
     <h1>Aloe Language Spec</h1>
-    <div class="subtitle">Draft - Japanese translation (edit-version 232)</div>
+    <div class="subtitle">Draft - Japanese translation (edit-version 237)</div>
 
 
 
@@ -151,8 +151,8 @@
   <main class="content">
     <h1 id="top">Aloe 言語仕様書（ドラフト、日本語版）</h1>
     <p class="note">
-      edit-version: 232<br>
-      edit-date: 2026-11-15T00:05:29+09:00</p>
+      edit-version: 237<br>
+      edit-date: 2026-11-22T17:51:19+09:00</p>
     <p class="note">
       この文書は、英語版仕様をベースにした日本語ドラフトです。<br>
       本版では「欠如」を言語として認めない方針とし、<strong>null / valid / invalid / delete / capture</strong> を仕様から排除します。<br>
@@ -1233,7 +1233,7 @@ var score = Game.score;
     <h4>7.1.3 public / private / protected instance method</h4>
     <ul>
       <li>外部から呼び出せる public instance method は必ず <code>async</code> とする。</li>
-      <li><code>public async method</code> の戻り値は必ず <code>void</code> とし、Task&lt;T&gt; / Future&lt;T&gt; / Promise&lt;T&gt; / await / continuation は導入しない。</li>
+      <li><code>public async method</code> の戻り値は必ず <code>void</code> とし、Task&lt;T&gt; / Future&lt;T&gt; / Promise&lt;T&gt; / await / continuation は導入しない。決定0064により、これを取り決めとして確定する。instance・static・interface・Taskのasyncメソッドは <code>void</code> を返し、結果はpropertyまたは明示的なasyncの呼び返しで伝える。値を返すasyncの宣言と、async呼び出しを値として使う式はコンパイルエラーである。</li>
       <li>Aloe の <code>async</code> は C# の async/await ではなく、対象 Object の CallBuffer へ method invocation を enqueue することを意味する。</li>
       <li>private / protected instance method は同期実行でき、戻り値を持つことができる。</li>
       <li>実行時に <code>targetObject == currentObject</code> である self call は、その場で同期実行し CallBuffer へ追加しない。</li>
@@ -1485,6 +1485,28 @@ class ConsoleLogger implements ILogger {
     public async method log(msg: string): void {
         print(msg);
     }
+}
+</code></pre>
+<div class="note" id="interface-property-contracts">interfaceのプロパティの取り決め（決定0063、2026-11-24）: interfaceはasyncメソッドの取り決めに加えて、<code>property 名前: 型 { get; }</code> または <code>property 名前: 型 { get; set; }</code> を宣言できます。<code>get;</code> だけの取り決めは、型が完全に一致する公開インスタンスプロパティで満たされます。継承したプロパティや、setterも持つプロパティでもかまいません。<code>get; set;</code> の取り決めには決定0047のsetterが必要なため、型は int/bool/byte/char/float/decimal/string に限られます。interfaceの継承では、プロパティの取り決めもメソッドと同じく平坦化します。同一の取り決めは1つにまとめ、型や読み書きが異なる場合と、同じ名前のメソッドとプロパティがある場合はコンパイルエラーです。interface型のローカル変数・引数・配列やリストの要素・関数の戻り値から取り決めを読むと、実体のクラスのgetterを同期実行し、他のプロパティ問い合わせと同じく確定済み（Committed）の状態を読みます。<code>get; set;</code> の取り決めへ代入すると、実体のクラスのsetterを通常のsetterと同じ規則で同期実行します。どちらもTickには積みません。getterやsetterで発生した例外は、クラスのプロパティを直接使う場合と同じく、呼び出し元の対応するcatchへ伝わります。コンパイラはinterfaceへ代入可能な既知のクラスの対応表を作り、末尾に追加したsyscall 64（InterfacePropertyDispatch）が受け取ったオブジェクトの実体のクラスから呼び先を選びます。opcode、既存のsyscall番号、AloeBCコンテナ形式は変更しません。interfaceには同期メソッドも、アクセサやメソッドの本体も書けません。trait（決定0062）による実装の共有、値を返すasyncメソッド（L40、決定0064）、クラスのプロパティのoverride、interfaceのstaticメンバーはこの範囲に含みません。直接WASMはinterfaceに対応していません。</div>
+<pre><code>interface Scored {
+    property Score: int { get; }
+    property Name: string { get; set; }
+    method reset(): void;
+}
+
+class Player implements Scored {
+    field name: string;
+    construct() { this.name = "p1"; }
+    public property Score: int { get { return 10; } }
+    public property Name: string { get { return this.name; } set { this.name = value; } }
+    public async method reset(): void { }
+}
+
+function main(args: string[]): int {
+    let target: Scored = new Player();
+    target.Name = "renamed";
+    print(target.Name);
+    return target.Score;
 }
 </code></pre>
 
@@ -2545,8 +2567,13 @@ main() へ return
 <div class="note" id="task-scheduler-foundation">内部Task SchedulerはTick開始時の全生存Task識別子、Running対象、通知キューを確定します。型・slot順に、Stoppedを含め通知をFIFO実行し、その後に対象runを最大1回実行します。途中の新規Task・通知は次Tick、start/stopは現在の対象を変えず、deleteは後続処理を即時除外します。実行中slotはcleanupまで再利用しません。この段階の実行先は内部C#の結合だけです。Taskソース本体・constructor・自己呼出し判定/effect検査・自己削除のbytecode巻き戻しは未実装で、taskソースの明示的な実行コード生成未対応エラーを維持します。</div>
 <div class="note" id="task-value-bridge">Task専用値種別11を追加し、数値や通常Object参照と区別します。低水準bytecode操作53〜59で、内部登録済み型の未構築Stopped slot確保、field読み書き、start/stop、delete、生存検査を実行できます。localに識別子を保持・コピーでき、削除/リセット後は全aliasが無効でLIFO再利用しても復活しません。これはruntimeの部品で、ソースのnew/constructor実行ではありません。ソースの型登録・本体の意味解析/実行コード生成・呼出し/effect検査・自己削除の巻き戻しは未実装です。Taskソースの明示的な実行コード生成未対応エラーを維持し、新構文の実行や直接WASMのTask対応は有効化しません。</div>
 <div class="note" id="task-bytecode-entries">先行するbytecode段階の記録：Taskの型順・field配置・constructor/method対応をbytecodeへ保存し、VMへ自動登録できるようになりました。TaskConstruct60は検査済み引数からStopped instanceを生成してconstructorを同期実行し、失敗時はslot/rootを解放します。共有Objectへの作用や登録済みObject呼出しは巻き戻しません。TaskInvoke61は外部呼出しを通知として登録し、local aliasを含む同じ識別子への自己呼出しを同期実行します。entryは既存catch/rethrow/finally bytecodeを実行し、同期例外を戻す前に呼出し元の実行・例外状態を復元し、親frameのObject rootを保持し、ホストの協調的停止要求に従います。ソースTaskの本体結合・コード生成・直接非同期effect検査は未実装で、明示的なコンパイル未対応エラーを維持します。自己削除の巻き戻しは未実装のため無効化前に明示的に拒否します。Task言語機能全体の完了ではありません。</div>
-<div class="note" id="task-source-subset">初回Taskソースのコード生成を有効化しました。task宣言から型順・配置・constructor/method対応をModuleへ出力し、new、scalar/通常Object field、同期constructor、local参照コピー、start/stop、通知、Scheduler専用runをTask VM操作へ接続します。TaskはObjectと区別し、宣言済み引数/戻り値/field/collectionへの移動やObject boxingを禁止し、異なるTask型同士の代入も拒否します。thisへの自己呼出しと同じ識別子のlocal aliasは同期実行します。Taskのtry/catch/finally内の直接外部Task/Object非同期呼出しは禁止し、自己参照と証明できないaliasの呼出しは保守的に拒否します（thisを使用）。推移的effect検査は行いません。自己削除の制御巻き戻し、Task Module置換、直接WASMは未対応です。delete thisはコンパイルエラー、実行時の自己aliasは無効化前に拒否します。初回のソース部分対応で、Task仕様全体の完了ではありません。</div>
-<div class="note" id="task-stable-self-alias">Taskのtry/catch/finally内で、自己参照を維持すると証明できるlocal aliasの呼出しを許可しました。初期化式はthisまたは証明済みaliasの読み込みに限り、その変数への関数内の後続代入がないことを確認します。型指定、括弧、alias連鎖に対応します。未証明または再代入される変数は引き続き拒否します。保守的な字句検査のため、後続代入や同名の変数がある安全なコードも拒否する場合があります。実行時の識別子による同期判定と寿命規則は変更せず、推移的effect検査と自己削除unwindは後続です。</div>
-<div class="note" id="task-cleanup-descriptor">Taskを含むModuleでは、生成したfinallyの後始末を通常のcatchと区別し、単独のTRY_CATCHでOperand1=-1と表します。Task metadataと更新済みの対応VMが必要です。他の負の識別値や、後始末と通常catchの混在表は拒否します。通常catch-allは0、型付きcatchは従来どおり定数index+1です。Taskを含まないModuleのfinally表現は維持します。通常例外の伝播、return、入れ子finallyの動作を維持します。自己削除時の制御巻き戻しの準備であり、自己削除はまだ未対応です。opcodeの番号とsection構造は変更していません。</div>
+<div class="note" id="task-source-subset">先行する実装段階の記録：初回Taskソースのコード生成を有効化しました。task宣言から型順・配置・constructor/method対応をModuleへ出力し、new、scalar/通常Object field、同期constructor、local参照コピー、start/stop、通知、Scheduler専用runをTask VM操作へ接続します。TaskはObjectと区別し、宣言済み引数/戻り値/field/collectionへの移動やObject boxingを禁止し、異なるTask型同士の代入も拒否します。thisへの自己呼出しと同じ識別子のlocal aliasは同期実行します。Taskのtry/catch/finally内の直接外部Task/Object非同期呼出しは禁止し、自己参照と証明できないaliasの呼出しは保守的に拒否します（thisを使用）。推移的effect検査は行いません。自己削除の制御巻き戻し、Task Module置換、直接WASMは未対応です。delete thisはコンパイルエラー、実行時の自己aliasは無効化前に拒否します。初回のソース部分対応で、Task仕様全体の完了ではありません。</div>
+<div class="note" id="task-stable-self-alias">先行する実装段階の記録：Taskのtry/catch/finally内で、自己参照を維持すると証明できるlocal aliasの呼出しを許可しました。初期化式はthisまたは証明済みaliasの読み込みに限り、その変数への関数内の後続代入がないことを確認します。型指定、括弧、alias連鎖に対応します。未証明または再代入される変数は引き続き拒否します。保守的な字句検査のため、後続代入や同名の変数がある安全なコードも拒否する場合があります。実行時の識別子による同期判定と寿命規則は変更せず、推移的effect検査と自己削除unwindは後続です。</div>
+<div class="note" id="task-cleanup-descriptor">先行する実装段階の記録：Taskを含むModuleでは、生成したfinallyの後始末を通常のcatchと区別し、単独のTRY_CATCHでOperand1=-1と表します。Task metadataと更新済みの対応VMが必要です。他の負の識別値や、後始末と通常catchの混在表は拒否します。通常catch-allは0、型付きcatchは従来どおり定数index+1です。Taskを含まないModuleのfinally表現は維持します。通常例外の伝播、return、入れ子finallyの動作を維持します。自己削除時の制御巻き戻しの準備であり、自己削除はまだ未対応です。opcodeの番号とsection構造は変更していません。</div>
+<div class="note" id="task-self-delete-unwind">TaskのdeleteはTaskDeleteAndUnwind62を出力します。自己削除は直ちに参照を無効化し、通常catchを通さず、同期自己呼出しを含むfinallyを実行してTask本体へ戻りません。finally内部の入れ子のエラー処理は利用でき、外へ出たfinallyの例外は以前の例外より優先され、外側の後始末も実行してからTickを失敗させます。例外伝播中のfinallyで自己削除しても、その未捕捉例外を保持します。捕捉済みcatchの例外を新たな失敗にはしません。事前にコピーしたObject localは利用でき、実行中slotは全entry終了まで再利用しません。constructorでの自己削除は後始末後に削除済みTask参照を返し、finallyの例外はnew自体を失敗させます。旧TaskDelete58は自己削除を無効化前に拒否する動作を維持し、62と後始末識別値の利用には再コンパイルが必要です。直接WASMとTask Module置換は後続です。</div>
+<div class="note" id="struct-value-return-flow">interfaceの例外経路解析で、解析済みの既存struct値と宣言済みの入れ子struct fieldのreturnを、例外を起こさない読取として認識します。式全体の括弧、既存alias、対応済みの条件分岐/ループ/入れ子tryと組み合わせられます。structの公称型の検査は通常の構文・意味解析で維持します。参照型fieldやstruct→object変換を追加するものではありません。生成を伴うstruct literal、呼出し、property、添字、未解析のshadow receiver、一般的な参照/メンバーCFGは引き続き保守的に扱います。L29の限定的な改善であり、一般CFG全体の完了ではありません。runtimeとbytecodeの意味は変更しません。</div>
+<div class="note" id="task-transitive-notification-effects">採用済み0052：Taskのtry/catch/finallyでは、同期のソース呼出しから推移的にObject/static asyncや外部Taskの通知へ到達し得る場合も拒否します。constructor・setter・struct member等のCALL、解決済みのCommitted getter、Task constructorと証明済みself呼出しを収集し、全body解析後に再帰を含むグラフへ通知効果を伝播します。通知しない同期再帰は許可し、診断には到達経路を含めます。selfと証明できないTask receiver、動的なpipe/Tick callbackの実行は保守的なUnknownとし、Task保護領域から直接またはhelper経由で使う場合は拒否します。Tickのmain限定という既存制約も維持します。保護領域外と通常Objectのtryの規則は維持します。I/O・状態変更・例外がないことやrollbackを保証する解析ではありません。任意のhost再入と外部moduleのeffect契約は後続で、runtimeとbytecodeは変更しません。</div>
+<div class="note" id="struct-binding-exception-flow">interfaceの例外経路解析で、try内の既存immutable struct値のvarコピー・名前付き型のlet束縛・同型のローカル代入を認識します。宣言済みの入れ子struct値のコピーも対象です。通常の解析による公称型検査、shadowingと字句scopeの境界は維持します。先読みで得たstruct種別にはreceiverの公称型形状を与えないため、未解析alias経由のfield、呼出し、生成、property、添字、member更新は保守的な扱いを維持します。struct constも未対応のままです。L29の限定的な改善であり、runtimeとbytecodeの意味は変更しません。</div>
+<div class="note" id="struct-alias-field-flow">tryの例外経路解析は、既存structのコピー元から具体的な型を確定できる場合に、宣言済みフィールドの読み取りまで追跡します。同名の宣言は字句スコープに従って扱い、getter・呼び出し・型を確定できない受け手には例外経路を残します。</div>
 </body>
 </html>

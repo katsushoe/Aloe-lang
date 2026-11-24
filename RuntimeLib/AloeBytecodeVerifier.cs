@@ -283,6 +283,8 @@ namespace Aloe.RuntimeLib
                         break;
 
                     case EnumOpcode.Syscall:
+                        if (instruction.Operand0 == (int)EnumSyscall.TaskDeleteAndUnwind && module.TaskTypes.Count == 0)
+                            throw Error(ip, "TaskDeleteAndUnwind requires Task module metadata.");
                         if (instruction.Operand0 < 0)
                             throw Error(ip, $"Syscall id must be non-negative; found {instruction.Operand0}.");
                         break;

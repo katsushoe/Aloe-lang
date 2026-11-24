@@ -84,7 +84,7 @@ public sealed partial class AloeCompiler
                     type = ParseMapResultRead();
                 else if (TryGetArrayElementType(targetName, out var elementType) && Current.Kind is TokenKind.Dot or TokenKind.LBracket)
                     type = ParseArrayResultRead(elementType);
-                else if (targetName != null && _classes.ContainsKey(targetName) && Check(TokenKind.Dot))
+                else if (targetName != null && IsClassOrInterface(targetName) && Check(TokenKind.Dot))
                     type = ParseReferenceGetters(targetName);
             }
             return type;
