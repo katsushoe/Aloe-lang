@@ -1875,6 +1875,26 @@ finally {
 
 
 
+    <h3 id="exception-values">Exception declarations and throw (decision 0059)</h3>
+<div class="note" id="exception-values-contract">Implemented 2026-11-25. <code>exception Name [: Base] { field name: Type; ... }</code> declares an exception value type. Exception values are value types like structs: every exception type starts with <code>Message: string</code> and <code>TypeName: string</code>, followed by the base type's fields and then its own fields. Fields follow the struct rules (primitive, enum and struct values; references and recursive layouts are rejected), and an exception type cannot itself be a field type. Exception declarations have no methods, properties or constructors. A missing base means the built-in <code>Exception</code>; a base must be a built-in exception (Exception, SystemException, ZeroDivisionException, InvalidReferenceException, InvalidCastException, OverflowException, ArgumentException, IndexOutOfRangeException, VmException) or an exception declared earlier, so inheritance cannot form a cycle. Values are created with literals such as <code>NotFound { Message: "...", code: 1, key: "k" }</code>; the literal must set Message and every declared field once, and TypeName is set automatically to the type name and cannot be initialized. <code>new</code> is rejected. <code>throw value;</code> throws an exception-typed value (literal, local, parameter or call result); other values are compile errors, and built-in types can be thrown the same way, for example <code>throw ArgumentException { Message: "bad" };</code>. Bare <code>throw;</code> and <code>as T ifnot throw</code> are unchanged. <code>catch (e: T)</code> for a declared type T matches when the thrown type is T or derives from it; <code>e</code> receives a copy typed as T (a derived value caught by a base type exposes only the base fields; TypeName keeps the thrown type name). Built-in catch types, including <code>catch (e: Exception)</code>, also match declared exceptions derived from them and bind <code>ExceptionInfo</code> with the thrown Message and TypeName. Declared catch types never match VM or host exceptions such as division by zero. Clauses are matched in source order. finally and replacement follow decision 0044. An uncaught exception value reaches the host as an error whose message is <code>TypeName: Message</code>. The VM adds syscalls 65 (ExceptionThrow) and 66 (CaughtExceptionValue) and accepts <code>exception:Name</code> catch descriptors; opcodes, existing syscall numbers and the AloeBC container are unchanged, but programs using these features need the updated VM. A call whose non-void result is unused is still rejected, so the example prints the result of <code>find</code>. Inner exceptions, stack traces, exception methods, propagation through async calls and Ticks (L32), direct WASM (W15) and throwing class objects are outside this subset.</div>
+<pre><code>exception AppError { field code: int; }
+exception NotFound : AppError { field key: string; }
+
+function find(key: string): int {
+    throw NotFound { Message: "not found", code: 404, key: key };
+}
+
+function main(args: string[]): int {
+    try { print(find("a")); }
+    catch (e: NotFound) { print(e.key); print(e.code); print(e.Message); }
+    catch (e: Exception) { print(e.TypeName); }
+    return 0;
+}
+</code></pre>
+
+
+
+
     <hr>
 
 

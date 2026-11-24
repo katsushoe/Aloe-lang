@@ -939,13 +939,23 @@ namespace Aloe.RuntimeLib
                     {
                         var constantIndex = descriptor.Operand1 - 1;
                         if ((uint)constantIndex >= (uint)frame.Module.Constants.Count ||
-                            frame.Module.Constants[constantIndex].Kind != EnumValueKind.String ||
-                            !AloeExceptionTypes.TryResolve(
-                                frame.Module.Constants[constantIndex].AsString, out exceptionType))
+                            frame.Module.Constants[constantIndex].Kind != EnumValueKind.String)
+                            throw new VmException("TRY_CATCH has an invalid exception type descriptor.");
+                        var typeDescriptor = frame.Module.Constants[constantIndex].AsString;
+                        if (IsThrownExceptionCatchDescriptor(typeDescriptor, out var declaredTypeName))
+                        {
+                            if (exception is AloeThrownException thrown && thrown.TypeChain.Contains(declaredTypeName))
+                            {
+                                catchIp = descriptor.Operand0;
+                                return true;
+                            }
+                            continue;
+                        }
+                        if (!AloeExceptionTypes.TryResolve(typeDescriptor, out exceptionType))
                             throw new VmException("TRY_CATCH has an invalid exception type descriptor.");
                     }
 
-                    if (exceptionType == null || exceptionType.IsInstanceOfType(exception))
+                    if (exceptionType == null || AloeExceptionTypes.Matches(exceptionType, exception))
                     {
                         catchIp = descriptor.Operand0;
                         return true;
@@ -954,7 +964,7 @@ namespace Aloe.RuntimeLib
                 return false;
             }
 
-            if (cleanupOnly || handler.ExceptionType != null && !handler.ExceptionType.IsInstanceOfType(exception))
+            if (cleanupOnly || handler.ExceptionType != null && !AloeExceptionTypes.Matches(handler.ExceptionType, exception))
                 return false;
             catchIp = handler.CatchIp;
             return true;
@@ -1066,13 +1076,20 @@ namespace Aloe.RuntimeLib
                     if (frame == null || frame.CaughtExceptions.Count == 0)
                         throw new VmException("Caught exception information requires an active catch in the current frame.");
                     var exception = frame.CaughtExceptions.Peek().SourceException;
+                    var thrown = exception as AloeThrownException;
                     Push(AloeValue.FromStruct(new AloeStructValue("ExceptionInfo", new[]
                     {
-                        AloeValue.FromString(exception.Message),
-                        AloeValue.FromString(exception.GetType().Name)
+                        AloeValue.FromString(thrown?.UserMessage ?? exception.Message),
+                        AloeValue.FromString(thrown?.TypeName ?? exception.GetType().Name)
                     })));
                     break;
                 }
+                case EnumSyscall.ExceptionThrow:
+                    ThrowExceptionValue();
+                    break;
+                case EnumSyscall.CaughtExceptionValue:
+                    PushCaughtExceptionValue();
+                    break;
                 case EnumSyscall.ArrayCreate:
                 case EnumSyscall.ArrayGet:
                 case EnumSyscall.ArraySet:

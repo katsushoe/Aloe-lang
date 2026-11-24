@@ -150,7 +150,7 @@ namespace Aloe.RuntimeLib
                     var constantIndex = descriptor.Operand1 - 1;
                     if ((uint)constantIndex >= (uint)module.Constants.Count ||
                         module.Constants[constantIndex].Kind != EnumValueKind.String ||
-                        !AloeExceptionTypes.TryResolve(module.Constants[constantIndex].AsString, out _))
+                        !IsValidCatchTypeDescriptor(module.Constants[constantIndex].AsString))
                         throw Error(descriptorIp, "TRY_CATCH has an invalid exception type descriptor.");
                 }
 
@@ -335,6 +335,11 @@ namespace Aloe.RuntimeLib
             if ((uint)index >= (uint)count)
                 throw Error(ip, $"Invalid {kind} index {index}; count={count}.");
         }
+
+        // A built-in exception name, or "exception:Name" for a declared exception type (decision 0059).
+        private static bool IsValidCatchTypeDescriptor(string descriptor)
+            => AloeExceptionTypes.TryResolve(descriptor, out _) ||
+               descriptor.StartsWith("exception:", StringComparison.Ordinal) && descriptor.Length > "exception:".Length;
 
         private static VmException Error(int ip, string message)
             => new(ip >= 0 ? $"AloeBC verification failed at IP {ip}: {message}" : $"AloeBC verification failed: {message}");

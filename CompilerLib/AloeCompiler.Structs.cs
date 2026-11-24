@@ -29,6 +29,7 @@ public sealed partial class AloeCompiler
                 new FieldSignature("Message", 0, ExprType.String),
                 new FieldSignature("TypeName", 1, ExprType.String)
             }));
+            RegisterBuiltinExceptionTypes();
             _structEndPositions.Clear();
             var starts = new List<(int Start, int Body, string Name)>();
             var position = 0;
@@ -50,6 +51,13 @@ public sealed partial class AloeCompiler
                     depth++;
                     continue;
                 }
+                if (depth == 0 && TokenAt(position).Lexeme == "exception")
+                {
+                    var exceptionName = CollectExceptionHeader(ref position);
+                    starts.Add((start, position, exceptionName));
+                    depth++;
+                    continue;
+                }
                 if (TokenAt(position).Kind == TokenKind.LBrace) depth++;
                 if (TokenAt(position).Kind == TokenKind.RBrace) depth--;
                 position++;
@@ -58,20 +66,24 @@ public sealed partial class AloeCompiler
             {
                 position = declaration.Body;
                 var signature = _structs[declaration.Name];
+                InheritExceptionFields(signature);
                 while (TokenAt(position).Kind != TokenKind.RBrace)
                 {
                     if (TokenAt(position).Lexeme == "construct")
                     {
+                        RejectExceptionMember(signature, TokenAt(position));
                         CollectStructConstructor(signature, ref position);
                         continue;
                     }
                     if (TokenAt(position).Lexeme == "method")
                     {
+                        RejectExceptionMember(signature, TokenAt(position));
                         CollectStructMethod(signature, ref position);
                         continue;
                     }
                     if (TokenAt(position).Lexeme == "public" && TokenAt(position + 1).Lexeme == "property")
                     {
+                        RejectExceptionMember(signature, TokenAt(position));
                         CollectStructProperty(signature, ref position);
                         continue;
                     }
@@ -83,6 +95,8 @@ public sealed partial class AloeCompiler
                     var type = ScanType(ref position, allowVoid: false, out var typeName);
                     if (type is not (ExprType.Int or ExprType.Byte or ExprType.Char or ExprType.Float or ExprType.Decimal or ExprType.Bool or ExprType.String or ExprType.Enum or ExprType.Struct))
                         throw Error(name, "Struct fields support primitive values, enums and other structs; references are forbidden.");
+                    if (IsExceptionType(typeName))
+                        throw Error(name, "Exception types cannot be used as struct or exception fields.");
                     ExpectAt(ref position, TokenKind.Semicolon);
                     signature.Fields.Add(new FieldSignature(name.Lexeme, signature.Fields.Count, type, typeName));
                 }
@@ -452,6 +466,8 @@ public sealed partial class AloeCompiler
             Advance();
             var name = Expect(TokenKind.Identifier);
             var signature = _structs[name.Lexeme];
+            if (IsExceptionType(signature.Name))
+                throw Error(name, "Exception values are created with literals such as Name { Message: \"...\" }, not new.");
             var constructor = signature.Constructor;
             Expect(TokenKind.LParen);
             var count = 0;
@@ -575,12 +591,15 @@ public sealed partial class AloeCompiler
             var token = Advance();
             if (_forWasm) throw Error(token, "Direct WASM does not support struct values.");
             var signature = _structs[token.Lexeme];
+            var isException = IsExceptionType(signature.Name);
             Expect(TokenKind.LBrace);
             var slots = new Dictionary<string, int>(StringComparer.Ordinal);
             while (!Check(TokenKind.RBrace))
             {
                 var member = Expect(TokenKind.Identifier);
                 var field = ResolveStructField(signature.Name, member);
+                if (isException && field.Name == "TypeName")
+                    throw Error(member, "TypeName is set automatically from the exception type and cannot be initialized.");
                 if (slots.ContainsKey(field.Name)) throw Error(member, "Duplicate struct field initializer.");
                 Expect(TokenKind.Colon);
                 var expressionStart = _code.Count;
@@ -595,10 +614,18 @@ public sealed partial class AloeCompiler
                 Advance();
             }
             Expect(TokenKind.RBrace);
-            if (slots.Count != signature.Fields.Count)
-                throw Error(token, "Struct literals must initialize every field exactly once.");
+            if (slots.Count != signature.Fields.Count - (isException ? 1 : 0))
+                throw Error(token, isException
+                    ? "Exception literals must initialize Message and every declared field exactly once."
+                    : "Struct literals must initialize every field exactly once.");
             Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(signature.Name)));
-            foreach (var field in signature.Fields) Emit(EnumOpcode.LoadLocal, slots[field.Name]);
+            foreach (var field in signature.Fields)
+            {
+                if (isException && field.Name == "TypeName")
+                    Emit(EnumOpcode.PushConst, AddConstant(AloeValue.FromString(signature.Name)));
+                else
+                    Emit(EnumOpcode.LoadLocal, slots[field.Name]);
+            }
             Emit(EnumOpcode.StructCreate, signature.Fields.Count);
             _lastExpressionClassName = signature.Name;
             return ExprType.Struct;

@@ -2146,6 +2146,26 @@ finally {
 
 
 
+    <h3 id="exception-values">例外の宣言と throw（決定0059）</h3>
+<div class="note" id="exception-values-contract">2026-11-25に実装しました。<code>exception 名前 [: 基底] { field 名前: 型; ... }</code> で例外の値の型を宣言します。例外の値は構造体と同じ値型です。すべての例外型は先頭に <code>Message: string</code> と <code>TypeName: string</code> を持ち、その後に基底型のフィールド、続いて自身のフィールドが並びます。フィールドは構造体と同じ規則に従い（プリミティブ・enum・構造体の値。参照型と再帰的な配置は拒否）、例外型そのものはフィールドの型にできません。例外の宣言にはメソッド・プロパティ・コンストラクターを書けません。基底を省略すると組み込みの <code>Exception</code> になります。基底には組み込みの例外（Exception、SystemException、ZeroDivisionException、InvalidReferenceException、InvalidCastException、OverflowException、ArgumentException、IndexOutOfRangeException、VmException）か、先に宣言した例外だけを指定できるため、継承が循環することはありません。値は <code>NotFound { Message: "...", code: 1, key: "k" }</code> のようなリテラルで作ります。リテラルではMessageと宣言したすべてのフィールドを1回ずつ指定し、TypeNameは型名が自動で入るため指定できません。<code>new</code> は使えません。<code>throw 値;</code> は例外型の値（リテラル・ローカル変数・引数・関数の戻り値）を投げます。それ以外の値はコンパイルエラーです。組み込みの型も <code>throw ArgumentException { Message: "bad" };</code> のように同じく投げられます。<code>throw;</code> と <code>as T ifnot throw</code> は変わりません。宣言した型Tの <code>catch (e: T)</code> は、投げられた型がTかその派生型のときに一致し、<code>e</code> はT型としてのコピーを受け取ります（派生型の値を基底型で受けると基底型のフィールドだけが見え、TypeNameには投げた型の名前が残ります）。<code>catch (e: Exception)</code> を含む組み込みの型のcatchも、その型から派生した宣言済みの例外に一致し、投げた値のMessageとTypeNameを持つ <code>ExceptionInfo</code> を受け取ります。宣言した型のcatchは、0除算などのVMやホストの例外には一致しません。照合はソースの順です。finallyと例外の置き換えは決定0044に従います。捕捉されなかった例外の値は、メッセージが <code>型名: Message</code> のエラーとしてホストへ伝わります。VMにはsyscall 65（ExceptionThrow）と66（CaughtExceptionValue）を追加し、<code>exception:名前</code> の形のcatch記述を受け付けます。opcode、既存のsyscall番号、AloeBCコンテナ形式は変わりませんが、これらの機能を使うプログラムには更新後のVMが必要です。戻り値がvoidでない呼び出しの結果を使わない書き方は従来どおり受け付けないため、例では <code>find</code> の結果を表示しています。原因の連結（inner exception）、スタックトレース、例外型のメソッド、非同期処理・Tickへの伝播（L32）、直接WASM（W15）、クラスのオブジェクトを投げることはこの範囲に含みません。</div>
+<pre><code>exception AppError { field code: int; }
+exception NotFound : AppError { field key: string; }
+
+function find(key: string): int {
+    throw NotFound { Message: "not found", code: 404, key: key };
+}
+
+function main(args: string[]): int {
+    try { print(find("a")); }
+    catch (e: NotFound) { print(e.key); print(e.code); print(e.Message); }
+    catch (e: Exception) { print(e.TypeName); }
+    return 0;
+}
+</code></pre>
+
+
+
+
     <hr>
 
 

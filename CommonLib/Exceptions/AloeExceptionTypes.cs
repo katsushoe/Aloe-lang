@@ -21,5 +21,14 @@ namespace Aloe.CommonLib.Exceptions
             };
 
         public static bool TryResolve(string name, out Type exceptionType) => Types.TryGetValue(name, out exceptionType!);
+
+        /// <summary>Built-in exception names usable as throw literals and exception bases.</summary>
+        public static IEnumerable<string> Names => Types.Keys;
+
+        /// <summary>Whether a built-in catch type handles the exception, including thrown exception values.</summary>
+        public static bool Matches(Type catchType, Exception exception)
+            => exception is AloeThrownException thrown
+                ? catchType.IsAssignableFrom(thrown.BuiltinBase)
+                : catchType.IsInstanceOfType(exception);
     }
 }

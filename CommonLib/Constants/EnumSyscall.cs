@@ -166,6 +166,13 @@ namespace Aloe.CommonLib.Constants
         /// the setter value when present and the Object target; run the runtime type's accessor synchronously.
         /// </summary>
         InterfacePropertyDispatch = 64,
+        /// <summary>Decision 0059: pop a type-chain constant index and an exception struct value; throw it.</summary>
+        ExceptionThrow = 65,
+        /// <summary>
+        /// Decision 0059: pop field count and catch type-name constant index; push the caught thrown value
+        /// as that exception type (its leading fields).
+        /// </summary>
+        CaughtExceptionValue = 66,
 
         // 将来拡張:
         // WriteStderr = 2,

@@ -3,7 +3,7 @@
 Status: Accepted (option A)
 Date: 2026-11-22 JST
 Adopted: 2026-11-22 JST, user response「A」
-Implementation status: Not implemented. Product acceptance requires `.local/exception-values-<date>/acceptance.json`.
+Implementation status: Implemented (2026-11-25). Syscalls 65 `ExceptionThrow` and 66 `CaughtExceptionValue`, `exception:Name` catch descriptors, `Test_CompilerLib/ExceptionValueTests.cs`, and the English/Japanese language specification chapter 16. The example below ignores the int result of `find("a")`, which the language still rejects; the tests print it instead. Product acceptance: `.local/exception-values-20261125/acceptance.json`.
 Rubric: L30 (Exception values, catch-variable bindings and throw expressions); extends accepted decisions 0044 and 0049.
 
 ## 問題

@@ -232,7 +232,7 @@ namespace Aloe.CompilerLib
                 }
                 CollectFunctionSignatures();
                 CollectTaskFunctions();
-                if (_forWasm && (_classes.Count != 0 || _structs.Count != 1 || _interfaces.Count != 0))
+                if (_forWasm && (_classes.Count != 0 || HasSourceStructTypes() || _interfaces.Count != 0))
                     throw new AloeCompileException("Direct WASM source compilation does not support classes, structs or interfaces.");
 
 
@@ -1542,6 +1542,11 @@ namespace Aloe.CompilerLib
                 if (Current.Lexeme == "throw")
                 {
                     var throwToken = Advance();
+                    if (!Check(TokenKind.Semicolon))
+                    {
+                        ParseThrowValue(throwToken);
+                        return false;
+                    }
                     ValidateFinallyThrow(throwToken);
                     if (_catchDepth == 0)
                         throw Error(throwToken, "Bare throw is supported only inside a catch block.");
@@ -2180,6 +2185,7 @@ namespace Aloe.CompilerLib
                 var continuingCatchStates = new List<Dictionary<int, LocalInfo>>();
                 var continuingConstructorStates = new List<HashSet<string>>();
                 var handledExceptionTypes = new List<Type>();
+                var handledDeclaredTypes = new HashSet<string>(StringComparer.Ordinal);
                 var catchesCanFallThrough = false;
                 var catchAllSeen = false;
 
@@ -2192,6 +2198,7 @@ namespace Aloe.CompilerLib
                     AloeToken? catchBinding = null;
                     var exceptionTypeOperand = 0;
                     var exceptionType = typeof(Exception);
+                    ExceptionTypeInfo? declaredCatch = null;
                     if (Check(TokenKind.LParen))
                     {
                         Advance();
@@ -2203,25 +2210,37 @@ namespace Aloe.CompilerLib
                             Advance();
                             typeToken = Expect(TokenKind.Identifier);
                         }
-                        if (!AloeExceptionTypes.TryResolve(typeToken.Lexeme, out exceptionType))
+                        if (TryGetDeclaredExceptionCatch(typeToken.Lexeme, out var declared))
+                        {
+                            declaredCatch = declared;
+                            AloeExceptionTypes.TryResolve(declared.BuiltinRoot, out exceptionType);
+                        }
+                        else if (!AloeExceptionTypes.TryResolve(typeToken.Lexeme, out exceptionType))
                             throw Error(typeToken, $"Unknown or unsupported exception type '{typeToken.Lexeme}'.");
                         if (Check(TokenKind.RParen)) Advance();
                         else throw Error(Current, "Expected ')' after exception type.");
-                        exceptionTypeOperand = AddConstant(AloeValue.FromString(typeToken.Lexeme)) + 1;
+                        exceptionTypeOperand = AddConstant(AloeValue.FromString(
+                            declaredCatch == null ? typeToken.Lexeme : "exception:" + typeToken.Lexeme)) + 1;
                     }
                     else
                     {
                         catchAllSeen = true;
                     }
 
-                    var catchIsReachable = tryMayThrow &&
+                    // A declared exception can only come from throw, which the arithmetic analysis reports as unknown.
+                    var catchIsReachable = declaredCatch != null
+                        ? tryMayThrow && possibleArithmeticExceptions == null &&
+                          !handledExceptionTypes.Any(handled => handled.IsAssignableFrom(exceptionType)) &&
+                          !handledDeclaredTypes.Overlaps(declaredCatch.Chain)
+                        : tryMayThrow &&
                         (possibleArithmeticExceptions == null || possibleArithmeticExceptions.Any(possible =>
                             exceptionType.IsAssignableFrom(possible) &&
                             !handledExceptionTypes.Any(handled => handled.IsAssignableFrom(possible)))) &&
                         !IsCatchTypeShadowed(exceptionType, handledExceptionTypes);
                     var rethrowContext = GetArithmeticRethrowContext(exceptionType,
                         possibleArithmeticExceptions, handledExceptionTypes);
-                    handledExceptionTypes.Add(exceptionType);
+                    if (declaredCatch != null) handledDeclaredTypes.Add(declaredCatch.Name);
+                    else handledExceptionTypes.Add(exceptionType);
                     var catchStart = _code.Count;
                     _interfaceFlowReachable = enclosingFlowReachability && catchIsReachable;
                     _interfaceWriteReachable = enclosingWriteReachability && catchIsReachable;
@@ -2244,8 +2263,9 @@ namespace Aloe.CompilerLib
                         catchCanFallThrough = ParseBlock(() =>
                         {
                             if (catchBinding is not { } binding) return;
-                            var local = DeclareLocal(binding, ExprType.Struct, "ExceptionInfo");
-                            Emit(EnumOpcode.Syscall, (int)EnumSyscall.CaughtExceptionInfo);
+                            var local = DeclareLocal(binding, ExprType.Struct, declaredCatch?.Name ?? "ExceptionInfo");
+                            if (declaredCatch != null) EmitCaughtExceptionValue(declaredCatch.Name);
+                            else Emit(EnumOpcode.Syscall, (int)EnumSyscall.CaughtExceptionInfo);
                             Emit(EnumOpcode.StoreLocal, local.Slot);
                         });
                     }
